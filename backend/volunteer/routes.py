@@ -71,43 +71,7 @@ def haversine(a, b):
     dlon = lon2 - lon1
     h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
     return 2*R*math.asin(math.sqrt(h))
-
-
-@router.get("/volunteers/map")
-def get_map_points():
-    # return shops with active lots that have shop coords, and needy tickets with coords
-    shops = []
-    conn = shopdb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active'")
-    for r in cur.fetchall():
-        if r['lat'] is not None and r['lon'] is not None:
-            shops.append({
-                'shop_id': r['shop_id'],
-                'lot_id': r['lot_id'],
-                'name': r['name'],
-                'description': r['description'],
-                'quantity': r['quantity'],
-                'lat': r['lat'],
-                'lon': r['lon']
-            })
-    conn.close()
-
-    tickets = []
-    conn = needydb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
-    for r in cur.fetchall():
-        tickets.append({
-            'ticket_id': r['id'],
-            'needy_id': r['needy_id'],
-            'items': r['items'],
-            'lat': r['lat'],
-            'lon': r['lon']
-        })
-    conn.close()
-
-    return {'shops': shops, 'tickets': tickets}
+ 
 
 
 @router.post("/volunteers/{volunteer_id}/start_route")
