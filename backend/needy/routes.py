@@ -21,7 +21,7 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate):
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
 
-    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon)
+    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time)
     return {"id": ticket_id}
 
 

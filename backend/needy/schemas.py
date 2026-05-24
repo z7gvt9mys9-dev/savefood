@@ -20,6 +20,8 @@ class TicketCreate(BaseModel):
     address: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    # time or slot when the needy person is at home (e.g. "18:00-20:00")
+    available_time: Optional[str] = None
 
 
 class TicketOut(BaseModel):
@@ -29,6 +31,7 @@ class TicketOut(BaseModel):
     address: Optional[str]
     lat: Optional[float]
     lon: Optional[float]
+    available_time: Optional[str]
     status: str
     created_at: datetime
     assigned_volunteer: Optional[str]

@@ -18,59 +18,31 @@ def register(vol: vschemas.VolunteerCreate):
 
 @router.get("/volunteers/map")
 def get_map_points():
-    # return shops with active lots that have shop coords, and needy tickets with coords
-    shops = []
+    # return shops with their active lots (grouped by shop) and needy tickets with coords
+    shops_map = {}
     conn = shopdb.get_conn()
     cur = conn.cursor()
     cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active'")
     for r in cur.fetchall():
-        if r['lat'] is not None and r['lon'] is not None:
-            shops.append({
-                'shop_id': r['shop_id'],
-                'lot_id': r['lot_id'],
+        if r['lat'] is None or r['lon'] is None:
+            continue
+        sid = r['shop_id']
+        if sid not in shops_map:
+            shops_map[sid] = {
+                'shop_id': sid,
                 'name': r['name'],
-                'description': r['description'],
-                'quantity': r['quantity'],
                 'lat': r['lat'],
-                'lon': r['lon']
-            })
-    conn.close()
-
-    tickets = []
-    conn = needydb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
-    for r in cur.fetchall():
-        tickets.append({
-            'ticket_id': r['id'],
-            'needy_id': r['needy_id'],
-            'items': r['items'],
-            'lat': r['lat'],
-            'lon': r['lon']
+                'lon': r['lon'],
+                'lots': []
+            }
+        shops_map[sid]['lots'].append({
+            'lot_id': r['lot_id'],
+            'description': r['description'],
+            'quantity': r['quantity']
         })
     conn.close()
 
-    return {'shops': shops, 'tickets': tickets}
-
-@router.get("/volunteers/map")
-def get_map_points():
-    # return shops with active lots that have shop coords, and needy tickets with coords
-    shops = []
-    conn = shopdb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active'")
-    for r in cur.fetchall():
-        if r['lat'] is not None and r['lon'] is not None:
-            shops.append({
-                'shop_id': r['shop_id'],
-                'lot_id': r['lot_id'],
-                'name': r['name'],
-                'description': r['description'],
-                'quantity': r['quantity'],
-                'lat': r['lat'],
-                'lon': r['lon']
-            })
-    conn.close()
+    shops = list(shops_map.values())
 
     tickets = []
     conn = needydb.get_conn()
@@ -212,6 +184,29 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
         conn.commit()
         conn.close()
 
+    # if completing shop point — notify needy that volunteer is en route
+    if point.get('kind') == 'shop':
+        # notify all remaining ticket points in route that are not done
+        vol = vdb.get_volunteer_by_id(payload.volunteer_id)
+        vol_name = vol.get('name') if vol else f"volunteer_{payload.volunteer_id}"
+        conn = needydb.get_conn()
+        cur = conn.cursor()
+        for p in points:
+            if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
+                # fetch ticket to get needy_id
+                cur.execute("SELECT * FROM tickets WHERE id = ?", (p.get('ticket_id'),))
+                t = cur.fetchone()
+                if not t:
+                    continue
+                needy_id = t['needy_id']
+                payload_text = f"Volunteer {vol_name} is en route to your request (ticket {p.get('ticket_id')})"
+                cur.execute(
+                    "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
+                    (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),
+                )
+        conn.commit()
+        conn.close()
+
     # mark point as done and persist
     points[target_idx]['done'] = True
     vdb.update_route_points(route_id, json.dumps(points, ensure_ascii=False))
@@ -229,3 +224,16 @@ def history(volunteer_id: int):
         except Exception:
             r['points'] = []
     return routes
+
+
+@router.post("/volunteers/route/{route_id}/finish")
+def finish_route(route_id: int, volunteer_id: int):
+    # verify route exists and volunteer owns it
+    route = vdb.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    if route['volunteer_id'] != volunteer_id:
+        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+
+    vdb.finish_route(route_id)
+    return {'ok': True}

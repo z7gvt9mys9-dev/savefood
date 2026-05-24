@@ -32,6 +32,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             needy_id INTEGER NOT NULL,
             items TEXT,
+            available_time TEXT,
             address TEXT,
             lat REAL,
             lon REAL,
@@ -43,6 +44,15 @@ def init_db():
         )
         """
     )
+
+    # ensure optional available_time column exists for tickets (backward compatible)
+    cur.execute("PRAGMA table_info(tickets)")
+    cols = [r[1] for r in cur.fetchall()]
+    if 'available_time' not in cols:
+        try:
+            cur.execute("ALTER TABLE tickets ADD COLUMN available_time TEXT")
+        except Exception:
+            pass
 
     cur.execute(
         """
@@ -83,12 +93,12 @@ def get_needy_by_id(needy_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float]) -> int:
+def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO tickets (needy_id, items, address, lat, lon, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
-        (needy_id, items, address, lat, lon, datetime.now(timezone.utc)),
+        "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
+        (needy_id, items, address, lat, lon, available_time, datetime.now(timezone.utc)),
     )
     tid = cur.lastrowid
     conn.commit()
