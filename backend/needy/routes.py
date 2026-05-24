@@ -31,6 +31,15 @@ def get_tickets(needy_id: int):
     return tickets
 
 
+@router.get("/needy/{needy_id}/notifications", response_model=List[schemas.NotificationOut])
+def get_notifications(needy_id: int):
+    needy = db.get_needy_by_id(needy_id)
+    if not needy:
+        raise HTTPException(status_code=404, detail="Needy not found")
+    notes = db.get_notifications(needy_id)
+    return notes
+
+
 @router.post("/tickets/{ticket_id}/assign", response_model=schemas.TicketOut)
 def assign_ticket(ticket_id: int, volunteer_name: str):
     updated = db.assign_ticket(ticket_id, volunteer_name)

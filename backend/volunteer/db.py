@@ -1,9 +1,9 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-DB_PATH = os.path.join(os.getcwd(), "savefood.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "savefood.db")
 
 
 def get_conn():
@@ -50,7 +50,7 @@ def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lo
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO volunteers (name, contact, lat, lon, created_at) VALUES (?, ?, ?, ?, ?)",
-        (name, contact, lat, lon, datetime.utcnow()),
+        (name, contact, lat, lon, datetime.now(timezone.utc)),
     )
     vid = cur.lastrowid
     conn.commit()
@@ -72,7 +72,7 @@ def create_route(volunteer_id: int, points_json: str) -> int:
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO volunteer_routes (volunteer_id, points, status, started_at) VALUES (?, ?, 'in_progress', ?)",
-        (volunteer_id, points_json, datetime.utcnow()),
+        (volunteer_id, points_json, datetime.now(timezone.utc)),
     )
     rid = cur.lastrowid
     conn.commit()
@@ -83,7 +83,7 @@ def create_route(volunteer_id: int, points_json: str) -> int:
 def finish_route(route_id: int):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("UPDATE volunteer_routes SET status = 'finished', finished_at = ? WHERE id = ?", (datetime.utcnow(), route_id))
+    cur.execute("UPDATE volunteer_routes SET status = 'finished', finished_at = ? WHERE id = ?", (datetime.now(timezone.utc), route_id))
     conn.commit()
     conn.close()
 
@@ -95,4 +95,20 @@ def get_routes_by_volunteer(volunteer_id: int) -> List[Dict[str, Any]]:
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
-*** End Patch
+
+
+def get_route_by_id(route_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM volunteer_routes WHERE id = ?", (route_id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_route_points(route_id: int, points_json: str):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE volunteer_routes SET points = ? WHERE id = ?", (points_json, route_id))
+    conn.commit()
+    conn.close()

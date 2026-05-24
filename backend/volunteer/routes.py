@@ -6,7 +6,7 @@ import math
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
 from backend.needy import db as needydb
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -15,6 +15,43 @@ router = APIRouter()
 def register(vol: vschemas.VolunteerCreate):
     vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon)
     return {"id": vid}
+
+
+@router.get("/volunteers/map")
+def get_map_points():
+    # return shops with active lots that have shop coords, and needy tickets with coords
+    shops = []
+    conn = shopdb.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active'")
+    for r in cur.fetchall():
+        if r['lat'] is not None and r['lon'] is not None:
+            shops.append({
+                'shop_id': r['shop_id'],
+                'lot_id': r['lot_id'],
+                'name': r['name'],
+                'description': r['description'],
+                'quantity': r['quantity'],
+                'lat': r['lat'],
+                'lon': r['lon']
+            })
+    conn.close()
+
+    tickets = []
+    conn = needydb.get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
+    for r in cur.fetchall():
+        tickets.append({
+            'ticket_id': r['id'],
+            'needy_id': r['needy_id'],
+            'items': r['items'],
+            'lat': r['lat'],
+            'lon': r['lon']
+        })
+    conn.close()
+
+    return {'shops': shops, 'tickets': tickets}
 
 
 @router.get("/volunteers/{volunteer_id}", response_model=vschemas.VolunteerOut)
@@ -96,6 +133,11 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     if shop['lat'] is None or shop['lon'] is None:
         raise HTTPException(status_code=400, detail="Shop has no coordinates")
 
+    # try to take the lot so other volunteers cannot take it
+    taken = shopdb.take_lot(payload.lot_id, vol.get('name') or f"volunteer_{volunteer_id}")
+    if not taken:
+        raise HTTPException(status_code=400, detail="Lot is not available")
+
     # collect open tickets with coords
     conn = needydb.get_conn()
     cur = conn.cursor()
@@ -128,18 +170,55 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
 
 
 @router.post("/volunteers/route/{route_id}/complete_point")
-def complete_point(route_id: int, ticket_id: int):
-    # mark ticket as fulfilled
-    conn = needydb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,))
-    t = cur.fetchone()
-    if not t:
+def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
+    # verify route and volunteer
+    route = vdb.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    if route['volunteer_id'] != payload.volunteer_id:
+        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+
+    # parse points and find target point
+    try:
+        points = json.loads(route['points'])
+    except Exception:
+        points = []
+
+    target_idx = None
+    if payload.ticket_id is None:
+        # complete the shop point (first shop kind that is not done)
+        for i, p in enumerate(points):
+            if p.get('kind') == 'shop' and not p.get('done'):
+                target_idx = i
+                break
+    else:
+        for i, p in enumerate(points):
+            if p.get('kind') == 'ticket' and p.get('ticket_id') == payload.ticket_id:
+                target_idx = i
+                break
+
+    if target_idx is None:
+        raise HTTPException(status_code=404, detail="Point not found in route")
+
+    point = points[target_idx]
+
+    # if ticket point — mark ticket fulfilled
+    if point.get('kind') == 'ticket' and point.get('ticket_id'):
+        conn = needydb.get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM tickets WHERE id = ?", (point['ticket_id'],))
+        t = cur.fetchone()
+        if not t:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? WHERE id = ?", (datetime.now(timezone.utc), point['ticket_id']))
+        conn.commit()
         conn.close()
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? WHERE id = ?", (datetime.utcnow(), ticket_id))
-    conn.commit()
-    conn.close()
+
+    # mark point as done and persist
+    points[target_idx]['done'] = True
+    vdb.update_route_points(route_id, json.dumps(points, ensure_ascii=False))
+
     return {'ok': True}
 
 

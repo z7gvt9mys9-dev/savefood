@@ -1,9 +1,9 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-DB_PATH = os.path.join(os.getcwd(), "savefood.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "savefood.db")
 
 
 def get_conn():
@@ -82,7 +82,7 @@ def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, 
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO shops (name, contact, lat, lon, created_at) VALUES (?, ?, ?, ?, ?)",
-        (name, contact, lat, lon, datetime.utcnow()),
+        (name, contact, lat, lon, datetime.now(timezone.utc)),
     )
     shop_id = cur.lastrowid
     conn.commit()
@@ -95,7 +95,7 @@ def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, 
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?)",
-        (shop_id, description, quantity, expiry_date, photo, address, datetime.utcnow()),
+        (shop_id, description, quantity, expiry_date, photo, address, datetime.now(timezone.utc)),
     )
     lot_id = cur.lastrowid
     conn.commit()
@@ -127,7 +127,7 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
         conn.close()
         return None
 
-    taken_at = datetime.utcnow()
+    taken_at = datetime.now(timezone.utc)
     cur.execute(
         "UPDATE lots SET status = 'taken', taken_at = ?, taken_by = ? WHERE id = ?",
         (taken_at, volunteer_name, lot_id),
@@ -149,8 +149,9 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
 def get_history(shop_id: int) -> List[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
+    # include lots that were taken, or active lots that have already expired
     cur.execute(
-        "SELECT * FROM lots WHERE shop_id = ? AND status = 'taken' ORDER BY taken_at DESC",
+        "SELECT * FROM lots WHERE shop_id = ? AND (status = 'taken' OR (status = 'active' AND expiry_date IS NOT NULL AND date(expiry_date) < date('now'))) ORDER BY taken_at DESC",
         (shop_id,)
     )
     rows = cur.fetchall()

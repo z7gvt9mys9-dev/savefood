@@ -1,9 +1,9 @@
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
-DB_PATH = os.path.join(os.getcwd(), "savefood.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "savefood.db")
 
 
 def get_conn():
@@ -66,7 +66,7 @@ def create_needy(name: str, contact: Optional[str]) -> int:
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO needy (name, contact, created_at) VALUES (?, ?, ?)",
-        (name, contact, datetime.utcnow()),
+        (name, contact, datetime.now(timezone.utc)),
     )
     nid = cur.lastrowid
     conn.commit()
@@ -88,7 +88,7 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO tickets (needy_id, items, address, lat, lon, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)",
-        (needy_id, items, address, lat, lon, datetime.utcnow()),
+        (needy_id, items, address, lat, lon, datetime.now(timezone.utc)),
     )
     tid = cur.lastrowid
     conn.commit()
@@ -124,7 +124,7 @@ def assign_ticket(ticket_id: int, volunteer_name: str) -> Optional[Dict[str, Any
     # create notification for needy
     cur.execute(
         "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-        (ticket["needy_id"], 'volunteer_assigned', f'Volunteer {volunteer_name} assigned to ticket {ticket_id}', datetime.utcnow()),
+        (ticket["needy_id"], 'volunteer_assigned', f'Volunteer {volunteer_name} assigned to ticket {ticket_id}', datetime.now(timezone.utc)),
     )
 
     conn.commit()
@@ -138,6 +138,15 @@ def get_history(needy_id: int) -> List[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM tickets WHERE needy_id = ? AND status IN ('assigned','fulfilled') ORDER BY created_at DESC", (needy_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_notifications(needy_id: int) -> List[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM notifications WHERE needy_id = ? ORDER BY created_at DESC", (needy_id,))
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
