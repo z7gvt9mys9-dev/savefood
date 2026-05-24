@@ -54,7 +54,7 @@ def get_map_points():
             'ticket_id': r['id'],
             'needy_id': r['needy_id'],
             'items': r['items'],
-            'available_time': r.get('available_time'),
+            'available_time': r['available_time'],
             'lat': r['lat'],
             'lon': r['lon']
         })
@@ -141,11 +141,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     tickets = [t for t in tickets if is_available_now(t.get('available_time'))]
     conn.close()
 
-    # persist notification for volunteer that route was created
-    try:
-        vdb.create_notification(volunteer_id, 'route_created', f'Route {route_id} created')
-    except Exception:
-        pass
+
 
     # greedy nearest neighbor from shop
     order = []
@@ -167,6 +163,12 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
 
     points_json = json.dumps(points, ensure_ascii=False)
     route_id = vdb.create_route(volunteer_id, points_json, payload.lot_id)
+
+    # persist notification for volunteer that route was created
+    try:
+        vdb.create_notification(volunteer_id, 'route_created', f'Route {route_id} created')
+    except Exception:
+        pass
 
     return {'route_id': route_id, 'points': points}
 
