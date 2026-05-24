@@ -115,6 +115,26 @@ def get_volunteer_by_id(vol_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
+def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float]) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM volunteers WHERE id = ?", (vol_id,))
+    v = cur.fetchone()
+    if not v:
+        conn.close()
+        return None
+    new_name = name if name is not None else v.get('name')
+    new_contact = contact if contact is not None else v.get('contact')
+    new_lat = lat if lat is not None else v.get('lat')
+    new_lon = lon if lon is not None else v.get('lon')
+    cur.execute("UPDATE volunteers SET name = ?, contact = ?, lat = ?, lon = ? WHERE id = ?", (new_name, new_contact, new_lat, new_lon, vol_id))
+    conn.commit()
+    cur.execute("SELECT * FROM volunteers WHERE id = ?", (vol_id,))
+    updated = cur.fetchone()
+    conn.close()
+    return dict(updated)
+
+
 def create_route(volunteer_id: int, points_json: str, lot_id: Optional[int] = None) -> int:
     conn = get_conn()
     cur = conn.cursor()

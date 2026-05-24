@@ -13,6 +13,8 @@ class NeedyOut(BaseModel):
     name: str
     contact: Optional[str]
     created_at: datetime
+    status: Optional[str]
+    document: Optional[str]
 
 
 class TicketCreate(BaseModel):
@@ -45,3 +47,27 @@ class NotificationOut(BaseModel):
     payload: Optional[str]
     created_at: datetime
     read: int
+
+
+class NeedyProfileCreate(BaseModel):
+    address: Optional[str] = None
+    family_size: Optional[int] = None
+    preferences: Optional[str] = None
+    urgency: Optional[str] = None
+
+
+class NeedyProfileOut(BaseModel):
+    needy_id: int
+    address: Optional[str]
+    family_size: Optional[int]
+    preferences: Optional[str]
+    urgency: Optional[str]
+    last_received_at: Optional[datetime]
+    document: Optional[str]
+
+
+class NeedyProfileUpdate(BaseModel):
+    address: Optional[str] = None
+    family_size: Optional[int] = None
+    preferences: Optional[str] = None
+    urgency: Optional[str] = None

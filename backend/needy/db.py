@@ -21,6 +21,8 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             contact TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            document TEXT,
             created_at TIMESTAMP NOT NULL
         )
         """
@@ -67,6 +69,22 @@ def init_db():
         """
     )
 
+    # Profile table for needy
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS needy_profile (
+            needy_id INTEGER PRIMARY KEY,
+            address TEXT,
+            family_size INTEGER,
+            preferences TEXT,
+            urgency TEXT,
+            last_received_at TIMESTAMP,
+            document TEXT,
+            FOREIGN KEY(needy_id) REFERENCES needy(id)
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -96,6 +114,23 @@ def get_needy_by_id(needy_id: int) -> Optional[Dict[str, Any]]:
 def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None) -> int:
     conn = get_conn()
     cur = conn.cursor()
+    # enforce once-per-week: check profile.last_received_at
+    cur.execute("SELECT last_received_at FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    pr = cur.fetchone()
+    if pr and pr[0]:
+        try:
+            last = pr[0]
+            if isinstance(last, str):
+                from datetime import datetime
+                last_dt = datetime.fromisoformat(last)
+            else:
+                last_dt = last
+            from datetime import datetime, timezone, timedelta
+            if datetime.now(timezone.utc) - last_dt < timedelta(days=7):
+                conn.close()
+                return None
+        except Exception:
+            pass
     cur.execute(
         "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
         (needy_id, items, address, lat, lon, available_time, datetime.now(timezone.utc)),
@@ -184,3 +219,64 @@ def update_needy(needy_id: int, name: str, contact: Optional[str]) -> Optional[D
     updated = cur.fetchone()
     conn.close()
     return dict(updated)
+
+
+def create_or_update_profile(needy_id: int, address: Optional[str], family_size: Optional[int], preferences: Optional[str], urgency: Optional[str], document: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM needy WHERE id = ?", (needy_id,))
+    n = cur.fetchone()
+    if not n:
+        conn.close()
+        return None
+
+    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    p = cur.fetchone()
+    if p:
+        cur.execute(
+            "UPDATE needy_profile SET address = ?, family_size = ?, preferences = ?, urgency = ?, document = ? WHERE needy_id = ?",
+            (address, family_size, preferences, urgency, document, needy_id),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, last_received_at, document) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (needy_id, address, family_size, preferences, urgency, None, document),
+        )
+    conn.commit()
+    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    updated = cur.fetchone()
+    conn.close()
+    return dict(updated)
+
+
+def get_profile(needy_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_needy_status(needy_id: int, status: str) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM needy WHERE id = ?", (needy_id,))
+    n = cur.fetchone()
+    if not n:
+        conn.close()
+        return None
+    cur.execute("UPDATE needy SET status = ? WHERE id = ?", (status, needy_id))
+    conn.commit()
+    cur.execute("SELECT * FROM needy WHERE id = ?", (needy_id,))
+    updated = cur.fetchone()
+    conn.close()
+    return dict(updated)
+
+
+def set_profile_last_received(needy_id: int, ts):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE needy_profile SET last_received_at = ? WHERE needy_id = ?", (ts, needy_id))
+    conn.commit()
+    conn.close()

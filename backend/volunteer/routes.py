@@ -71,6 +71,14 @@ def get_volunteer(volunteer_id: int):
     return v
 
 
+@router.patch("/volunteers/{volunteer_id}")
+def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerCreate):
+    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    return updated
+
+
 def haversine(a, b):
     # a and b are (lat, lon)
     R = 6371
@@ -150,17 +158,51 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
 
 
 
-    # greedy nearest neighbor from shop
+    # greedy selection using priority scoring + distance tie-breaker
+    def compute_score(t):
+        try:
+            profile = needydb.get_profile(t['needy_id']) or {}
+        except Exception:
+            profile = {}
+        try:
+            age_days = 0
+            if t.get('created_at'):
+                age_days = (datetime.now(timezone.utc) - t.get('created_at')).days
+        except Exception:
+            age_days = 0
+        family = profile.get('family_size') or 1
+        urgency_map = {'low': 0, 'normal': 1, 'high': 3, 'critical': 5}
+        urg = urgency_map.get((profile.get('urgency') or '').lower(), 1)
+        last = profile.get('last_received_at')
+        days_no_help = 0
+        try:
+            if last:
+                if isinstance(last, str):
+                    last_dt = datetime.fromisoformat(last)
+                else:
+                    last_dt = last
+                days_no_help = (datetime.now(timezone.utc) - last_dt).days
+        except Exception:
+            days_no_help = 0
+        score = age_days * 1.0 + family * 2.0 + urg * 4.0 + days_no_help * 1.5
+        return score
+
     order = []
     remaining = tickets.copy()
     current = (shop['lat'], shop['lon'])
     max_stops = payload.max_stops or 10
     while remaining and len(order) < max_stops:
-        # find nearest
-        nearest = min(remaining, key=lambda t: haversine(current, (t['lat'], t['lon'])))
-        order.append(nearest)
-        remaining.remove(nearest)
-        current = (nearest['lat'], nearest['lon'])
+        def key_fn(t):
+            try:
+                dist = haversine(current, (t['lat'], t['lon']))
+            except Exception:
+                dist = 99999
+            return (-compute_score(t), dist)
+
+        best = min(remaining, key=key_fn)
+        order.append(best)
+        remaining.remove(best)
+        current = (best['lat'], best['lon'])
 
     # build points: first shop, then tickets
     points = []
