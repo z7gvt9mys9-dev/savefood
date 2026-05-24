@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException
 import json
 import math
+import logging
 
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
@@ -23,7 +24,7 @@ def get_map_points():
     shops_map = {}
     conn = shopdb.get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active'")
+    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active' AND (l.expiry_date IS NULL OR date(l.expiry_date) > date('now', '+1 day'))")
     for r in cur.fetchall():
         if r['lat'] is None or r['lon'] is None:
             continue
@@ -92,7 +93,8 @@ def is_available_now(available_time: str) -> bool:
         end = parts[1].strip()
         sh, sm = [int(x) for x in start.split(':')]
         eh, em = [int(x) for x in end.split(':')]
-        now = datetime.now().time()
+        # use UTC for comparison; available_time is expected to be in UTC
+        now = datetime.now(timezone.utc).time()
         start_t = dtime(sh, sm)
         end_t = dtime(eh, em)
         if start_t <= end_t:
@@ -109,6 +111,11 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail="Volunteer not found")
+    # prevent multiple active routes for the same volunteer
+    existing = vdb.get_active_route(volunteer_id)
+    if existing:
+        raise HTTPException(status_code=400, detail="Volunteer already has an active route")
+    vol_name = vol.get('name') or f"volunteer_{volunteer_id}"
 
     # get lot and its shop coordinates
     conn = shopdb.get_conn()
@@ -161,16 +168,43 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     for t in order:
         points.append({'kind':'ticket','lat':t['lat'],'lon':t['lon'],'description':t['items'],'ticket_id':t['id']})
 
-    points_json = json.dumps(points, ensure_ascii=False)
+    # attempt to assign tickets, skip those that are no longer open
+    assigned_ids = set()
+    if order:
+        conn = needydb.get_conn()
+        cur = conn.cursor()
+        try:
+            for t in order:
+                cur.execute("UPDATE tickets SET status = 'assigned', assigned_volunteer = ? WHERE id = ? AND status = 'open'", (vol_name, t['id']))
+                if cur.rowcount > 0:
+                    assigned_ids.add(t['id'])
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            try:
+                conn.rollback()
+                conn.close()
+            except Exception:
+                pass
+            try:
+                shopdb.release_lot(payload.lot_id)
+            except Exception:
+                logging.exception("Failed to release lot %s after ticket assignment error", payload.lot_id)
+            raise HTTPException(status_code=500, detail=f"Failed to assign tickets: {e}")
+
+    # remove points for tickets that were not assigned
+    filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
+
+    points_json = json.dumps(filtered_points, ensure_ascii=False)
     route_id = vdb.create_route(volunteer_id, points_json, payload.lot_id)
 
     # persist notification for volunteer that route was created
     try:
         vdb.create_notification(volunteer_id, 'route_created', f'Route {route_id} created')
     except Exception:
-        pass
+        logging.warning("Failed to create route notification for volunteer %s", volunteer_id, exc_info=True)
 
-    return {'route_id': route_id, 'points': points}
+    return {'route_id': route_id, 'points': filtered_points}
 
 
 @router.post("/volunteers/route/{route_id}/complete_point")
@@ -204,6 +238,10 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
     if target_idx is None:
         raise HTTPException(status_code=404, detail="Point not found in route")
 
+    # prevent double completion
+    if points[target_idx].get('done'):
+        raise HTTPException(status_code=400, detail="Point already completed")
+
     point = points[target_idx]
 
     # if ticket point — mark ticket fulfilled
@@ -233,8 +271,8 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
                 t = cur.fetchone()
                 if not t:
                     continue
-                # only notify if ticket is still open
-                if t['status'] != 'open':
+                # only notify if ticket is still open or already assigned
+                if t['status'] not in ('open','assigned'):
                     continue
                 needy_id = t['needy_id']
                 payload_text = f"Volunteer {vol_name} is en route to your request (ticket {p.get('ticket_id')})"
@@ -267,19 +305,14 @@ def history(volunteer_id: int):
 @router.get("/volunteers/{volunteer_id}/active_route")
 def active_route(volunteer_id: int):
     # return the in-progress route for volunteer if any
-    conn = vdb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' ORDER BY started_at DESC", (volunteer_id,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
+    route = vdb.get_active_route(volunteer_id)
+    if not route:
         return {}
     try:
-        r = dict(row)
-        r['points'] = json.loads(r.get('points') or '[]')
+        route['points'] = json.loads(route.get('points') or '[]')
     except Exception:
-        r['points'] = []
-    return r
+        route['points'] = []
+    return route
 
 
 @router.get("/volunteers/{volunteer_id}/notifications")
@@ -305,6 +338,22 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest):
         raise HTTPException(status_code=404, detail="Route not found")
     if route['volunteer_id'] != payload.volunteer_id:
         raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+
+    # release any assigned but uncompleted tickets back to open
+    try:
+        points = json.loads(route.get('points') or '[]')
+        conn = needydb.get_conn()
+        cur = conn.cursor()
+        for p in points:
+            if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
+                cur.execute(
+                    "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = ? AND status = 'assigned'",
+                    (p['ticket_id'],)
+                )
+        conn.commit()
+        conn.close()
+    except Exception:
+        logging.exception('Failed to release assigned tickets when finishing route')
 
     vdb.finish_route(route_id)
     return {'ok': True}

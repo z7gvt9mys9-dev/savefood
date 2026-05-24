@@ -55,27 +55,20 @@ def init_db():
         """
     )
 
-    # ensure optional lot_id column exists for volunteer_routes (backward compatible)
-    cur.execute("PRAGMA table_info(volunteer_routes)")
-    cols = [r[1] for r in cur.fetchall()]
-    if 'lot_id' not in cols:
-        try:
-            cur.execute("ALTER TABLE volunteer_routes ADD COLUMN lot_id INTEGER")
-        except Exception:
-            pass
+    # (lot_id is created in the table schema above)
 
     conn.commit()
     conn.close()
 
 
-def create_notification(volunteer_id: int, type: str, payload: str, created_at: Optional[datetime] = None):
+def create_notification(volunteer_id: int, notification_type: str, payload: str, created_at: Optional[datetime] = None):
     conn = get_conn()
     cur = conn.cursor()
     if created_at is None:
         created_at = datetime.now(timezone.utc)
     cur.execute(
         "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-        (volunteer_id, type, payload, created_at),
+        (volunteer_id, notification_type, payload, created_at),
     )
     nid = cur.lastrowid
     conn.commit()
@@ -156,6 +149,15 @@ def get_route_by_id(route_id: int) -> Optional[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT * FROM volunteer_routes WHERE id = ?", (route_id,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_active_route(volunteer_id: int) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1", (volunteer_id,))
     row = cur.fetchone()
     conn.close()
     return dict(row) if row else None

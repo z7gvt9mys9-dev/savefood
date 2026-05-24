@@ -107,7 +107,7 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT * FROM lots WHERE shop_id = ? AND status = 'active' AND (expiry_date IS NULL OR date(expiry_date) >= date('now')) ORDER BY created_at DESC",
+        "SELECT * FROM lots WHERE shop_id = ? AND status = 'active' AND (expiry_date IS NULL OR date(expiry_date) > date('now', '+1 day')) ORDER BY created_at DESC",
         (shop_id,)
     )
     rows = cur.fetchall()
