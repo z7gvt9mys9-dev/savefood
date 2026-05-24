@@ -24,6 +24,10 @@ class StartRouteRequest(BaseModel):
     max_stops: Optional[int] = 10
 
 
+class FinishRouteRequest(BaseModel):
+    volunteer_id: int
+
+
 class RoutePoint(BaseModel):
     ticket_id: Optional[int]
     lat: Optional[float]
@@ -36,6 +40,7 @@ class RoutePoint(BaseModel):
 class RouteOut(BaseModel):
     id: int
     volunteer_id: int
+    lot_id: Optional[int]
     points: List[RoutePoint]
     status: str
     started_at: datetime

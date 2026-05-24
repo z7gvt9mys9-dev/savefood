@@ -168,6 +168,14 @@ def get_notifications(shop_id: int) -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def mark_notification_read(notification_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE notifications SET read = 1 WHERE id = ?", (notification_id,))
+    conn.commit()
+    conn.close()
+
+
 def get_shop_by_id(shop_id: int) -> Optional[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()

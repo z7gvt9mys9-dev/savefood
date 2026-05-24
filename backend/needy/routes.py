@@ -25,6 +25,20 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate):
     return {"id": ticket_id}
 
 
+@router.patch("/needy/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int):
+    db.mark_notification_read(notification_id)
+    return {"ok": True}
+
+
+@router.patch("/needy/{needy_id}")
+def update_needy(needy_id: int, payload: schemas.NeedyCreate):
+    updated = db.update_needy(needy_id, payload.name, payload.contact)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Needy not found")
+    return updated
+
+
 @router.get("/needy/{needy_id}/tickets", response_model=List[schemas.TicketOut])
 def get_tickets(needy_id: int):
     tickets = db.get_tickets_by_needy_id(needy_id)

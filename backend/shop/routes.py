@@ -87,3 +87,9 @@ def notifications(shop_id: int):
         raise HTTPException(status_code=404, detail="Shop not found")
     notes = db.get_notifications(shop_id)
     return notes
+
+
+@router.patch("/shops/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int):
+    db.mark_notification_read(notification_id)
+    return {"ok": True}

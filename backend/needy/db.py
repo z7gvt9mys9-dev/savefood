@@ -160,3 +160,27 @@ def get_notifications(needy_id: int) -> List[Dict[str, Any]]:
     rows = cur.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def mark_notification_read(notification_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE notifications SET read = 1 WHERE id = ?", (notification_id,))
+    conn.commit()
+    conn.close()
+
+
+def update_needy(needy_id: int, name: str, contact: Optional[str]) -> Optional[Dict[str, Any]]:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM needy WHERE id = ?", (needy_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        return None
+    cur.execute("UPDATE needy SET name = ?, contact = ? WHERE id = ?", (name, contact, needy_id))
+    conn.commit()
+    cur.execute("SELECT * FROM needy WHERE id = ?", (needy_id,))
+    updated = cur.fetchone()
+    conn.close()
+    return dict(updated)
