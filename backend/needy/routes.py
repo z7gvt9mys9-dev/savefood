@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, UploadFile
 from typing import List
 import os
 import shutil
+import uuid
 
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
@@ -77,11 +78,14 @@ def upload_profile_document(needy_id: int, file: UploadFile = None):
     if not file or not file.filename:
         raise HTTPException(status_code=400, detail="No file uploaded")
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    dest = os.path.join(UPLOAD_DIR, file.filename)
+    original_name = os.path.basename(file.filename)
+    ext = os.path.splitext(original_name)[1]
+    filename = f"{uuid.uuid4().hex}{ext}"
+    dest = os.path.join(UPLOAD_DIR, filename)
     with open(dest, "wb") as out:
         shutil.copyfileobj(file.file, out)
     # save to profile
-    prof = db.create_or_update_profile(needy_id, None, None, None, None, document=f"/needy_uploads/{file.filename}")
+    prof = db.create_or_update_profile(needy_id, None, None, None, None, document=f"/needy_uploads/{filename}")
     return prof
 
 

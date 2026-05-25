@@ -232,8 +232,8 @@ def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: 
 
     new_name = name if name is not None else shop['name']
     new_contact = contact if contact is not None else shop['contact']
-    new_lat = lat if lat is not None else shop.get('lat')
-    new_lon = lon if lon is not None else shop.get('lon')
+    new_lat = lat if lat is not None else shop['lat']
+    new_lon = lon if lon is not None else shop['lon']
 
     cur.execute(
         "UPDATE shops SET name = ?, contact = ?, lat = ?, lon = ? WHERE id = ?",

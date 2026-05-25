@@ -12,6 +12,16 @@ from datetime import time as dtime
 router = APIRouter()
 
 
+def _ensure_aware_utc(value):
+    if isinstance(value, str):
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        value = datetime.fromisoformat(value)
+    if isinstance(value, datetime) and (value.tzinfo is None or value.tzinfo.utcoffset(value) is None):
+        value = value.replace(tzinfo=timezone.utc)
+    return value
+
+
 @router.post("/volunteers/register")
 def register(vol: vschemas.VolunteerCreate):
     vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon)
@@ -166,8 +176,10 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
             profile = {}
         try:
             age_days = 0
-            if t.get('created_at'):
-                age_days = (datetime.now(timezone.utc) - t.get('created_at')).days
+            created_at = t.get('created_at')
+            if created_at:
+                created_at = _ensure_aware_utc(created_at)
+                age_days = (datetime.now(timezone.utc) - created_at).days
         except Exception:
             age_days = 0
         family = profile.get('family_size') or 1
@@ -177,10 +189,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
         days_no_help = 0
         try:
             if last:
-                if isinstance(last, str):
-                    last_dt = datetime.fromisoformat(last)
-                else:
-                    last_dt = last
+                last_dt = _ensure_aware_utc(last)
                 days_no_help = (datetime.now(timezone.utc) - last_dt).days
         except Exception:
             days_no_help = 0

@@ -123,10 +123,10 @@ def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], l
     if not v:
         conn.close()
         return None
-    new_name = name if name is not None else v.get('name')
-    new_contact = contact if contact is not None else v.get('contact')
-    new_lat = lat if lat is not None else v.get('lat')
-    new_lon = lon if lon is not None else v.get('lon')
+    new_name = name if name is not None else v['name']
+    new_contact = contact if contact is not None else v['contact']
+    new_lat = lat if lat is not None else v['lat']
+    new_lon = lon if lon is not None else v['lon']
     cur.execute("UPDATE volunteers SET name = ?, contact = ?, lat = ?, lon = ? WHERE id = ?", (new_name, new_contact, new_lat, new_lon, vol_id))
     conn.commit()
     cur.execute("SELECT * FROM volunteers WHERE id = ?", (vol_id,))

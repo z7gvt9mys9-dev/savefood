@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
+import json
 import os
 import threading
 import time
@@ -43,13 +44,11 @@ def startup():
                 cur = conn.cursor()
                 cur.execute("SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND started_at <= datetime('now', ?)", (f'-{timeout_minutes} minutes',))
                 rows = cur.fetchall()
-                for r in rows:
+                for row in rows:
+                    r = dict(row)
                     route_id = r['id']
-                    volunteer_id = r['volunteer_id']
                     # parse points and release assigned tickets
                     try:
-                        points = []
-                        import json
                         points = json.loads(r.get('points') or '[]')
                         nconn = needy_db.get_conn()
                         ncur = nconn.cursor()
@@ -102,12 +101,18 @@ def stats():
     cur = conn.cursor()
     cur.execute("SELECT IFNULL(SUM(quantity),0) as kg_saved FROM lots WHERE status = 'taken'")
     kg_saved = cur.fetchone()[0] or 0
+    conn.close()
 
     # deliveries completed = count of fulfilled tickets
+    conn = needy_db.get_conn()
+    cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM tickets WHERE status = 'fulfilled'")
     deliveries_completed = cur.fetchone()[0]
+    conn.close()
 
     # active volunteers = volunteers with routes in last 30 days
+    conn = vol_db.get_conn()
+    cur = conn.cursor()
     cur.execute("SELECT COUNT(DISTINCT volunteer_id) FROM volunteer_routes WHERE started_at >= datetime('now', '-30 days')")
     active_volunteers = cur.fetchone()[0]
 
@@ -116,6 +121,10 @@ def stats():
     avg_delivery_minutes = cur.fetchone()[0] or 0
 
     # percent expired lots
+    conn.close()
+
+    conn = db.get_conn()
+    cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM lots")
     total_lots = cur.fetchone()[0] or 0
     cur.execute("SELECT COUNT(*) FROM lots WHERE status = 'expired'")

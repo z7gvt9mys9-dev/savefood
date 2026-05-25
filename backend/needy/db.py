@@ -1,9 +1,20 @@
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "savefood.db")
+PROFILE_COLUMNS = "needy_id, address, family_size, preferences, urgency, CAST(last_received_at AS TEXT) AS last_received_at, document"
+
+
+def _ensure_aware_utc(value):
+    if isinstance(value, str):
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        value = datetime.fromisoformat(value)
+    if isinstance(value, datetime) and (value.tzinfo is None or value.tzinfo.utcoffset(value) is None):
+        value = value.replace(tzinfo=timezone.utc)
+    return value
 
 
 def get_conn():
@@ -111,21 +122,15 @@ def get_needy_by_id(needy_id: int) -> Optional[Dict[str, Any]]:
     return dict(row) if row else None
 
 
-def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None) -> int:
+def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None) -> Optional[int]:
     conn = get_conn()
     cur = conn.cursor()
     # enforce once-per-week: check profile.last_received_at
-    cur.execute("SELECT last_received_at FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    cur.execute("SELECT CAST(last_received_at AS TEXT) FROM needy_profile WHERE needy_id = ?", (needy_id,))
     pr = cur.fetchone()
     if pr and pr[0]:
         try:
-            last = pr[0]
-            if isinstance(last, str):
-                from datetime import datetime
-                last_dt = datetime.fromisoformat(last)
-            else:
-                last_dt = last
-            from datetime import datetime, timezone, timedelta
+            last_dt = _ensure_aware_utc(pr[0])
             if datetime.now(timezone.utc) - last_dt < timedelta(days=7):
                 conn.close()
                 return None
@@ -230,12 +235,17 @@ def create_or_update_profile(needy_id: int, address: Optional[str], family_size:
         conn.close()
         return None
 
-    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    cur.execute(f"SELECT {PROFILE_COLUMNS} FROM needy_profile WHERE needy_id = ?", (needy_id,))
     p = cur.fetchone()
     if p:
+        new_address = address if address is not None else p['address']
+        new_family_size = family_size if family_size is not None else p['family_size']
+        new_preferences = preferences if preferences is not None else p['preferences']
+        new_urgency = urgency if urgency is not None else p['urgency']
+        new_document = document if document is not None else p['document']
         cur.execute(
             "UPDATE needy_profile SET address = ?, family_size = ?, preferences = ?, urgency = ?, document = ? WHERE needy_id = ?",
-            (address, family_size, preferences, urgency, document, needy_id),
+            (new_address, new_family_size, new_preferences, new_urgency, new_document, needy_id),
         )
     else:
         cur.execute(
@@ -243,7 +253,7 @@ def create_or_update_profile(needy_id: int, address: Optional[str], family_size:
             (needy_id, address, family_size, preferences, urgency, None, document),
         )
     conn.commit()
-    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    cur.execute(f"SELECT {PROFILE_COLUMNS} FROM needy_profile WHERE needy_id = ?", (needy_id,))
     updated = cur.fetchone()
     conn.close()
     return dict(updated)
@@ -252,7 +262,7 @@ def create_or_update_profile(needy_id: int, address: Optional[str], family_size:
 def get_profile(needy_id: int) -> Optional[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM needy_profile WHERE needy_id = ?", (needy_id,))
+    cur.execute(f"SELECT {PROFILE_COLUMNS} FROM needy_profile WHERE needy_id = ?", (needy_id,))
     row = cur.fetchone()
     conn.close()
     return dict(row) if row else None
