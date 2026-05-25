@@ -10,6 +10,13 @@ class VolunteerCreate(BaseModel):
     lon: Optional[float] = None
 
 
+class VolunteerUpdate(BaseModel):
+    name: Optional[str] = None
+    contact: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+
+
 class VolunteerOut(BaseModel):
     id: int
     name: str

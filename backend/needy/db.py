@@ -3,18 +3,10 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 
+from backend.utils import ensure_aware_utc
+
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "savefood.db")
 PROFILE_COLUMNS = "needy_id, address, family_size, preferences, urgency, CAST(last_received_at AS TEXT) AS last_received_at, document"
-
-
-def _ensure_aware_utc(value):
-    if isinstance(value, str):
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        value = datetime.fromisoformat(value)
-    if isinstance(value, datetime) and (value.tzinfo is None or value.tzinfo.utcoffset(value) is None):
-        value = value.replace(tzinfo=timezone.utc)
-    return value
 
 
 def get_conn():
@@ -130,7 +122,7 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
     pr = cur.fetchone()
     if pr and pr[0]:
         try:
-            last_dt = _ensure_aware_utc(pr[0])
+            last_dt = ensure_aware_utc(pr[0])
             if datetime.now(timezone.utc) - last_dt < timedelta(days=7):
                 conn.close()
                 return None
@@ -288,5 +280,10 @@ def set_profile_last_received(needy_id: int, ts):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("UPDATE needy_profile SET last_received_at = ? WHERE needy_id = ?", (ts, needy_id))
+    if cur.rowcount == 0:
+        cur.execute(
+            "INSERT INTO needy_profile (needy_id, last_received_at) VALUES (?, ?)",
+            (needy_id, ts),
+        )
     conn.commit()
     conn.close()

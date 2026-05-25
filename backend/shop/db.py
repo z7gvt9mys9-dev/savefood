@@ -185,9 +185,8 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
 def get_history(shop_id: int) -> List[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.cursor()
-    # include lots that were taken, or active lots that have already expired
     cur.execute(
-        "SELECT * FROM lots WHERE shop_id = ? AND (status = 'taken' OR (status = 'active' AND expiry_date IS NOT NULL AND date(expiry_date) < date('now'))) ORDER BY taken_at DESC",
+        "SELECT * FROM lots WHERE shop_id = ? AND status IN ('taken', 'expired', 'removed') ORDER BY COALESCE(taken_at, created_at) DESC",
         (shop_id,)
     )
     rows = cur.fetchall()

@@ -24,6 +24,8 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate):
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
+    if needy.get('status') != 'approved':
+        raise HTTPException(status_code=403, detail="Account not approved yet")
 
     ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time)
     if ticket_id is None:

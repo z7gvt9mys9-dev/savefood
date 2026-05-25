@@ -6,20 +6,11 @@ import logging
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
 from backend.needy import db as needydb
+from backend.utils import ensure_aware_utc
 from datetime import datetime, timezone
 from datetime import time as dtime
 
 router = APIRouter()
-
-
-def _ensure_aware_utc(value):
-    if isinstance(value, str):
-        if value.endswith("Z"):
-            value = value[:-1] + "+00:00"
-        value = datetime.fromisoformat(value)
-    if isinstance(value, datetime) and (value.tzinfo is None or value.tzinfo.utcoffset(value) is None):
-        value = value.replace(tzinfo=timezone.utc)
-    return value
 
 
 @router.post("/volunteers/register")
@@ -82,7 +73,7 @@ def get_volunteer(volunteer_id: int):
 
 
 @router.patch("/volunteers/{volunteer_id}")
-def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerCreate):
+def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerUpdate):
     updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon)
     if not updated:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -178,7 +169,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
             age_days = 0
             created_at = t.get('created_at')
             if created_at:
-                created_at = _ensure_aware_utc(created_at)
+                created_at = ensure_aware_utc(created_at)
                 age_days = (datetime.now(timezone.utc) - created_at).days
         except Exception:
             age_days = 0
@@ -189,7 +180,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
         days_no_help = 0
         try:
             if last:
-                last_dt = _ensure_aware_utc(last)
+                last_dt = ensure_aware_utc(last)
                 days_no_help = (datetime.now(timezone.utc) - last_dt).days
         except Exception:
             days_no_help = 0
@@ -304,9 +295,14 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
         if not t:
             conn.close()
             raise HTTPException(status_code=404, detail="Ticket not found")
+        t_row = dict(t)
         cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? WHERE id = ?", (datetime.now(timezone.utc), point['ticket_id']))
         conn.commit()
         conn.close()
+        try:
+            needydb.set_profile_last_received(t_row['needy_id'], datetime.now(timezone.utc))
+        except Exception:
+            logging.exception("Failed to update last_received_at for needy %s", t_row['needy_id'])
 
     # if completing shop point — notify needy that volunteer is en route
     if point.get('kind') == 'shop':
