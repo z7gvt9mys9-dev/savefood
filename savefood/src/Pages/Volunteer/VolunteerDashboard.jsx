@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import './Volunteer.css';
 
 const VolunteerDashboard = () => {
@@ -7,8 +8,24 @@ const VolunteerDashboard = () => {
   const [scanning, setScanning] = useState(false);
 
   const tasks = [
-    { id: 1, shop: 'ВкусВилл', target: 'ул. Ленина, 5', items: '3 кг овощей', distance: '500м' },
-    { id: 2, shop: 'Перекресток', target: 'пр. Мира, 12', items: '5 кг набора', distance: '1.5км' },
+    { 
+      id: 1, 
+      shop: 'ВкусВилл', 
+      target: 'ул. Ленина, 5', 
+      items: '3 кг овощей', 
+      distance: '500м', 
+      shopCoords: [55.751244, 37.618423],
+      targetCoords: [55.755244, 37.625423]
+    },
+    { 
+      id: 2, 
+      shop: 'Перекресток', 
+      target: 'пр. Мира, 12', 
+      items: '5 кг набора', 
+      distance: '1.5км', 
+      shopCoords: [55.761244, 37.628423],
+      targetCoords: [55.771244, 37.638423]
+    },
   ];
 
   const handleTakeTask = (task) => {
@@ -18,12 +35,25 @@ const VolunteerDashboard = () => {
 
   const renderMap = () => (
     <div className="volunteer-tab">
-      <div className="map-placeholder-mobile">
-        <div className="map-mock">
-          {tasks.map(t => (
-            <div key={t.id} className="map-marker-volunteer" onClick={() => handleTakeTask(t)}>📦</div>
-          ))}
-        </div>
+      <div className="map-container-mobile">
+        <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY }}>
+          <Map 
+            defaultState={{ center: [55.75, 37.62], zoom: 12 }} 
+            width="100%" 
+            height="100%"
+          >
+            {tasks.map(t => (
+              <Placemark 
+                key={t.id} 
+                geometry={t.shopCoords} 
+                properties={{
+                  balloonContent: `<strong>${t.shop}</strong><br/>${t.items}`
+                }}
+                onClick={() => handleTakeTask(t)}
+              />
+            ))}
+          </Map>
+        </YMaps>
       </div>
       <div className="task-list-mobile">
         <h3>Доступные задачи</h3>
@@ -45,7 +75,31 @@ const VolunteerDashboard = () => {
       {!activeRoute ? (
         <p className="empty-msg">У вас нет активного маршрута.</p>
       ) : (
-        <div className="navigator-card">
+        <>
+          <div className="map-container-mobile mini-map">
+            <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY }}>
+              <Map 
+                state={{ 
+                  center: activeRoute.shopCoords, 
+                  zoom: 14 
+                }} 
+                width="100%" 
+                height="100%"
+              >
+                <Placemark 
+                  geometry={activeRoute.shopCoords} 
+                  properties={{ balloonContent: 'Магазин (A)' }}
+                  options={{ preset: 'islands#redShoppingIcon' }}
+                />
+                <Placemark 
+                  geometry={activeRoute.targetCoords} 
+                  properties={{ balloonContent: 'Получатель (B)' }}
+                  options={{ preset: 'islands#greenHomeIcon' }}
+                />
+              </Map>
+            </YMaps>
+          </div>
+          <div className="navigator-card">
           <div className="route-header">
             <h2>{activeRoute.step === 'pickup' ? 'Заберите из магазина' : 'Доставьте получателю'}</h2>
             <span className="badge">В пути</span>
