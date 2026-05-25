@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, HTTPException, UploadFile, Depends
 from typing import List
 import os
 import shutil
@@ -7,6 +7,7 @@ import uuid
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
+from backend import auth
 
 router = APIRouter()
 
@@ -20,7 +21,12 @@ def register_needy(payload: schemas.NeedyCreate):
 
 
 @router.post("/needy/{needy_id}/ticket")
-def create_ticket(needy_id: int, payload: schemas.TicketCreate):
+def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: dict = Depends(auth.get_current_user)):
+    if current_user["role"] not in ("needy", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if current_user["role"] == "needy" and current_user["related_id"] != needy_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -29,7 +35,6 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate):
 
     ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time)
     if ticket_id is None:
-        # violation of once-per-week rule
         raise HTTPException(status_code=400, detail="Ticket creation blocked: assistance is limited to once per 7 days")
     return {"id": ticket_id}
 

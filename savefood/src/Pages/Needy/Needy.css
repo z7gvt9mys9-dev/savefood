@@ -1,0 +1,125 @@
+/* Reuse dashboard styles */
+@import '../Shop/Shop.css';
+
+.map-placeholder {
+  background-color: #111;
+  border: 1px solid #222;
+  height: 400px;
+  position: relative;
+  margin-bottom: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #444;
+}
+
+.map-mock {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background-image: radial-gradient(#222 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.map-marker {
+  position: absolute;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.map-marker:hover {
+  transform: scale(1.2);
+}
+
+.lot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.lot-card-compact {
+  background-color: #111;
+  border: 1px solid #222;
+  padding: 20px;
+  border-radius: 4px;
+}
+
+.lot-card-compact h4 {
+  margin: 0 0 10px 0;
+  text-transform: uppercase;
+}
+
+.lot-card-compact .distance {
+  display: block;
+  font-size: 0.8rem;
+  color: #f1c40f;
+  margin: 10px 0;
+}
+
+.order-status-card {
+  max-width: 600px;
+  background-color: #111;
+  border: 1px solid #222;
+  padding: 40px;
+  text-align: center;
+}
+
+.status-stepper {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin: 30px 0;
+}
+
+.step {
+  color: #444;
+  font-weight: bold;
+  position: relative;
+}
+
+.step.active {
+  color: #fff;
+}
+
+.step.active::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background-color: #fff;
+}
+
+.qr-section {
+  margin-top: 40px;
+  padding-top: 40px;
+  border-top: 1px solid #222;
+}
+
+.qr-mock {
+  width: 200px;
+  height: 200px;
+  background-color: #fff;
+  margin: 20px auto;
+  padding: 10px;
+}
+
+.qr-inner {
+  width: 100%;
+  height: 100%;
+  background-image: 
+    linear-gradient(45deg, #000 25%, transparent 25%), 
+    linear-gradient(-45deg, #000 25%, transparent 25%), 
+    linear-gradient(45deg, transparent 75%, #000 75%), 
+    linear-gradient(-45deg, transparent 75%, #000 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+
+.qr-code-text {
+  font-family: monospace;
+  letter-spacing: 2px;
+  color: #888;
+}
