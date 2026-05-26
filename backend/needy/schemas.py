@@ -24,8 +24,8 @@ class TicketCreate(BaseModel):
     address: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
-    # time or slot when the needy person is at home (e.g. "18:00-20:00")
     available_time: Optional[str] = None
+    lot_id: Optional[int] = None
 
 
 class TicketOut(BaseModel):
@@ -36,6 +36,7 @@ class TicketOut(BaseModel):
     lat: Optional[float]
     lon: Optional[float]
     available_time: Optional[str]
+    lot_id: Optional[int]
     status: str
     created_at: datetime
     assigned_volunteer: Optional[str]
@@ -56,6 +57,7 @@ class NeedyProfileCreate(BaseModel):
     family_size: Optional[int] = None
     preferences: Optional[str] = None
     urgency: Optional[str] = None
+    available_time: Optional[str] = None
 
 
 class NeedyProfileOut(BaseModel):
@@ -64,6 +66,7 @@ class NeedyProfileOut(BaseModel):
     family_size: Optional[int]
     preferences: Optional[str]
     urgency: Optional[str]
+    available_time: Optional[str]
     last_received_at: Optional[datetime]
     document: Optional[str]
 
@@ -73,3 +76,4 @@ class NeedyProfileUpdate(BaseModel):
     family_size: Optional[int] = None
     preferences: Optional[str] = None
     urgency: Optional[str] = None
+    available_time: Optional[str] = None

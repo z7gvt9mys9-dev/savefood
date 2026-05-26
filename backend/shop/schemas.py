@@ -27,6 +27,9 @@ class LotCreate(BaseModel):
     expiry_date: Optional[date] = None
     photo: Optional[str] = None
     address: Optional[str] = None
+    time_slot: Optional[str] = None
+    category: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class LotOut(BaseModel):
@@ -37,10 +40,13 @@ class LotOut(BaseModel):
     expiry_date: Optional[date]
     photo: Optional[str]
     address: Optional[str]
+    time_slot: Optional[str]
     status: str
     created_at: datetime
     taken_at: Optional[datetime]
     taken_by: Optional[str]
+    category: Optional[str]
+    comment: Optional[str]
 
 
 class LotUpdate(BaseModel):
@@ -48,6 +54,8 @@ class LotUpdate(BaseModel):
     quantity: Optional[int] = None
     expiry_date: Optional[date] = None
     address: Optional[str] = None
+    category: Optional[str] = None
+    comment: Optional[str] = None
 
 
 class TakeLotRequest(BaseModel):

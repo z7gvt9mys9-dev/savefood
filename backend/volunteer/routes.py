@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 import json
 import math
 import logging
@@ -8,8 +8,8 @@ from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
-from backend.auth import get_password_hash
-from datetime import datetime, timezone
+from backend.auth import get_password_hash, get_current_user
+from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
 
 router = APIRouter()
@@ -28,7 +28,7 @@ def register(vol: vschemas.VolunteerCreate):
 
 
 @router.get("/volunteers/map")
-def get_map_points():
+def get_map_points(current_user: dict = Depends(get_current_user)):
     # return shops with their active lots (grouped by shop) and needy tickets with coords
     shops_map = {}
     with get_db_cursor() as cur:
@@ -159,9 +159,21 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
         tickets = [dict(r) for r in cur.fetchall()]
-    
+
     # filter by available_time (only include tickets where needy is at home now or not specified)
     tickets = [t for t in tickets if is_available_now(t.get('available_time'))]
+
+    lot_category = (lot.get('category') or '').lower()
+
+    # keyword mapping: lot category → food-related terms to check in needy preferences
+    _CAT_KEYWORDS = {
+        'молочные': ['молок', 'лактоз', 'сыр', 'творог', 'кефир', 'йогурт', 'сметан'],
+        'выпечка': ['глютен', 'мука', 'хлеб', 'пшениц', 'злак'],
+        'мясо': ['мяс', 'свинин', 'говяд', 'курин', 'баранин'],
+        'рыба': ['рыб', 'морепродукт'],
+        'орехи': ['орех', 'арахис'],
+    }
+    _RESTRICTION_WORDS = ['аллергия', 'нельзя', 'не ем', 'без ', 'непереносимость', 'не могу', 'запрет']
 
     # greedy selection using priority scoring + distance tie-breaker
     def compute_score(t):
@@ -189,6 +201,23 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
         except Exception:
             days_no_help = 0
         score = age_days * 1.0 + family * 2.0 + urg * 4.0 + days_no_help * 1.5
+
+        # §6: match lot category against needy food preferences/restrictions
+        if lot_category:
+            prefs = (profile.get('preferences') or '').lower()
+            if prefs:
+                relevant_kws = next(
+                    (kws for cat_key, kws in _CAT_KEYWORDS.items() if cat_key in lot_category),
+                    []
+                )
+                if relevant_kws:
+                    cat_mentioned = any(kw in prefs for kw in relevant_kws)
+                    has_restriction = any(rw in prefs for rw in _RESTRICTION_WORDS)
+                    if cat_mentioned and has_restriction:
+                        score -= 8.0  # conflict: needy has restriction on this food type
+                    elif cat_mentioned and not has_restriction:
+                        score += 2.0  # preference match: needy likes this food type
+
         return score
 
     order = []
@@ -291,6 +320,8 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
 
     # if completing shop point — notify needy that volunteer is en route
     if point.get('kind') == 'shop':
+        shop_lat = point.get('lat')
+        shop_lon = point.get('lon')
         # notify all remaining ticket points in route that are not done
         vol = vdb.get_volunteer_by_id(payload.volunteer_id)
         vol_name = vol.get('name') if vol else f"volunteer_{payload.volunteer_id}"
@@ -306,7 +337,14 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
                     if t['status'] not in ('open','assigned'):
                         continue
                     needy_id = t['needy_id']
-                    payload_text = f"Volunteer {vol_name} is en route to your request (ticket {p.get('ticket_id')})"
+                    eta_text = ""
+                    if shop_lat and shop_lon and p.get('lat') and p.get('lon'):
+                        dist_km = haversine((shop_lat, shop_lon), (p['lat'], p['lon']))
+                        eta_min = max(5, int(dist_km / 30 * 60) + 5)
+                        arrival = datetime.now(timezone.utc) + timedelta(minutes=eta_min)
+                        arrival_end = arrival + timedelta(minutes=30)
+                        eta_text = f" с {arrival.strftime('%H:%M')} до {arrival_end.strftime('%H:%M')}"
+                    payload_text = f"Волонтёр {vol_name} едет к вам (тикет {p.get('ticket_id')}). Ожидаемое время прибытия{eta_text}."
                     cur.execute(
                         "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
                         (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),

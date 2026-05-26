@@ -54,7 +54,7 @@ const AuthPage = () => {
         const res = await fetch('http://localhost:8000/auth/login', { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Неверный логин или пароль');
         const data = await res.json();
-        login(data.access_token, data.role);
+        login(data.access_token, data.role, data.related_id);
         navigate(`/${data.role}`);
       } catch (err) {
         alert(err.message);
@@ -77,6 +77,15 @@ const AuthPage = () => {
         if (!res.ok) {
           const err = await res.json();
           throw new Error(err.detail || 'Ошибка регистрации');
+        }
+        const data = await res.json();
+        if (role === 'needy' && formData.document && data.id) {
+          const fd = new FormData();
+          fd.append('file', formData.document);
+          await fetch(`http://localhost:8000/needy/${data.id}/profile/upload`, {
+            method: 'POST',
+            body: fd,
+          }).catch(() => {});
         }
         alert('Регистрация завершена! Теперь вы можете войти.');
         setIsLogin(true);

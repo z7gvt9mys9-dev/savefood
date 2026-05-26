@@ -21,7 +21,12 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         access_token = auth.create_access_token(
             data={"sub": user["username"], "role": user["role"], "related_id": user["related_id"]}
         )
-        return {"access_token": access_token, "token_type": "bearer", "role": user["role"]}
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "role": user["role"],
+            "related_id": user["related_id"],
+        }
 
 @router.get("/me")
 def read_users_me(current_user: dict = Depends(auth.get_current_user)):

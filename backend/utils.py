@@ -24,22 +24,18 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 def calculate_priority_score(family_size: int, is_urgent: bool, last_delivery_date: datetime):
-    """
-    Priority Score = f(family_size) + f(urgency) + f(days_without_help)
-    """
     score = family_size * 10
     if is_urgent:
         score += 50
-    
     if last_delivery_date:
-        days_since = (datetime.now() - last_delivery_date).days
-        score += days_since * 5 # More days = higher priority
+        last_aware = ensure_aware_utc(last_delivery_date)
+        score += (datetime.now(timezone.utc) - last_aware).days * 5
     else:
-        score += 100 # Never received help = highest priority
-        
+        score += 100
     return score
 
 def is_within_weekly_limit(last_delivery_date: datetime):
     if not last_delivery_date:
         return True
-    return (datetime.now() - last_delivery_date).days >= 7
+    last_aware = ensure_aware_utc(last_delivery_date)
+    return (datetime.now(timezone.utc) - last_aware).days >= 7

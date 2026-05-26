@@ -28,14 +28,20 @@ def init_db():
                 expiry_date DATE,
                 photo TEXT,
                 address TEXT,
+                time_slot TEXT,
                 status TEXT NOT NULL DEFAULT 'active',
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 taken_at TIMESTAMP WITH TIME ZONE,
                 taken_by TEXT,
+                category TEXT,
+                comment TEXT,
                 FOREIGN KEY(shop_id) REFERENCES shops(id)
             )
             """
         )
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS time_slot TEXT")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS category TEXT")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS comment TEXT")
 
         cur.execute(
             """
@@ -60,11 +66,11 @@ def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, 
         shop_id = cur.fetchone()['id']
         return shop_id
 
-def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str]) -> int:
+def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
         cur.execute(
-            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
-            (shop_id, description, quantity, expiry_date, photo, address, datetime.now(timezone.utc)),
+            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
+            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, datetime.now(timezone.utc)),
         )
         lot_id = cur.fetchone()['id']
         return lot_id
@@ -72,7 +78,7 @@ def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, 
 def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM lots WHERE shop_id = %s AND status = 'active' AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day') ORDER BY created_at DESC",
+            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('active','taken') AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day') ORDER BY created_at DESC",
             (shop_id,)
         )
         rows = cur.fetchall()
@@ -173,7 +179,7 @@ def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: 
         updated = cur.fetchone()
         return dict(updated)
 
-def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int], expiry_date: Optional[str], address: Optional[str]) -> Optional[Dict[str, Any]]:
+def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int], expiry_date: Optional[str], address: Optional[str], category: Optional[str] = None, comment: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         lot = cur.fetchone()
@@ -186,14 +192,28 @@ def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int],
         new_quantity = quantity if quantity is not None else lot['quantity']
         new_expiry = expiry_date if expiry_date is not None else lot['expiry_date']
         new_address = address if address is not None else lot['address']
+        new_category = category if category is not None else lot.get('category')
+        new_comment = comment if comment is not None else lot.get('comment')
 
         cur.execute(
-            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s WHERE id = %s",
-            (new_description, new_quantity, new_expiry, new_address, lot_id),
+            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s, category = %s, comment = %s WHERE id = %s",
+            (new_description, new_quantity, new_expiry, new_address, new_category, new_comment, lot_id),
         )
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         updated = cur.fetchone()
         return dict(updated)
+
+
+def confirm_lot_transfer(lot_id: int) -> bool:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
+        lot = cur.fetchone()
+        if not lot:
+            return False
+        if lot['status'] != 'taken':
+            return False
+        cur.execute("UPDATE lots SET status = 'confirmed' WHERE id = %s", (lot_id,))
+        return True
 
 def delete_lot(lot_id: int) -> bool:
     with get_db_cursor() as cur:

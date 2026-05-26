@@ -10,6 +10,7 @@ from backend.shop import db, routes as shop_routes
 from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
 from backend import auth_routes, database
+from backend.admin import routes as admin_routes
 from backend.database import get_db_cursor
 
 app = FastAPI(title="SaveFood - Backend")
@@ -90,6 +91,7 @@ app.include_router(auth_routes.router)
 app.include_router(shop_routes.router)
 app.include_router(needy_routes.router)
 app.include_router(vol_routes.router)
+app.include_router(admin_routes.router)
 
 
 @app.get("/stats")

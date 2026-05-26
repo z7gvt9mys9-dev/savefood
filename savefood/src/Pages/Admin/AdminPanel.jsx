@@ -1,13 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import './Admin.css';
 
 const AdminPanel = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('moderation');
+  const [pendingNeedy, setPendingNeedy] = useState([]);
+  const [stats, setStats] = useState({});
+  const [activeRoutes, setActiveRoutes] = useState([]);
 
-  const moderationQueue = [
-    { id: 1, name: 'Иван Петров', type: 'Многодетный', doc: 'spravka.pdf' },
-    { id: 2, name: 'Мария Сидорова', type: 'Малоимущая', doc: 'passport.jpg' },
-  ];
+  const authHeader = { Authorization: `Bearer ${user?.token}` };
+
+  const fetchData = async () => {
+    try {
+      const [needyRes, statsRes, routesRes] = await Promise.all([
+        fetch('http://localhost:8000/admin/needy?status=pending', { headers: authHeader }),
+        fetch('http://localhost:8000/admin/stats', { headers: authHeader }),
+        fetch('http://localhost:8000/admin/routes', { headers: authHeader }),
+      ]);
+      if (needyRes.ok) setPendingNeedy(await needyRes.json());
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (routesRes.ok) setActiveRoutes(await routesRes.json());
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const handleApprove = async (id) => {
+    try {
+      await fetch(`http://localhost:8000/needy/${id}/moderation?status=approved`, {
+        method: 'PATCH',
+        headers: authHeader,
+      });
+      fetchData();
+    } catch {}
+  };
+
+  const handleReject = async (id) => {
+    try {
+      await fetch(`http://localhost:8000/needy/${id}/moderation?status=rejected`, {
+        method: 'PATCH',
+        headers: authHeader,
+      });
+      fetchData();
+    } catch {}
+  };
 
   const renderModeration = () => (
     <div className="admin-tab">
@@ -16,20 +55,22 @@ const AdminPanel = () => {
         <thead>
           <tr>
             <th>Пользователь</th>
-            <th>Статус</th>
+            <th>Контакт</th>
             <th>Документ</th>
             <th>Действия</th>
           </tr>
         </thead>
         <tbody>
-          {moderationQueue.map(item => (
+          {pendingNeedy.length === 0 ? (
+            <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px' }}>Очередь пуста</td></tr>
+          ) : pendingNeedy.map(item => (
             <tr key={item.id}>
               <td>{item.name}</td>
-              <td>{item.type}</td>
-              <td><a href="#" onClick={(e) => e.preventDefault()}>Просмотреть</a></td>
+              <td>{item.contact || '—'}</td>
+              <td>{item.document ? <a href={`http://localhost:8000/needy_uploads/${item.document.split('/').pop()}`} target="_blank" rel="noreferrer">Просмотреть</a> : '—'}</td>
               <td>
-                <button className="btn-small btn-success">Одобрить</button>
-                <button className="btn-small btn-danger">Отклонить</button>
+                <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>Одобрить</button>
+                <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>Отклонить</button>
               </td>
             </tr>
           ))}
@@ -41,20 +82,17 @@ const AdminPanel = () => {
   const renderDispatcher = () => (
     <div className="admin-tab">
       <h2>Диспетчерская (Мониторинг)</h2>
-      <div className="map-placeholder">
-        <div className="map-mock">
-          <div className="incident-marker" title="Волонтер не на связи 35 мин">⚠️</div>
-          <div className="active-route-line"></div>
-        </div>
-      </div>
       <div className="incident-list">
-        <h3>Проблемные зоны</h3>
-        <div className="incident-card warning">
-          <p><strong>Волонтер:</strong> Алексей К.</p>
-          <p><strong>Проблема:</strong> Не выходит на связь > 30 мин</p>
-          <button className="btn-small">Связаться</button>
-          <button className="btn-small btn-secondary">Переназначить</button>
-        </div>
+        <h3>Активные маршруты</h3>
+        {activeRoutes.length === 0 ? (
+          <p className="empty-msg">Нет активных маршрутов</p>
+        ) : activeRoutes.map(r => (
+          <div key={r.id} className="incident-card">
+            <p><strong>Волонтер:</strong> {r.volunteer_name || `ID ${r.volunteer_id}`}</p>
+            <p><strong>Маршрут №{r.id}</strong></p>
+            <p><strong>Начат:</strong> {new Date(r.started_at).toLocaleString()}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -64,19 +102,26 @@ const AdminPanel = () => {
       <h2>Аналитика эффективности</h2>
       <div className="analytics-grid">
         <div className="analytic-card">
+          <h4>Еды спасено (кг)</h4>
+          <p className="big-value">{stats.kg_food_saved ?? '—'}</p>
+        </div>
+        <div className="analytic-card">
+          <h4>Доставок завершено</h4>
+          <p className="big-value">{stats.deliveries_completed ?? '—'}</p>
+        </div>
+        <div className="analytic-card">
+          <h4>Активных волонтеров (30д)</h4>
+          <p className="big-value">{stats.active_volunteers ?? '—'}</p>
+        </div>
+        <div className="analytic-card">
           <h4>Среднее время доставки</h4>
-          <p className="big-value">28 мин</p>
+          <p className="big-value">{stats.avg_delivery_minutes != null ? `${stats.avg_delivery_minutes} мин` : '—'}</p>
         </div>
         <div className="analytic-card">
           <h4>Процент просрочки лотов</h4>
-          <p className="big-value yellow-text">4.2%</p>
-        </div>
-        <div className="analytic-card">
-          <h4>Активных волонтеров</h4>
-          <p className="big-value">156</p>
+          <p className="big-value yellow-text">{stats.percent_expired_lots != null ? `${stats.percent_expired_lots}%` : '—'}</p>
         </div>
       </div>
-      <button className="btn btn-secondary">Выгрузить отчет (XLSX)</button>
     </div>
   );
 
@@ -90,7 +135,7 @@ const AdminPanel = () => {
           <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>Аналитика</button>
         </nav>
       </aside>
-      
+
       <main className="main-content">
         {activeTab === 'moderation' && renderModeration()}
         {activeTab === 'dispatcher' && renderDispatcher()}

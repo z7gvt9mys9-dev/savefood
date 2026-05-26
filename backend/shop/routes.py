@@ -32,7 +32,7 @@ def create_lot(shop_id: int, payload: schemas.LotCreate):
         raise HTTPException(status_code=404, detail="Shop not found")
 
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address)
+    lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment)
     return {"id": lot_id}
 
 
@@ -43,6 +43,9 @@ def create_lot_upload(
     quantity: int = Form(...),
     expiry_date: Optional[str] = Form(None),
     address: Optional[str] = Form(None),
+    time_slot: Optional[str] = Form(None),
+    category: Optional[str] = Form(None),
+    comment: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
 ):
     shop = db.get_shop_by_id(shop_id)
@@ -58,7 +61,7 @@ def create_lot_upload(
             shutil.copyfileobj(file.file, out)
         photo_url = f"/uploads/{filename}"
 
-    lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address)
+    lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment)
     return {"id": lot_id}
 
 
@@ -82,10 +85,18 @@ def delete_lot(lot_id: int):
 @router.patch("/lots/{lot_id}", response_model=schemas.LotOut)
 def patch_lot(lot_id: int, payload: schemas.LotUpdate):
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address)
+    updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address, payload.category, payload.comment)
     if not updated:
         raise HTTPException(status_code=404, detail="Lot not found or cannot be updated")
     return updated
+
+
+@router.post("/lots/{lot_id}/confirm_transfer")
+def confirm_transfer(lot_id: int):
+    ok = db.confirm_lot_transfer(lot_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Lot not found or not in taken status")
+    return {"ok": True}
 
 
 @router.post("/lots/{lot_id}/take", response_model=schemas.LotOut)

@@ -9,21 +9,24 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const token = localStorage.getItem('token');
     const role = localStorage.getItem('role');
+    const relatedId = localStorage.getItem('related_id');
     if (token && role) {
-      setUser({ token, role });
+      setUser({ token, role, relatedId: relatedId ? Number(relatedId) : null });
     }
     setLoading(false);
   }, []);
 
-  const login = (token, role) => {
+  const login = (token, role, relatedId) => {
     localStorage.setItem('token', token);
     localStorage.setItem('role', role);
-    setUser({ token, role });
+    localStorage.setItem('related_id', relatedId != null ? String(relatedId) : '');
+    setUser({ token, role, relatedId: relatedId != null ? Number(relatedId) : null });
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    localStorage.removeItem('related_id');
     setUser(null);
   };
 

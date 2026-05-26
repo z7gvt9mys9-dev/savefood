@@ -40,7 +40,7 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: di
     if needy.get('status') != 'approved':
         raise HTTPException(status_code=403, detail="Account not approved yet")
 
-    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time)
+    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time, payload.lot_id)
     if ticket_id is None:
         raise HTTPException(status_code=400, detail="Ticket creation blocked: assistance is limited to once per 7 days")
     return {"id": ticket_id}
@@ -70,7 +70,7 @@ def get_needy(needy_id: int):
 
 @router.post("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
 def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
-    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency)
+    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
     return prof
@@ -78,7 +78,7 @@ def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
 
 @router.patch("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
 def patch_profile(needy_id: int, payload: schemas.NeedyProfileUpdate):
-    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency)
+    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
     return prof
@@ -112,12 +112,28 @@ def get_profile(needy_id: int):
 
 
 @router.patch("/needy/{needy_id}/moderation")
-def moderate_needy(needy_id: int, status: str):
+def moderate_needy(needy_id: int, status: str, current_user: dict = Depends(auth.get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     if status not in ('pending', 'approved', 'rejected'):
         raise HTTPException(status_code=400, detail="Invalid status")
     updated = db.set_needy_status(needy_id, status)
     if not updated:
         raise HTTPException(status_code=404, detail="Needy not found")
+    # §5: delete document from disk after approval/rejection to protect personal data
+    if status in ('approved', 'rejected'):
+        profile = db.get_profile(needy_id)
+        doc_path = profile.get('document') if profile else None
+        if doc_path:
+            # doc_path stored as "/needy_uploads/<filename>", resolve to absolute path
+            filename = os.path.basename(doc_path)
+            abs_path = os.path.join(UPLOAD_DIR, filename)
+            try:
+                if os.path.isfile(abs_path):
+                    os.remove(abs_path)
+                db.create_or_update_profile(needy_id, None, None, None, None, document=None)
+            except Exception:
+                pass
     return updated
 
 
