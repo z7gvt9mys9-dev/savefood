@@ -32,7 +32,7 @@ const ShopDashboard = () => {
 
     fetch(`http://localhost:8000/shops/${shopId}/history`)
       .then(res => res.json())
-      .then(data => setHistory(history));
+      .then(data => setHistory(data));
   }, []);
 
   const handleCreateLot = (e) => {

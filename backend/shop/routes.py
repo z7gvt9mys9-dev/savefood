@@ -5,6 +5,8 @@ import uuid
 import shutil
 
 from backend.shop import db, schemas
+from backend.database import create_user
+from backend.auth import get_password_hash
 
 router = APIRouter()
 
@@ -14,6 +16,12 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 @router.post("/shops/register")
 def register_shop(payload: schemas.ShopCreate):
     shop_id = db.create_shop(payload.name, payload.contact, payload.lat, payload.lon)
+    if payload.username and payload.password:
+        hashed = get_password_hash(payload.password)
+        try:
+            create_user(payload.username, hashed, "shop", shop_id)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": shop_id}
 
 

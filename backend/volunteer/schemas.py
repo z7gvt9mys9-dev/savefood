@@ -8,6 +8,8 @@ class VolunteerCreate(BaseModel):
     contact: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class VolunteerUpdate(BaseModel):

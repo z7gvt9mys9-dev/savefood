@@ -42,3 +42,11 @@ def init_common_db():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+def create_user(username, hashed_password, role, related_id=None):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (username, hashed_password, role, related_id) VALUES (%s, %s, %s, %s) RETURNING id",
+            (username, hashed_password, role, related_id)
+        )
+        return cur.fetchone()['id']

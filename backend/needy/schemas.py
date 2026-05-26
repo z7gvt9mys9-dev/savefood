@@ -6,6 +6,8 @@ from datetime import datetime
 class NeedyCreate(BaseModel):
     name: str = Field(..., example="John Doe")
     contact: Optional[str] = Field(None, example="+7 900 000 00 00")
+    username: Optional[str] = None
+    password: Optional[str] = None
 
 
 class NeedyOut(BaseModel):

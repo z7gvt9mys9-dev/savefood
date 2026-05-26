@@ -8,6 +8,7 @@ from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
 from backend import auth
+from backend.database import create_user
 
 router = APIRouter()
 
@@ -17,6 +18,12 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 @router.post("/needy/register")
 def register_needy(payload: schemas.NeedyCreate):
     needy_id = db.create_needy(payload.name, payload.contact)
+    if payload.username and payload.password:
+        hashed = auth.get_password_hash(payload.password)
+        try:
+            create_user(payload.username, hashed, "needy", needy_id)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": needy_id}
 
 

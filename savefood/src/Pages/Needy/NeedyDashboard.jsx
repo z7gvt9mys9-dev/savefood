@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import AddressInput from '../Auth/AddressInput';
 import './Needy.css';
 
@@ -7,6 +7,11 @@ const NeedyDashboard = () => {
   const [status, setStatus] = useState('verified'); // verified, pending, rejected
   const [activeOrder, setActiveOrder] = useState(null);
   const [lots, setLots] = useState([]);
+
+  const lotPositions = useMemo(
+    () => lots.map(lot => ({ ...lot, _top: Math.random() * 80, _left: Math.random() * 80 })),
+    [lots]
+  );
 
   useEffect(() => {
     fetch('http://localhost:8000/stats') // Mocking lot list fetch
@@ -66,8 +71,8 @@ const NeedyDashboard = () => {
       <div className="map-placeholder">
         <p>Интерактивная карта лотов</p>
         <div className="map-mock">
-          {lots.map(lot => (
-            <div key={lot.id} className="map-marker" style={{top: `${Math.random()*80}%`, left: `${Math.random()*80}%`}}>
+          {lotPositions.map(lot => (
+            <div key={lot.id} className="map-marker" style={{top: `${lot._top}%`, left: `${lot._left}%`}}>
               📍
             </div>
           ))}

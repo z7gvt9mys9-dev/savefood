@@ -1,5 +1,12 @@
 import math
-from datetime import datetime
+from datetime import datetime, timezone
+
+def ensure_aware_utc(dt):
+    if dt is None:
+        return None
+    if hasattr(dt, 'tzinfo') and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 def haversine(lat1, lon1, lat2, lon2):
     """

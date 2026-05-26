@@ -158,6 +158,7 @@ const VolunteerDashboard = () => {
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

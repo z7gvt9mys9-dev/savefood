@@ -45,29 +45,44 @@ const AuthPage = () => {
       alert("Необходимо согласие на обработку персональных данных");
       return;
     }
-    
+
     if (isLogin) {
       try {
-        const formDataLogin = new FormData();
-        formDataLogin.append('username', role === 'shop' ? formData.email : formData.phone);
-        formDataLogin.append('password', formData.password || 'password123'); // Default for SMS flow in demo
-
-        const res = await fetch('http://localhost:8000/auth/login', {
-          method: 'POST',
-          body: formDataLogin,
-        });
-
-        if (!res.ok) throw new Error('Ошибка входа');
+        const fd = new FormData();
+        fd.append('username', role === 'shop' ? formData.email : formData.phone);
+        fd.append('password', formData.password);
+        const res = await fetch('http://localhost:8000/auth/login', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('Неверный логин или пароль');
         const data = await res.json();
-        
         login(data.access_token, data.role);
         navigate(`/${data.role}`);
       } catch (err) {
         alert(err.message);
       }
     } else {
-      console.log('Registration not fully implemented in demo backend');
-      alert('Регистрация успешно отправлена на модерацию!');
+      try {
+        let endpoint = '';
+        let body = {};
+        if (role === 'shop') {
+          endpoint = 'http://localhost:8000/shops/register';
+          body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, username: formData.email, password: formData.password };
+        } else if (role === 'volunteer') {
+          endpoint = 'http://localhost:8000/volunteers/register';
+          body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
+        } else {
+          endpoint = 'http://localhost:8000/needy/register';
+          body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
+        }
+        const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Ошибка регистрации');
+        }
+        alert('Регистрация завершена! Теперь вы можете войти.');
+        setIsLogin(true);
+      } catch (err) {
+        alert(err.message);
+      }
     }
   };
 
@@ -106,7 +121,7 @@ const AuthPage = () => {
       ) : (
         <>
           <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-          <p className="hint">Код подтверждения придет в SMS</p>
+          <input type="password" name="password" placeholder="Пароль" onChange={handleInputChange} required />
         </>
       )}
 
@@ -151,7 +166,8 @@ const AuthPage = () => {
       <h2>Стать Волонтером</h2>
       <input type="text" name="name" placeholder="Ваше имя" onChange={handleInputChange} required />
       <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-      
+      <input type="password" name="password" placeholder="Придумайте пароль" onChange={handleInputChange} required />
+
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
@@ -176,7 +192,8 @@ const AuthPage = () => {
           <p className="subtitle">Первичная регистрация и подача документов</p>
           <input type="text" name="name" placeholder="ФИО" onChange={handleInputChange} required />
           <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-          
+          <input type="password" name="password" placeholder="Придумайте пароль" onChange={handleInputChange} required />
+
           <div className="file-upload">
             <label>Документ, подтверждающий статус (Многодетность/Малоимущность)</label>
             <input type="file" onChange={(e) => setFormData({...formData, document: e.target.files[0]})} required />

@@ -3,10 +3,12 @@ import json
 import math
 import logging
 
+from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
+from backend.auth import get_password_hash
 from datetime import datetime, timezone
 from datetime import time as dtime
 
@@ -16,6 +18,12 @@ router = APIRouter()
 @router.post("/volunteers/register")
 def register(vol: vschemas.VolunteerCreate):
     vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon)
+    if vol.username and vol.password:
+        hashed = get_password_hash(vol.password)
+        try:
+            create_user(vol.username, hashed, "volunteer", vid)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": vid}
 
 
@@ -23,44 +31,46 @@ def register(vol: vschemas.VolunteerCreate):
 def get_map_points():
     # return shops with their active lots (grouped by shop) and needy tickets with coords
     shops_map = {}
-    conn = shopdb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity FROM shops s JOIN lots l ON s.id = l.shop_id WHERE l.status = 'active' AND (l.expiry_date IS NULL OR date(l.expiry_date) > date('now', '+1 day'))")
-    for r in cur.fetchall():
-        if r['lat'] is None or r['lon'] is None:
-            continue
-        sid = r['shop_id']
-        if sid not in shops_map:
-            shops_map[sid] = {
-                'shop_id': sid,
-                'name': r['name'],
-                'lat': r['lat'],
-                'lon': r['lon'],
-                'lots': []
-            }
-        shops_map[sid]['lots'].append({
-            'lot_id': r['lot_id'],
-            'description': r['description'],
-            'quantity': r['quantity']
-        })
-    conn.close()
+    with get_db_cursor() as cur:
+        cur.execute("""
+            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity 
+            FROM shops s 
+            JOIN lots l ON s.id = l.shop_id 
+            WHERE l.status = 'active' 
+            AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
+        """)
+        for r in cur.fetchall():
+            if r['lat'] is None or r['lon'] is None:
+                continue
+            sid = r['shop_id']
+            if sid not in shops_map:
+                shops_map[sid] = {
+                    'shop_id': sid,
+                    'name': r['name'],
+                    'lat': r['lat'],
+                    'lon': r['lon'],
+                    'lots': []
+                }
+            shops_map[sid]['lots'].append({
+                'lot_id': r['lot_id'],
+                'description': r['description'],
+                'quantity': r['quantity']
+            })
 
     shops = list(shops_map.values())
 
     tickets = []
-    conn = needydb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
-    for r in cur.fetchall():
-        tickets.append({
-            'ticket_id': r['id'],
-            'needy_id': r['needy_id'],
-            'items': r['items'],
-            'available_time': r['available_time'],
-            'lat': r['lat'],
-            'lon': r['lon']
-        })
-    conn.close()
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
+        for r in cur.fetchall():
+            tickets.append({
+                'ticket_id': r['id'],
+                'needy_id': r['needy_id'],
+                'items': r['items'],
+                'available_time': r['available_time'],
+                'lat': r['lat'],
+                'lon': r['lon']
+            })
 
     return {'shops': shops, 'tickets': tickets}
 
@@ -127,18 +137,15 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     vol_name = vol.get('name') or f"volunteer_{volunteer_id}"
 
     # get lot and its shop coordinates
-    conn = shopdb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM lots WHERE id = ?", (payload.lot_id,))
-    lot = cur.fetchone()
-    if not lot:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Lot not found")
-    cur.execute("SELECT * FROM shops WHERE id = ?", (lot['shop_id'],))
-    shop = cur.fetchone()
-    conn.close()
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM lots WHERE id = %s", (payload.lot_id,))
+        lot = cur.fetchone()
+        if not lot:
+            raise HTTPException(status_code=404, detail="Lot not found")
+        cur.execute("SELECT * FROM shops WHERE id = %s", (lot['shop_id'],))
+        shop = cur.fetchone()
+        if not shop:
+            raise HTTPException(status_code=404, detail="Shop not found")
 
     if shop['lat'] is None or shop['lon'] is None:
         raise HTTPException(status_code=400, detail="Shop has no coordinates")
@@ -149,15 +156,12 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
         raise HTTPException(status_code=400, detail="Lot is not available")
 
     # collect open tickets with coords
-    conn = needydb.get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
-    tickets = [dict(r) for r in cur.fetchall()]
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
+        tickets = [dict(r) for r in cur.fetchall()]
+    
     # filter by available_time (only include tickets where needy is at home now or not specified)
     tickets = [t for t in tickets if is_available_now(t.get('available_time'))]
-    conn.close()
-
-
 
     # greedy selection using priority scoring + distance tie-breaker
     def compute_score(t):
@@ -213,26 +217,11 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     # attempt to assign tickets, skip those that are no longer open
     assigned_ids = set()
     if order:
-        conn = needydb.get_conn()
-        cur = conn.cursor()
-        try:
+        with get_db_cursor() as cur:
             for t in order:
-                cur.execute("UPDATE tickets SET status = 'assigned', assigned_volunteer = ? WHERE id = ? AND status = 'open'", (vol_name, t['id']))
+                cur.execute("UPDATE tickets SET status = 'assigned', assigned_volunteer = %s WHERE id = %s AND status = 'open'", (vol_name, t['id']))
                 if cur.rowcount > 0:
                     assigned_ids.add(t['id'])
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            try:
-                conn.rollback()
-                conn.close()
-            except Exception:
-                pass
-            try:
-                shopdb.release_lot(payload.lot_id)
-            except Exception:
-                logging.exception("Failed to release lot %s after ticket assignment error", payload.lot_id)
-            raise HTTPException(status_code=500, detail=f"Failed to assign tickets: {e}")
 
     # remove points for tickets that were not assigned
     filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
@@ -288,47 +277,40 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
 
     # if ticket point — mark ticket fulfilled
     if point.get('kind') == 'ticket' and point.get('ticket_id'):
-        conn = needydb.get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM tickets WHERE id = ?", (point['ticket_id'],))
-        t = cur.fetchone()
-        if not t:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Ticket not found")
-        t_row = dict(t)
-        cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? WHERE id = ?", (datetime.now(timezone.utc), point['ticket_id']))
-        conn.commit()
-        conn.close()
-        try:
-            needydb.set_profile_last_received(t_row['needy_id'], datetime.now(timezone.utc))
-        except Exception:
-            logging.exception("Failed to update last_received_at for needy %s", t_row['needy_id'])
+        with get_db_cursor() as cur:
+            cur.execute("SELECT * FROM tickets WHERE id = %s", (point['ticket_id'],))
+            t = cur.fetchone()
+            if not t:
+                raise HTTPException(status_code=404, detail="Ticket not found")
+            t_row = dict(t)
+            cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = %s WHERE id = %s", (datetime.now(timezone.utc), point['ticket_id']))
+            try:
+                needydb.set_profile_last_received(t_row['needy_id'], datetime.now(timezone.utc))
+            except Exception:
+                logging.exception("Failed to update last_received_at for needy %s", t_row['needy_id'])
 
     # if completing shop point — notify needy that volunteer is en route
     if point.get('kind') == 'shop':
         # notify all remaining ticket points in route that are not done
         vol = vdb.get_volunteer_by_id(payload.volunteer_id)
         vol_name = vol.get('name') if vol else f"volunteer_{payload.volunteer_id}"
-        conn = needydb.get_conn()
-        cur = conn.cursor()
-        for p in points:
-            if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
-                # fetch ticket to get needy_id and current status
-                cur.execute("SELECT * FROM tickets WHERE id = ?", (p.get('ticket_id'),))
-                t = cur.fetchone()
-                if not t:
-                    continue
-                # only notify if ticket is still open or already assigned
-                if t['status'] not in ('open','assigned'):
-                    continue
-                needy_id = t['needy_id']
-                payload_text = f"Volunteer {vol_name} is en route to your request (ticket {p.get('ticket_id')})"
-                cur.execute(
-                    "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-                    (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),
-                )
-        conn.commit()
-        conn.close()
+        with get_db_cursor() as cur:
+            for p in points:
+                if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
+                    # fetch ticket to get needy_id and current status
+                    cur.execute("SELECT * FROM tickets WHERE id = %s", (p.get('ticket_id'),))
+                    t = cur.fetchone()
+                    if not t:
+                        continue
+                    # only notify if ticket is still open or already assigned
+                    if t['status'] not in ('open','assigned'):
+                        continue
+                    needy_id = t['needy_id']
+                    payload_text = f"Volunteer {vol_name} is en route to your request (ticket {p.get('ticket_id')})"
+                    cur.execute(
+                        "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                        (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),
+                    )
 
     # mark point as done and persist
     points[target_idx]['done'] = True
@@ -389,16 +371,13 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest):
     # release any assigned but uncompleted tickets back to open
     try:
         points = json.loads(route.get('points') or '[]')
-        conn = needydb.get_conn()
-        cur = conn.cursor()
-        for p in points:
-            if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
-                cur.execute(
-                    "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = ? AND status = 'assigned'",
-                    (p['ticket_id'],)
-                )
-        conn.commit()
-        conn.close()
+        with get_db_cursor() as cur:
+            for p in points:
+                if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
+                    cur.execute(
+                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
+                        (p['ticket_id'],)
+                    )
     except Exception:
         logging.exception('Failed to release assigned tickets when finishing route')
 
