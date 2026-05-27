@@ -10,3 +10,4 @@ python-v2ray>=0.1.8
 aiogram>=3.0.0
 alembic>=1.12.0
 sqlalchemy>=2.0.0
+slowapi>=0.1.9

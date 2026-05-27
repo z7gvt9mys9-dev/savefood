@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import './Header.css';
 
@@ -32,14 +32,14 @@ const Header = () => {
 
         <nav className={`nav ${open ? 'open' : ''}`}>
           <ul className="nav-links">
-            <li><Link to="/" onClick={close}>Главная</Link></li>
-            <li><Link to="/about" onClick={close}>О проекте</Link></li>
+            <li><NavLink to="/" end onClick={close}>Главная</NavLink></li>
+            <li><NavLink to="/about" onClick={close}>О проекте</NavLink></li>
             {user ? (
               <>
                 <li>
-                  <Link to={ROLE_PATHS[user.role] || '/'} className="nav-profile" onClick={close}>
+                  <NavLink to={ROLE_PATHS[user.role] || '/'} className="nav-profile" onClick={close}>
                     {ROLE_LABELS[user.role] || user.role}
-                  </Link>
+                  </NavLink>
                 </li>
                 <li>
                   <button className="btn-logout" onClick={handleLogout}>Выйти</button>

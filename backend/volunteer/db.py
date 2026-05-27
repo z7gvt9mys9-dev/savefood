@@ -17,6 +17,7 @@ def init_db():
             )
             """
         )
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE")
 
         cur.execute(
             """
@@ -133,3 +134,16 @@ def get_active_route(volunteer_id: int) -> Optional[Dict[str, Any]]:
 def update_route_points(route_id: int, points_json: str):
     with get_db_cursor() as cur:
         cur.execute("UPDATE volunteer_routes SET points = %s WHERE id = %s", (points_json, route_id))
+
+def update_volunteer_location(vol_id: int, lat: float, lon: float):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteers SET lat = %s, lon = %s, updated_at = %s WHERE id = %s",
+            (lat, lon, datetime.now(timezone.utc), vol_id),
+        )
+
+def get_volunteer_location(vol_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT lat, lon, updated_at FROM volunteers WHERE id = %s", (vol_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None

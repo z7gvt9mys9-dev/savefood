@@ -1,7 +1,9 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 import json
 import math
 import logging
+import os
+import uuid
 
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
@@ -12,6 +14,9 @@ from backend.auth import get_password_hash, get_current_user
 from backend import telegram_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
 
@@ -243,7 +248,21 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     points = []
     points.append({'kind':'shop','lat':shop['lat'],'lon':shop['lon'],'description':shop['name'],'ticket_id':None})
     for t in order:
-        points.append({'kind':'ticket','lat':t['lat'],'lon':t['lon'],'description':t['items'],'ticket_id':t['id']})
+        addr_parts = []
+        if t.get('apartment'): addr_parts.append(f"кв. {t['apartment']}")
+        if t.get('floor_num'): addr_parts.append(f"этаж {t['floor_num']}")
+        if t.get('entrance'): addr_parts.append(f"подъезд {t['entrance']}")
+        points.append({
+            'kind': 'ticket',
+            'lat': t['lat'],
+            'lon': t['lon'],
+            'description': t['items'],
+            'ticket_id': t['id'],
+            'apartment': t.get('apartment'),
+            'floor_num': t.get('floor_num'),
+            'entrance': t.get('entrance'),
+            'addr_detail': ', '.join(addr_parts) if addr_parts else None,
+        })
 
     # attempt to assign tickets, skip those that are no longer open
     assigned_ids = set()
@@ -454,3 +473,134 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest):
 
     vdb.finish_route(route_id)
     return {'ok': True}
+
+
+@router.post("/volunteers/route/{route_id}/attempt_delivery")
+def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest):
+    route = vdb.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    if route['volunteer_id'] != payload.volunteer_id:
+        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+
+    try:
+        points = json.loads(route['points'])
+    except Exception:
+        points = []
+
+    target_idx = None
+    for i, p in enumerate(points):
+        if p.get('kind') == 'ticket' and p.get('ticket_id') == payload.ticket_id:
+            target_idx = i
+            break
+
+    if target_idx is None:
+        raise HTTPException(status_code=404, detail="Point not found in route")
+
+    if points[target_idx].get('done'):
+        raise HTTPException(status_code=400, detail="Point already completed")
+
+    attempt_count = points[target_idx].get('attempt_count', 0) + 1
+    points[target_idx]['attempt_count'] = attempt_count
+
+    with get_db_cursor() as cur:
+        cur.execute("SELECT needy_id FROM tickets WHERE id = %s", (payload.ticket_id,))
+        row = cur.fetchone()
+        if row:
+            needy_id = row['needy_id']
+            msg = f"Волонтёр приходил, но вы не открыли дверь. Попытка #{attempt_count}. Ожидаем звонка в течение 10 минут."
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                (needy_id, 'delivery_attempted', msg, datetime.now(timezone.utc)),
+            )
+            try:
+                telegram_service.notify_needy(needy_id, msg)
+            except Exception:
+                pass
+
+    vdb.update_route_points(route_id, json.dumps(points, ensure_ascii=False))
+    return {'ok': True, 'attempt_count': attempt_count}
+
+
+@router.get("/volunteers/{volunteer_id}/stats")
+def volunteer_stats(volunteer_id: int):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) as total_routes FROM volunteer_routes WHERE volunteer_id = %s",
+            (volunteer_id,),
+        )
+        total_routes = cur.fetchone()['total_routes']
+
+        cur.execute(
+            """
+            SELECT COUNT(*) as total_deliveries
+            FROM volunteer_routes vr
+            JOIN tickets t ON t.assigned_volunteer_id = vr.volunteer_id
+            WHERE vr.volunteer_id = %s AND t.status = 'fulfilled'
+            """,
+            (volunteer_id,),
+        )
+        total_deliveries = cur.fetchone()['total_deliveries']
+
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(l.quantity), 0) as total_kg
+            FROM volunteer_routes vr
+            JOIN lots l ON l.id = vr.lot_id
+            WHERE vr.volunteer_id = %s AND vr.status = 'finished'
+            """,
+            (volunteer_id,),
+        )
+        total_kg = cur.fetchone()['total_kg']
+
+        cur.execute(
+            """
+            SELECT ROUND(AVG(rating)::numeric, 1) as avg_rating, COUNT(*) as rating_count
+            FROM delivery_ratings
+            WHERE volunteer_id = %s
+            """,
+            (volunteer_id,),
+        )
+        rating_row = cur.fetchone()
+
+    return {
+        'total_routes': total_routes,
+        'total_deliveries': total_deliveries,
+        'total_kg': float(total_kg),
+        'avg_rating': float(rating_row['avg_rating']) if rating_row['avg_rating'] else None,
+        'rating_count': int(rating_row['rating_count']),
+    }
+
+
+@router.patch("/volunteers/{volunteer_id}/location")
+def update_location(volunteer_id: int, payload: vschemas.LocationUpdate):
+    vdb.update_volunteer_location(volunteer_id, payload.lat, payload.lon)
+    return {'ok': True}
+
+
+@router.get("/volunteers/{volunteer_id}/location")
+def get_location(volunteer_id: int):
+    loc = vdb.get_volunteer_location(volunteer_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    return loc
+
+
+@router.post("/volunteers/route/{route_id}/point/{ticket_id}/photo")
+async def upload_delivery_photo(route_id: int, ticket_id: int, file: UploadFile = File(...)):
+    route = vdb.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    ext = os.path.splitext(file.filename or '')[-1] or '.jpg'
+    filename = f"route{route_id}_ticket{ticket_id}_{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+    content = await file.read()
+    with open(filepath, 'wb') as f:
+        f.write(content)
+
+    photo_url = f"/volunteer_uploads/{filename}"
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE tickets SET delivery_photo = %s WHERE id = %s", (photo_url, ticket_id))
+
+    return {'photo_url': photo_url}

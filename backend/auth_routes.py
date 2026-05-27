@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from backend import auth
 from backend.database import get_db_cursor
+from backend.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
+@limiter.limit("5/minute")
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM users WHERE username = %s", (form_data.username,))
         user = cur.fetchone()

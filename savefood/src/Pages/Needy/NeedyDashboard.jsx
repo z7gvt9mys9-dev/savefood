@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
 import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import AddressInput from '../Auth/AddressInput';
@@ -23,12 +23,14 @@ const NeedyDashboard = () => {
   const [history, setHistory] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '' });
+  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '' });
   const [tgLink, setTgLink] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [ratings, setRatings] = useState({});
+  const [volunteerLocation, setVolunteerLocation] = useState(null);
+  const locationPollRef = useRef(null);
 
   const lotPositions = useMemo(
     () => lots.map(lot => ({ ...lot, _top: Math.random() * 80, _left: Math.random() * 80 })),
@@ -111,6 +113,22 @@ const NeedyDashboard = () => {
     return () => { clearTimeout(reconnectTimer); ws?.close(); };
   }, [needyId]);
 
+  useEffect(() => {
+    if (locationPollRef.current) clearInterval(locationPollRef.current);
+    const assignedVolunteerId = activeOrder?.assigned_volunteer_id;
+    const ticketFulfilled = activeOrder?.status === 'fulfilled';
+    if (!assignedVolunteerId || ticketFulfilled) { setVolunteerLocation(null); return; }
+    const poll = () => {
+      fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data && data.lat && data.lon) setVolunteerLocation(data); })
+        .catch(() => {});
+    };
+    poll();
+    locationPollRef.current = setInterval(poll, 15000);
+    return () => clearInterval(locationPollRef.current);
+  }, [activeOrder?.assigned_volunteer_id, activeOrder?.status]);
+
   const handleBook = async (lot) => {
     if (!needyId) { alert('Необходима авторизация'); return; }
     try {
@@ -119,9 +137,12 @@ const NeedyDashboard = () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({
           items: lot.description,
-          address: lot.address || '',
+          address: profile.address || '',
           lot_id: lot.id,
           available_time: profile.available_time || '',
+          apartment: profile.apartment || null,
+          floor_num: profile.floor_num || null,
+          entrance: profile.entrance || null,
         }),
       });
       if (!res.ok) {
@@ -203,6 +224,9 @@ const NeedyDashboard = () => {
           preferences: profile.preferences,
           urgency: profile.urgency,
           available_time: profile.available_time,
+          apartment: profile.apartment || null,
+          floor_num: profile.floor_num || null,
+          entrance: profile.entrance || null,
         }),
       });
       if (!res.ok) { alert('Ошибка сохранения'); return; }
@@ -219,7 +243,7 @@ const NeedyDashboard = () => {
         <AddressInput
           label="Адрес проживания"
           value={profile.address}
-          onChange={(addr) => setProfile({ ...profile, address: addr.address })}
+          onChange={(addr) => setProfile({ ...profile, address: addr.address, apartment: addr.apartment || profile.apartment, floor_num: addr.floor_num || profile.floor_num, entrance: addr.entrance || profile.entrance })}
         />
         <div className="form-row">
           <div className="form-group">
@@ -311,6 +335,13 @@ const NeedyDashboard = () => {
                 options={{ preset: 'islands#greenFoodIcon', iconColor: '#2ecc71' }}
               />
             ))}
+            {volunteerLocation && volunteerLocation.lat && volunteerLocation.lon && (
+              <Placemark
+                geometry={[volunteerLocation.lat, volunteerLocation.lon]}
+                properties={{ balloonContent: 'Волонтёр', hintContent: 'Волонтёр' }}
+                options={{ preset: 'islands#bluePersonIcon' }}
+              />
+            )}
           </Map>
         </YMaps>
         {lotsWithCoords.length === 0 && (
@@ -438,6 +469,11 @@ const NeedyDashboard = () => {
                   <p><strong>{t.items || 'Продукты'}</strong></p>
                   <p>Статус: {t.status === 'fulfilled' ? 'Получено' : 'В процессе'}</p>
                   <p>{new Date(t.created_at).toLocaleDateString()}</p>
+                  {t.delivery_photo && (
+                    <a href={`${API_URL}${t.delivery_photo}`} target="_blank" rel="noreferrer">
+                      <img src={`${API_URL}${t.delivery_photo}`} alt="Фото доставки" className="delivery-photo-thumb" />
+                    </a>
+                  )}
                   {t.status === 'fulfilled' && (
                     <div className="rating-row">
                       <span style={{ color: '#aaa', fontSize: '0.85em' }}>Оценить: </span>

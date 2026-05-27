@@ -206,6 +206,10 @@
   margin-top: 8px;
 }
 
+/* ─── Delivery attempt ─── */
+.btn-warning { border-color: #f39c12; color: #f39c12; }
+.btn-warning:hover { background: rgba(243,156,18,0.1); }
+
 /* ─── Desktop layout ─── */
 @media (min-width: 769px) {
   .mobile-container {

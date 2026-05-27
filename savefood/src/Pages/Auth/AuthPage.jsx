@@ -9,6 +9,8 @@ const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [role, setRole] = useState('shop'); // shop, volunteer, needy
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
+  const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
+  const [regToken, setRegToken] = useState(null); // token after registration
 
   const [formData, setFormData] = useState({
     email: '',
@@ -88,8 +90,19 @@ const AuthPage = () => {
             body: fd,
           }).catch(() => {});
         }
-        alert('Регистрация завершена! Теперь вы можете войти.');
-        setIsLogin(true);
+        // Auto-login to get token for TG linking
+        try {
+          const loginUsername = (role === 'shop') ? formData.email : formData.phone;
+          const fd = new FormData();
+          fd.append('username', loginUsername);
+          fd.append('password', formData.password);
+          const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            setRegToken(loginData.access_token);
+          }
+        } catch {}
+        setTgStep(true);
       } catch (err) {
         alert(err.message);
       }
@@ -269,14 +282,47 @@ const AuthPage = () => {
     );
   };
 
+  const renderTgStep = () => (
+    <div className="auth-form">
+      <h2>Привяжите Telegram для уведомлений</h2>
+      <p style={{ color: '#aaa', marginBottom: 20 }}>Получайте уведомления о доставках прямо в Telegram</p>
+      {regToken && (
+        <button
+          className="btn btn-primary"
+          style={{ marginBottom: 12 }}
+          onClick={async () => {
+            try {
+              const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
+                headers: { Authorization: `Bearer ${regToken}` },
+              });
+              if (!res.ok) { alert('Ошибка генерации ссылки'); return; }
+              const data = await res.json();
+              window.open(data.link, '_blank');
+            } catch { alert('Ошибка подключения'); }
+          }}
+        >
+          Открыть Telegram
+        </button>
+      )}
+      <button
+        className="btn btn-secondary"
+        onClick={() => { setTgStep(false); setIsLogin(true); }}
+      >
+        Пропустить
+      </button>
+    </div>
+  );
+
   return (
     <div className="auth-container">
       <div className="auth-card">
-        {renderRoleSelection()}
-        {isLogin ? renderLoginForm() : (
-          role === 'shop' ? renderShopReg() :
-          role === 'volunteer' ? renderVolunteerReg() :
-          renderNeedyReg()
+        {!tgStep && renderRoleSelection()}
+        {tgStep ? renderTgStep() : (
+          isLogin ? renderLoginForm() : (
+            role === 'shop' ? renderShopReg() :
+            role === 'volunteer' ? renderVolunteerReg() :
+            renderNeedyReg()
+          )
         )}
       </div>
     </div>

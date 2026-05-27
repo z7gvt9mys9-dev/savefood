@@ -165,6 +165,16 @@
 }
 .limit-notice p { margin: 0; }
 
+/* ─── Delivery photo thumbnail ─── */
+.delivery-photo-thumb {
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  margin-top: 8px;
+  border: 1px solid #2a2a2a;
+}
+
 /* ─── Mobile ─── */
 @media (max-width: 768px) {
   .map-container { height: 300px; border-radius: 8px; }

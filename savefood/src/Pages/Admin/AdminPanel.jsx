@@ -11,6 +11,7 @@ const AdminPanel = () => {
   const [stats, setStats] = useState({});
   const [activeRoutes, setActiveRoutes] = useState([]);
   const [users, setUsers] = useState([]);
+  const [auditLog, setAuditLog] = useState([]);
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -38,8 +39,16 @@ const AdminPanel = () => {
     fetchData();
   }, []);
 
+  const fetchAuditLog = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/audit?limit=50&offset=0`, { headers: authHeader });
+      if (res.ok) setAuditLog(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
+    if (activeTab === 'audit') fetchAuditLog();
   }, [activeTab]);
 
   const handleApprove = async (id) => {
@@ -248,6 +257,36 @@ const AdminPanel = () => {
     </div>
   );
 
+  const renderAuditLog = () => (
+    <div className="admin-tab">
+      <h2>Журнал действий</h2>
+      <table className="admin-table audit-table">
+        <thead>
+          <tr>
+            <th>Время</th>
+            <th>Действие</th>
+            <th>Admin</th>
+            <th>Объект</th>
+            <th>Детали</th>
+          </tr>
+        </thead>
+        <tbody>
+          {auditLog.length === 0 ? (
+            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>Журнал пуст</td></tr>
+          ) : auditLog.map(entry => (
+            <tr key={entry.id}>
+              <td className="audit-time">{new Date(entry.created_at).toLocaleString()}</td>
+              <td><span className="audit-action">{entry.action}</span></td>
+              <td>{entry.actor_username || '—'}</td>
+              <td>{entry.target_type ? `${entry.target_type} #${entry.target_id}` : '—'}</td>
+              <td>{entry.details || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <div className="dashboard-container admin-container">
       <aside className="sidebar">
@@ -257,6 +296,7 @@ const AdminPanel = () => {
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>Диспетчерская</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>Пользователи</button>
           <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>Аналитика</button>
+          <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>Логи</button>
         </nav>
       </aside>
 
@@ -265,6 +305,7 @@ const AdminPanel = () => {
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}
         {activeTab === 'analytics' && renderAnalytics()}
+        {activeTab === 'audit' && renderAuditLog()}
       </main>
     </div>
   );

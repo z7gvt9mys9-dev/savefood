@@ -52,12 +52,34 @@ def init_common_db():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id SERIAL PRIMARY KEY,
+                actor_username TEXT,
+                action TEXT NOT NULL,
+                target_type TEXT,
+                target_id INTEGER,
+                details TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # tickets-dependent DDL is in init_ticket_extensions(), called after needy init_db
+
+def log_action(actor_username, action, target_type=None, target_id=None, details=None):
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO audit_log (actor_username, action, target_type, target_id, details) VALUES (%s, %s, %s, %s, %s)",
+                (actor_username, action, target_type, target_id, details),
+            )
+    except Exception:
+        pass
 
 def init_ticket_extensions():
     """Run after needy init_db() so the tickets table exists."""
     with get_db_cursor() as cur:
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_volunteer_id INTEGER")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo TEXT")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS delivery_ratings (
                 ticket_id INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,

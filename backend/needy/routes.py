@@ -42,7 +42,7 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: di
     if needy.get('status') != 'approved':
         raise HTTPException(status_code=403, detail="Account not approved yet")
 
-    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time, payload.lot_id)
+    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, payload.lat, payload.lon, payload.available_time, payload.lot_id, payload.apartment, payload.floor_num, payload.entrance)
     if ticket_id is None:
         raise HTTPException(status_code=400, detail="Ticket creation blocked: assistance is limited to once per 7 days")
     return {"id": ticket_id}
@@ -72,7 +72,7 @@ def get_needy(needy_id: int):
 
 @router.post("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
 def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
-    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time)
+    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time, apartment=payload.apartment, floor_num=payload.floor_num, entrance=payload.entrance)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
     return prof
@@ -80,7 +80,7 @@ def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
 
 @router.patch("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
 def patch_profile(needy_id: int, payload: schemas.NeedyProfileUpdate):
-    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time)
+    prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time, apartment=payload.apartment, floor_num=payload.floor_num, entrance=payload.entrance)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
     return prof

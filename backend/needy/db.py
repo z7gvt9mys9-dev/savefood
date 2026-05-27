@@ -39,6 +39,9 @@ def init_db():
             """
         )
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS lot_id INTEGER")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS apartment TEXT")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS floor_num TEXT")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS entrance TEXT")
 
         cur.execute(
             """
@@ -69,6 +72,9 @@ def init_db():
             """
         )
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS available_time TEXT")
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS apartment TEXT")
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS floor_num TEXT")
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS entrance TEXT")
 
 def create_needy(name: str, contact: Optional[str]) -> int:
     with get_db_cursor() as cur:
@@ -85,7 +91,7 @@ def get_needy_by_id(needy_id: int) -> Optional[Dict[str, Any]]:
         row = cur.fetchone()
         return dict(row) if row else None
 
-def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None, lot_id: Optional[int] = None) -> Optional[int]:
+def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None, lot_id: Optional[int] = None, apartment: Optional[str] = None, floor_num: Optional[str] = None, entrance: Optional[str] = None) -> Optional[int]:
     with get_db_cursor() as cur:
         cur.execute("SELECT last_received_at FROM needy_profile WHERE needy_id = %s", (needy_id,))
         pr = cur.fetchone()
@@ -95,8 +101,8 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
                 return None
 
         cur.execute(
-            "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
-            (needy_id, items, address, lat, lon, available_time, lot_id, datetime.now(timezone.utc)),
+            "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
+            (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, datetime.now(timezone.utc)),
         )
         tid = cur.fetchone()['id']
         return tid
@@ -158,7 +164,7 @@ def update_needy(needy_id: int, name: str, contact: Optional[str]) -> Optional[D
         updated = cur.fetchone()
         return dict(updated)
 
-def create_or_update_profile(needy_id: int, address: Optional[str], family_size: Optional[int], preferences: Optional[str], urgency: Optional[str], document: Optional[str] = None, available_time: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def create_or_update_profile(needy_id: int, address: Optional[str], family_size: Optional[int], preferences: Optional[str], urgency: Optional[str], document: Optional[str] = None, available_time: Optional[str] = None, apartment: Optional[str] = None, floor_num: Optional[str] = None, entrance: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))
         if not cur.fetchone():
@@ -173,14 +179,17 @@ def create_or_update_profile(needy_id: int, address: Optional[str], family_size:
             new_urgency = urgency if urgency is not None else p['urgency']
             new_document = document if document is not None else p['document']
             new_available_time = available_time if available_time is not None else p.get('available_time')
+            new_apartment = apartment if apartment is not None else p.get('apartment')
+            new_floor_num = floor_num if floor_num is not None else p.get('floor_num')
+            new_entrance = entrance if entrance is not None else p.get('entrance')
             cur.execute(
-                "UPDATE needy_profile SET address = %s, family_size = %s, preferences = %s, urgency = %s, document = %s, available_time = %s WHERE needy_id = %s",
-                (new_address, new_family_size, new_preferences, new_urgency, new_document, new_available_time, needy_id),
+                "UPDATE needy_profile SET address = %s, family_size = %s, preferences = %s, urgency = %s, document = %s, available_time = %s, apartment = %s, floor_num = %s, entrance = %s WHERE needy_id = %s",
+                (new_address, new_family_size, new_preferences, new_urgency, new_document, new_available_time, new_apartment, new_floor_num, new_entrance, needy_id),
             )
         else:
             cur.execute(
-                "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, available_time, last_received_at, document) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                (needy_id, address, family_size, preferences, urgency, available_time, None, document),
+                "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, available_time, last_received_at, document, apartment, floor_num, entrance) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (needy_id, address, family_size, preferences, urgency, available_time, None, document, apartment, floor_num, entrance),
             )
         cur.execute("SELECT * FROM needy_profile WHERE needy_id = %s", (needy_id,))
         updated = cur.fetchone()

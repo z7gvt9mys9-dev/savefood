@@ -2,7 +2,7 @@ import json as json_mod
 from fastapi import APIRouter, HTTPException, Depends
 from backend import auth
 from backend.needy import db as needy_db
-from backend.database import get_db_cursor
+from backend.database import get_db_cursor, log_action
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -80,6 +80,7 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
                 (route['lot_id'],)
             )
         cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = %s", (route_id,))
+    log_action(_user.get('sub'), 'route_reset', 'route', route_id, f"Admin reset route #{route_id}")
     return {"ok": True}
 
 # ── Lot management ───────────────────────────────────────────────────────────
@@ -94,6 +95,7 @@ def reset_lot(lot_id: int, _user: dict = Depends(require_admin)):
             "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s",
             (lot_id,)
         )
+    log_action(_user.get('sub'), 'lot_reset', 'lot', lot_id, f"Admin reset lot #{lot_id}")
     return {"ok": True}
 
 # ── User management ──────────────────────────────────────────────────────────
@@ -112,6 +114,7 @@ def block_user(user_id: int, _user: dict = Depends(require_admin)):
         cur.execute("UPDATE users SET is_blocked = TRUE WHERE id = %s RETURNING id", (user_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="User not found")
+    log_action(_user.get('sub'), 'user_block', 'user', user_id, f"Admin blocked user #{user_id}")
     return {"ok": True}
 
 @router.post("/users/{user_id}/unblock")
@@ -120,4 +123,14 @@ def unblock_user(user_id: int, _user: dict = Depends(require_admin)):
         cur.execute("UPDATE users SET is_blocked = FALSE WHERE id = %s RETURNING id", (user_id,))
         if not cur.fetchone():
             raise HTTPException(status_code=404, detail="User not found")
+    log_action(_user.get('sub'), 'user_unblock', 'user', user_id, f"Admin unblocked user #{user_id}")
     return {"ok": True}
+
+@router.get("/audit")
+def get_audit_log(limit: int = 50, offset: int = 0, _user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (limit, offset),
+        )
+        return [dict(r) for r in cur.fetchall()]

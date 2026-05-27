@@ -26,6 +26,9 @@ class TicketCreate(BaseModel):
     lon: Optional[float] = None
     available_time: Optional[str] = None
     lot_id: Optional[int] = None
+    apartment: Optional[str] = None
+    floor_num: Optional[str] = None
+    entrance: Optional[str] = None
 
 
 class TicketOut(BaseModel):
@@ -41,6 +44,9 @@ class TicketOut(BaseModel):
     created_at: datetime
     assigned_volunteer: Optional[str]
     fulfilled_at: Optional[datetime]
+    apartment: Optional[str]
+    floor_num: Optional[str]
+    entrance: Optional[str]
 
 
 class NotificationOut(BaseModel):
@@ -58,6 +64,9 @@ class NeedyProfileCreate(BaseModel):
     preferences: Optional[str] = None
     urgency: Optional[str] = None
     available_time: Optional[str] = None
+    apartment: Optional[str] = None
+    floor_num: Optional[str] = None
+    entrance: Optional[str] = None
 
 
 class NeedyProfileOut(BaseModel):
@@ -69,6 +78,9 @@ class NeedyProfileOut(BaseModel):
     available_time: Optional[str]
     last_received_at: Optional[datetime]
     document: Optional[str]
+    apartment: Optional[str]
+    floor_num: Optional[str]
+    entrance: Optional[str]
 
 
 class NeedyProfileUpdate(BaseModel):
@@ -77,3 +89,6 @@ class NeedyProfileUpdate(BaseModel):
     preferences: Optional[str] = None
     urgency: Optional[str] = None
     available_time: Optional[str] = None
+    apartment: Optional[str] = None
+    floor_num: Optional[str] = None
+    entrance: Optional[str] = None

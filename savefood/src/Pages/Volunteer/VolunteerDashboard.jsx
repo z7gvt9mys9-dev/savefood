@@ -79,6 +79,11 @@ const VolunteerDashboard = () => {
   const [volunteerRating, setVolunteerRating] = useState(null);
   const [tgLink, setTgLink] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
+  const [stats, setStats] = useState(null);
+  const [attemptMsgs, setAttemptMsgs] = useState({});
+  const [photoUploading, setPhotoUploading] = useState({});
+  const locationWatchRef = useRef(null);
+  const locationIntervalRef = useRef(null);
   const qrScannerRef = useRef(null);
 
   const stopScanner = useCallback(() => {
@@ -126,6 +131,65 @@ const VolunteerDashboard = () => {
         .catch(() => {});
     }
   }, [volunteerId]);
+
+  useEffect(() => {
+    if (!volunteerId || !activeRoute) {
+      if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
+      return;
+    }
+    const sendLocation = () => {
+      navigator.geolocation && navigator.geolocation.getCurrentPosition(
+        pos => {
+          fetch(`${API_URL}/volunteers/${volunteerId}/location`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+          }).catch(() => {});
+        },
+        () => {}
+      );
+    };
+    sendLocation();
+    locationIntervalRef.current = setInterval(sendLocation, 20000);
+    return () => clearInterval(locationIntervalRef.current);
+  }, [volunteerId, activeRoute?.id]);
+
+  const fetchStats = async () => {
+    if (!volunteerId) return;
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
+      if (res.ok) setStats(await res.json());
+    } catch {}
+  };
+
+  const handleAttemptDelivery = async (ticketId) => {
+    if (!activeRoute) return;
+    try {
+      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/attempt_delivery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
+      });
+      if (!res.ok) { const e = await res.json(); alert(e.detail || 'Ошибка'); return; }
+      const data = await res.json();
+      setAttemptMsgs(prev => ({ ...prev, [ticketId]: `Попытка #${data.attempt_count} зарегистрирована` }));
+    } catch { alert('Ошибка подключения'); }
+  };
+
+  const handlePhotoUpload = async (routeId, ticketId, file) => {
+    setPhotoUploading(prev => ({ ...prev, [ticketId]: true }));
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_URL}/volunteers/route/${routeId}/point/${ticketId}/photo`, {
+        method: 'POST',
+        body: fd,
+      });
+      if (!res.ok) { alert('Ошибка загрузки фото'); return; }
+      alert('Фото загружено!');
+    } catch { alert('Ошибка подключения'); }
+    finally { setPhotoUploading(prev => ({ ...prev, [ticketId]: false })); }
+  };
 
   const fetchMapData = async () => {
     try {
@@ -294,9 +358,34 @@ const VolunteerDashboard = () => {
                 return (
                   <div key={i} className={`point ${!p.done && p === (isShopDone ? (nextTicket || null) : shopPoint) ? 'current' : p.done ? 'done' : ''}`}>
                     <div className="point-icon">{letter}</div>
-                    <div className="point-text">
+                    <div className="point-text" style={{ flex: 1 }}>
                       <p className="point-label">{p.kind === 'shop' ? 'Магазин' : 'Получатель'}</p>
                       <p className="point-addr">{p.description}</p>
+                      {p.kind === 'ticket' && p.addr_detail && (
+                        <p style={{ fontSize: '0.78rem', color: '#aaa', margin: '2px 0 0' }}>{p.addr_detail}</p>
+                      )}
+                      {p.kind === 'ticket' && p.attempt_count > 0 && (
+                        <p style={{ color: '#f90', fontSize: '0.75rem', margin: '2px 0 0' }}>Попыток: {p.attempt_count}</p>
+                      )}
+                      {p.kind === 'ticket' && !p.done && isShopDone && (
+                        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <button className="btn-small btn-warning" onClick={() => handleAttemptDelivery(p.ticket_id)}>
+                            Не открыли дверь
+                          </button>
+                          {attemptMsgs[p.ticket_id] && (
+                            <span style={{ color: '#f90', fontSize: '0.75rem', alignSelf: 'center' }}>{attemptMsgs[p.ticket_id]}</span>
+                          )}
+                        </div>
+                      )}
+                      {p.kind === 'ticket' && p.done && (
+                        <div style={{ marginTop: 6 }}>
+                          <label className="btn-small" style={{ cursor: 'pointer', opacity: photoUploading[p.ticket_id] ? 0.6 : 1 }}>
+                            {photoUploading[p.ticket_id] ? 'Загрузка...' : 'Добавить фото'}
+                            <input type="file" accept="image/*" style={{ display: 'none' }}
+                              onChange={e => e.target.files[0] && handlePhotoUpload(activeRoute.id, p.ticket_id, e.target.files[0])} />
+                          </label>
+                        </div>
+                      )}
                     </div>
                     {p.done && <span style={{ color: '#0f0', marginLeft: 'auto' }}>✓</span>}
                   </div>
@@ -350,6 +439,33 @@ const VolunteerDashboard = () => {
       <main className="mobile-content">
         {activeTab === 'map' && renderMap()}
         {activeTab === 'route' && renderRoute()}
+        {activeTab === 'stats' && (
+          <div className="volunteer-tab">
+            <h3>Статистика</h3>
+            {!stats ? (
+              <p className="empty-msg">Загрузка...</p>
+            ) : (
+              <div className="stats-row" style={{ flexWrap: 'wrap' }}>
+                <div className="v-stat">
+                  <span>{stats.total_routes}</span>
+                  Маршрутов
+                </div>
+                <div className="v-stat">
+                  <span>{stats.total_deliveries}</span>
+                  Доставок
+                </div>
+                <div className="v-stat">
+                  <span>{stats.total_kg}</span>
+                  Кг еды
+                </div>
+                <div className="v-stat">
+                  <span>{stats.avg_rating ? stats.avg_rating.toFixed(1) : '—'}</span>
+                  Рейтинг {stats.rating_count > 0 && `(${stats.rating_count})`}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {activeTab === 'history' && (
           <div className="volunteer-tab">
             <h3>Мои маршруты</h3>
@@ -399,6 +515,7 @@ const VolunteerDashboard = () => {
         <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>Карта</button>
         <button className={activeTab === 'route' ? 'active' : ''} onClick={() => { setActiveTab('route'); fetchActiveRoute(); }}>Маршрут</button>
         <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>История</button>
+        <button className={activeTab === 'stats' ? 'active' : ''} onClick={() => { setActiveTab('stats'); fetchStats(); }}>Статистика</button>
       </nav>
     </div>
   );

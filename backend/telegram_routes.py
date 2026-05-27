@@ -30,9 +30,9 @@ def _build_bot_and_dp():
     if not TELEGRAM_BOT_TOKEN:
         return None, None
 
-    from aiogram import Bot, Dispatcher, Router as BotRouter
+    from aiogram import Bot, Dispatcher, Router as BotRouter, F
     from aiogram.types import Message
-    from aiogram.filters import CommandStart
+    from aiogram.filters import CommandStart, Command
     from aiogram.filters.command import CommandObject
 
     bot_router = BotRouter()
@@ -88,6 +88,75 @@ def _build_bot_and_dp():
                 parse_mode="HTML",
                 disable_web_page_preview=True,
             )
+
+    @bot_router.message(Command("chat"))
+    async def handle_chat_command(message: Message):
+        await message.answer(
+            "💬 Просто напишите сообщение в этот чат — оно будет переслано волонтёру/получателю, "
+            "если у вас есть активный маршрут.",
+        )
+
+    @bot_router.message(F.text & ~F.text.startswith('/'))
+    async def handle_relay_message(message: Message):
+        chat_id = str(message.chat.id)
+        text = message.text or ""
+
+        with get_db_cursor() as cur:
+            cur.execute("SELECT id, role, related_id, username FROM users WHERE telegram_chat_id = %s", (chat_id,))
+            sender = cur.fetchone()
+
+        if not sender:
+            await message.answer("❓ Ваш аккаунт не привязан к SaveFood. Используйте /start link_<token>.")
+            return
+
+        role = sender['role']
+        related_id = sender['related_id']
+        sender_name = sender['username']
+
+        from backend import telegram_service as tgsvc
+
+        if role == 'volunteer':
+            with get_db_cursor() as cur:
+                cur.execute(
+                    "SELECT * FROM volunteer_routes WHERE volunteer_id = %s AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1",
+                    (related_id,),
+                )
+                route = cur.fetchone()
+            if not route:
+                await message.answer("У вас нет активного маршрута.")
+                return
+            import json as _json
+            points = _json.loads(route.get('points') or '[]')
+            needy_ids = []
+            for p in points:
+                if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
+                    with get_db_cursor() as cur:
+                        cur.execute("SELECT needy_id FROM tickets WHERE id = %s", (p['ticket_id'],))
+                        t = cur.fetchone()
+                        if t:
+                            needy_ids.append(t['needy_id'])
+            if not needy_ids:
+                await message.answer("Нет активных получателей для пересылки.")
+                return
+            for nid in set(needy_ids):
+                tgsvc.notify_needy(nid, f"💬 Волонтёр {sender_name}: {text}")
+            await message.answer("✅ Сообщение отправлено")
+
+        elif role == 'needy':
+            with get_db_cursor() as cur:
+                cur.execute(
+                    "SELECT assigned_volunteer_id FROM tickets WHERE needy_id = %s AND status = 'assigned' LIMIT 1",
+                    (related_id,),
+                )
+                ticket = cur.fetchone()
+            if not ticket or not ticket['assigned_volunteer_id']:
+                await message.answer("У вас нет активного назначенного волонтёра.")
+                return
+            tgsvc.notify_volunteer(ticket['assigned_volunteer_id'], f"💬 Получатель {sender_name}: {text}")
+            await message.answer("✅ Сообщение отправлено")
+
+        else:
+            await message.answer("Пересылка сообщений доступна только волонтёрам и получателям.")
 
     _bot = Bot(token=TELEGRAM_BOT_TOKEN)
     _dp  = Dispatcher()

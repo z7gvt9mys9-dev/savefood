@@ -1,8 +1,53 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import './Footer.css';
 
 const Footer = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const smoothScrollTo = (targetY, duration = 900) => {
+    const startY = window.scrollY;
+    const diff = targetY - startY;
+    let start = null;
+    const easeInOut = (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    const step = (timestamp) => {
+      if (!start) start = timestamp;
+      const elapsed = timestamp - start;
+      const progress = Math.min(elapsed / duration, 1);
+      window.scrollTo(0, startY + diff * easeInOut(progress));
+      if (progress < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  };
+
+  const highlightEl = (el) => {
+    el.classList.remove('highlight-active');
+    void el.offsetWidth;
+    el.classList.add('highlight-active');
+    setTimeout(() => el.classList.remove('highlight-active'), 2000);
+  };
+
+  const handleHashLink = (path, hash) => (e) => {
+    e.preventDefault();
+    const scrollToHash = () => {
+      if (!hash) { smoothScrollTo(0); return; }
+      const el = document.getElementById(hash);
+      if (el) {
+        const top = el.getBoundingClientRect().top + window.scrollY - 80;
+        smoothScrollTo(top);
+        setTimeout(() => highlightEl(el), 600);
+      }
+    };
+
+    if (location.pathname === path) {
+      scrollToHash();
+    } else {
+      navigate(path + (hash ? '#' + hash : ''));
+      setTimeout(scrollToHash, 200);
+    }
+  };
+
   return (
     <footer className="footer">
       <div className="container">
@@ -15,17 +60,17 @@ const Footer = () => {
             <div className="link-group">
               <h4>Платформа</h4>
               <ul>
-                <li><Link to="/about#role-shop">Магазинам</Link></li>
-                <li><Link to="/about#role-volunteer">Волонтерам</Link></li>
-                <li><Link to="/about#role-needy">Нуждающимся</Link></li>
+                <li><a href="/about#role-shop"    onClick={handleHashLink('/about', 'role-shop')}>Магазинам</a></li>
+                <li><a href="/about#role-volunteer" onClick={handleHashLink('/about', 'role-volunteer')}>Волонтерам</a></li>
+                <li><a href="/about#role-needy"   onClick={handleHashLink('/about', 'role-needy')}>Нуждающимся</a></li>
               </ul>
             </div>
             <div className="link-group">
               <h4>Компания</h4>
               <ul>
-                <li><Link to="/about">О проекте</Link></li>
-                <li><Link to="/about#contacts">Контакты</Link></li>
-                <li><Link to="/about#faq">FAQ</Link></li>
+                <li><a href="/about"          onClick={handleHashLink('/about', '')}>О проекте</a></li>
+                <li><a href="/about#contacts" onClick={handleHashLink('/about', 'contacts')}>Контакты</a></li>
+                <li><a href="/about#faq"      onClick={handleHashLink('/about', 'faq')}>FAQ</a></li>
               </ul>
             </div>
           </div>
@@ -40,6 +85,6 @@ const Footer = () => {
       </div>
     </footer>
   );
-}
+};
 
 export default Footer;

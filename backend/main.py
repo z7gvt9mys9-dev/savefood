@@ -1,6 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from backend.limiter import limiter
 import json
 import os
 import threading
@@ -9,11 +14,14 @@ import time
 from backend.shop import db, routes as shop_routes
 from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
-from backend import auth_routes, database, telegram_routes, proxy_service
+from backend import auth_routes, database, telegram_routes, proxy_service, telegram_service
 from backend.admin import routes as admin_routes
 from backend.database import get_db_cursor
 
 app = FastAPI(title="SaveFood - Backend")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 _cors_origin = os.getenv("CORS_ORIGIN", "*")
 app.add_middleware(
@@ -26,6 +34,7 @@ app.add_middleware(
 # ensure upload directories exist before mounting static files
 os.makedirs(shop_routes.UPLOAD_DIR, exist_ok=True)
 os.makedirs(needy_routes.UPLOAD_DIR, exist_ok=True)
+os.makedirs(vol_routes.UPLOAD_DIR, exist_ok=True)
 
 @app.on_event("startup")
 async def startup():
@@ -36,13 +45,6 @@ async def startup():
     database.init_ticket_extensions()
     proxy_service.start_proxy()
     await telegram_routes.start_polling()
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    proxy_service.stop_proxy()
-    await telegram_routes.stop_polling()
-
 
     def expire_loop():
         while True:
@@ -63,7 +65,7 @@ async def shutdown():
             try:
                 with get_db_cursor() as cur:
                     cur.execute(
-                        "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND started_at <= CURRENT_TIMESTAMP - INTERVAL '%s minutes'", 
+                        "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND started_at <= CURRENT_TIMESTAMP - INTERVAL '%s minutes'",
                         (timeout_minutes,)
                     )
                     rows = cur.fetchall()
@@ -74,7 +76,7 @@ async def shutdown():
                             for p in points:
                                 if p.get('kind') == 'ticket' and p.get('ticket_id'):
                                     cur.execute(
-                                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'", 
+                                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
                                         (p['ticket_id'],)
                                     )
                         except Exception:
@@ -88,6 +90,12 @@ async def shutdown():
                             pass
 
                         cur.execute("UPDATE volunteer_routes SET status = 'timed_out' WHERE id = %s", (route_id,))
+                        support_chat = os.getenv("SUPPORT_CHAT_ID", "")
+                        if support_chat:
+                            try:
+                                telegram_service.send_message(support_chat, f"⚠️ Маршрут #{route_id} волонтёра {row.get('volunteer_id')} переназначен по таймауту.")
+                            except Exception:
+                                pass
             except Exception as e:
                 print(f"Reassign loop error: {e}")
             time.sleep(60 * 10)
@@ -95,8 +103,15 @@ async def shutdown():
     t2 = threading.Thread(target=reassign_loop, daemon=True)
     t2.start()
 
+
+@app.on_event("shutdown")
+async def shutdown():
+    proxy_service.stop_proxy()
+    await telegram_routes.stop_polling()
+
 app.mount("/uploads", StaticFiles(directory=shop_routes.UPLOAD_DIR), name="uploads")
 app.mount("/needy_uploads", StaticFiles(directory=needy_routes.UPLOAD_DIR), name="needy_uploads")
+app.mount("/volunteer_uploads", StaticFiles(directory=vol_routes.UPLOAD_DIR), name="volunteer_uploads")
 app.include_router(auth_routes.router)
 app.include_router(shop_routes.router)
 app.include_router(needy_routes.router)

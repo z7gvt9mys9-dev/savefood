@@ -8,6 +8,7 @@ const HomePage = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [openFaq, setOpenFaq] = useState(null);
 
   useEffect(() => {
     fetch(`${API_URL}/stats`)
@@ -178,12 +179,22 @@ const HomePage = () => {
         <div className="container">
           <h2>FAQ</h2>
           <div className="faq-list">
-            {faqs.map((faq, idx) => (
-              <div key={idx} className="faq-item">
-                <h4>{faq.q}</h4>
-                <p>{faq.a}</p>
-              </div>
-            ))}
+            {faqs.map((faq, idx) => {
+              const isOpen = openFaq === idx;
+              return (
+                <div key={idx} className={`faq-item${isOpen ? ' open' : ''}`}>
+                  <div className="faq-question" onClick={() => setOpenFaq(isOpen ? null : idx)}>
+                    <h4>{faq.q}</h4>
+                    <button className="faq-toggle" aria-label={isOpen ? 'Закрыть' : 'Открыть'}>
+                      {isOpen ? '−' : '+'}
+                    </button>
+                  </div>
+                  <div className="faq-answer">
+                    <p>{faq.a}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>

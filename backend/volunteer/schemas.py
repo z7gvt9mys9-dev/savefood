@@ -59,3 +59,8 @@ class RouteOut(BaseModel):
 class CompletePointRequest(BaseModel):
     volunteer_id: int
     ticket_id: Optional[int] = None
+
+
+class LocationUpdate(BaseModel):
+    lat: float
+    lon: float
