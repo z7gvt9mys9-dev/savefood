@@ -25,7 +25,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
   const [apartment, setApartment] = useState('');
   const [floorNum, setFloorNum] = useState('');
   const [entrance, setEntrance] = useState('');
-  const [latLon, setLatLon] = useState({ lat: null, lon: null });
+  const [latLon, setLatLon] = useState({ lat: null, lon: null, city: null });
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -39,6 +39,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
             address: item.display_name,
             lat: parseFloat(item.lat),
             lon: parseFloat(item.lon),
+            city: item.address?.city || item.address?.town || item.address?.village || item.address?.county || null,
           })));
           setShowSuggestions(true);
         } catch {
@@ -57,6 +58,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
       address: query,
       lat: latLon.lat,
       lon: latLon.lon,
+      city: latLon.city,
       apartment,
       floor_num: floorNum,
       entrance,
@@ -67,12 +69,13 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
 
   const handleSelect = (s) => {
     setQuery(s.address);
-    setLatLon({ lat: s.lat, lon: s.lon });
+    setLatLon({ lat: s.lat, lon: s.lon, city: s.city });
     setShowSuggestions(false);
     onChange({
       address: s.address,
       lat: s.lat,
       lon: s.lon,
+      city: s.city,
       apartment,
       floor_num: floorNum,
       entrance,

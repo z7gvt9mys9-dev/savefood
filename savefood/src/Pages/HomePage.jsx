@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { API_URL } from '../api';
 import './Style/HomePage.css';
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -86,28 +88,16 @@ const HomePage = () => {
   ];
 
   const steps = [
-    { title: 'Магазин отдает', desc: 'Кафе или супермаркет выкладывает продукты, у которых заканчивается срок.' },
-    { title: 'Волонтер везет', desc: 'Наш алгоритм строит оптимальный маршрут, волонтер забирает заказ.' },
-    { title: 'Семья получает', desc: 'Волонтер передает продукты лично в руки и сканирует безопасный QR-код.' }
+    { title: t('home.how_shop'), desc: t('home.how_shop_desc') },
+    { title: t('home.how_volunteer'), desc: t('home.how_volunteer_desc') },
+    { title: t('home.how_needy'), desc: t('home.how_needy_desc') },
   ];
 
   const faqs = [
-    {
-      q: 'Вся ли еда безопасна?',
-      a: 'Лоты автоматически снимаются системой до истечения срока годности. Каждый лот содержит фото и описание — получатель видит, что берёт.'
-    },
-    {
-      q: 'Как распределяется еда, если её мало?',
-      a: 'Действует система приоритетов: учитывается размер семьи, срочность и дата последней доставки. Никакого ручного отбора.'
-    },
-    {
-      q: 'Могут ли мои данные попасть к третьим лицам?',
-      a: 'Нет. Документы нуждающихся удаляются сразу после проверки. Геолокация используется только для маршрутизации и нигде не хранится.'
-    },
-    {
-      q: 'Как магазин узнаёт, что лот забрали?',
-      a: 'Магазин получает push-уведомление в Telegram в момент, когда волонтёр подтверждает получение продуктов.'
-    }
+    { q: t('home.faq.free_q'), a: t('home.faq.free_a') },
+    { q: t('home.faq.who_q'), a: t('home.faq.who_a') },
+    { q: t('home.faq.safety_q'), a: t('home.faq.safety_a') },
+    { q: t('home.faq.city_q'), a: t('home.faq.city_a') },
   ];
 
   return (
@@ -115,12 +105,11 @@ const HomePage = () => {
       {/* 1. Hero Block */}
       <section className="hero">
         <div className="container">
-          <h1>Спасаем еду. Помогаем людям.</h1>
-          <p className="subtitle">Платформа, которая соединяет магазины, волонтеров и тех, кто нуждается в продуктах питания.</p>
+          <h1>{t('home.hero_title')}</h1>
+          <p className="subtitle">{t('home.hero_sub')}</p>
           <div className="hero-ctas">
-            <button className="btn btn-primary" onClick={() => navigate('/auth')}>Стать партнером</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/auth')}>Хочу помочь</button>
-            <button className="btn btn-outline" onClick={() => navigate('/auth')}>Получить помощь</button>
+            <button className="btn btn-primary" onClick={() => navigate('/auth')}>{t('home.cta_join')}</button>
+            <button className="btn btn-secondary" onClick={() => navigate('/auth')}>{t('home.cta_learn')}</button>
           </div>
         </div>
       </section>
@@ -161,7 +150,7 @@ const HomePage = () => {
       {/* 4. How It Works Block */}
       <section className="how-it-works">
         <div className="container">
-          <h2>Как это работает</h2>
+          <h2>{t('home.how_title')}</h2>
           <div className="steps-grid">
             {steps.map((step, idx) => (
               <div key={idx} className="step-card">
@@ -177,7 +166,7 @@ const HomePage = () => {
       {/* FAQ Block */}
       <section className="faq">
         <div className="container">
-          <h2>FAQ</h2>
+          <h2>{t('home.faq_title')}</h2>
           <div className="faq-list">
             {faqs.map((faq, idx) => {
               const isOpen = openFaq === idx;

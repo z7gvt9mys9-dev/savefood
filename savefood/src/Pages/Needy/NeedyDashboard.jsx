@@ -23,7 +23,7 @@ const NeedyDashboard = () => {
   const [history, setHistory] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '' });
+  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '' });
   const [tgLink, setTgLink] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
@@ -42,6 +42,7 @@ const NeedyDashboard = () => {
       const params = new URLSearchParams({ limit: PAGE, offset });
       if (category) params.append('category', category);
       if (search) params.append('search', search);
+      if (profile.city) params.append('city', profile.city);
       const res = await fetch(`${API_URL}/lots?${params}`);
       const data = await res.json();
       const arr = Array.isArray(data) ? data : [];
@@ -49,7 +50,7 @@ const NeedyDashboard = () => {
       setLotsHasMore(arr.length === PAGE);
       setLotsOffset(offset + arr.length);
     } catch {}
-  }, [filterCategory, filterSearch]);
+  }, [filterCategory, filterSearch, profile.city]);
 
   const loadHistory = async (offset = 0, append = false) => {
     if (!needyId) return;

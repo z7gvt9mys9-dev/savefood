@@ -34,7 +34,7 @@ const AuthPage = () => {
   };
 
   const handleAddressChange = (addr) => {
-    setFormData({ ...formData, address: addr.address, lat: addr.lat, lon: addr.lon });
+    setFormData({ ...formData, address: addr.address, lat: addr.lat, lon: addr.lon, city: addr.city });
   };
 
   const { login } = useAuth();
@@ -68,10 +68,10 @@ const AuthPage = () => {
         let body = {};
         if (role === 'shop') {
           endpoint = `${API_URL}/shops/register`;
-          body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, username: formData.email, password: formData.password };
+          body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, city: formData.city, username: formData.email, password: formData.password };
         } else if (role === 'volunteer') {
           endpoint = `${API_URL}/volunteers/register`;
-          body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
+          body = { name: formData.name, contact: formData.phone, city: formData.city, username: formData.phone, password: formData.password };
         } else {
           endpoint = `${API_URL}/needy/register`;
           body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
@@ -198,6 +198,12 @@ const AuthPage = () => {
       <input type="text" name="name" placeholder="Ваше имя" onChange={handleInputChange} required />
       <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
       <input type="password" name="password" placeholder="Придумайте пароль" onChange={handleInputChange} required />
+
+      <AddressInput
+        label="Ваш город / адрес (для зоны доставки)"
+        onChange={handleAddressChange}
+        value={formData.address}
+      />
 
       <div className="consent-box">
         <label className="checkbox-label">

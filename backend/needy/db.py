@@ -75,6 +75,7 @@ def init_db():
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS apartment TEXT")
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS floor_num TEXT")
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS entrance TEXT")
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS city TEXT")
 
 def create_needy(name: str, contact: Optional[str]) -> int:
     with get_db_cursor() as cur:
@@ -164,7 +165,7 @@ def update_needy(needy_id: int, name: str, contact: Optional[str]) -> Optional[D
         updated = cur.fetchone()
         return dict(updated)
 
-def create_or_update_profile(needy_id: int, address: Optional[str], family_size: Optional[int], preferences: Optional[str], urgency: Optional[str], document: Optional[str] = None, available_time: Optional[str] = None, apartment: Optional[str] = None, floor_num: Optional[str] = None, entrance: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def create_or_update_profile(needy_id: int, address: Optional[str], family_size: Optional[int], preferences: Optional[str], urgency: Optional[str], document: Optional[str] = None, available_time: Optional[str] = None, apartment: Optional[str] = None, floor_num: Optional[str] = None, entrance: Optional[str] = None, city: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))
         if not cur.fetchone():
@@ -182,14 +183,15 @@ def create_or_update_profile(needy_id: int, address: Optional[str], family_size:
             new_apartment = apartment if apartment is not None else p.get('apartment')
             new_floor_num = floor_num if floor_num is not None else p.get('floor_num')
             new_entrance = entrance if entrance is not None else p.get('entrance')
+            new_city = city if city is not None else p.get('city')
             cur.execute(
-                "UPDATE needy_profile SET address = %s, family_size = %s, preferences = %s, urgency = %s, document = %s, available_time = %s, apartment = %s, floor_num = %s, entrance = %s WHERE needy_id = %s",
-                (new_address, new_family_size, new_preferences, new_urgency, new_document, new_available_time, new_apartment, new_floor_num, new_entrance, needy_id),
+                "UPDATE needy_profile SET address = %s, family_size = %s, preferences = %s, urgency = %s, document = %s, available_time = %s, apartment = %s, floor_num = %s, entrance = %s, city = %s WHERE needy_id = %s",
+                (new_address, new_family_size, new_preferences, new_urgency, new_document, new_available_time, new_apartment, new_floor_num, new_entrance, new_city, needy_id),
             )
         else:
             cur.execute(
-                "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, available_time, last_received_at, document, apartment, floor_num, entrance) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (needy_id, address, family_size, preferences, urgency, available_time, None, document, apartment, floor_num, entrance),
+                "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, available_time, last_received_at, document, apartment, floor_num, entrance, city) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (needy_id, address, family_size, preferences, urgency, available_time, None, document, apartment, floor_num, entrance, city),
             )
         cur.execute("SELECT * FROM needy_profile WHERE needy_id = %s", (needy_id,))
         updated = cur.fetchone()

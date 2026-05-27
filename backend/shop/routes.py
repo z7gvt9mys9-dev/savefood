@@ -15,7 +15,7 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
 @router.post("/shops/register")
 def register_shop(payload: schemas.ShopCreate):
-    shop_id = db.create_shop(payload.name, payload.contact, payload.lat, payload.lon)
+    shop_id = db.create_shop(payload.name, payload.contact, payload.lat, payload.lon, payload.city)
     if payload.username and payload.password:
         hashed = get_password_hash(payload.password)
         try:

@@ -8,6 +8,7 @@ class VolunteerCreate(BaseModel):
     contact: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    city: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
 
@@ -17,6 +18,7 @@ class VolunteerUpdate(BaseModel):
     contact: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    city: Optional[str] = None
 
 
 class VolunteerOut(BaseModel):
@@ -25,6 +27,7 @@ class VolunteerOut(BaseModel):
     contact: Optional[str]
     lat: Optional[float]
     lon: Optional[float]
+    city: Optional[str] = None
     created_at: datetime
 
 

@@ -64,7 +64,7 @@ media/
 
 # Secrets and environment
 .env
-.env.*
+.env.example
 secrets/
 *.pem
 *.key
@@ -72,6 +72,10 @@ secrets/
 # Node
 node_modules/
 npm-debug.log
+
+# Capacitor native platforms (generated, not committed)
+savefood/android/
+savefood/ios/
 
 # Type checkers / caches
 .mypy_cache/
@@ -84,5 +88,8 @@ coverage/
 
 # Build output
 savefood/build/
+
+CLAUDE.md
+savefood.md
 
 # End of file

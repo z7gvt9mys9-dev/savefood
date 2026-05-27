@@ -18,6 +18,7 @@ def init_db():
             """
         )
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE")
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS city TEXT")
 
         cur.execute(
             """
@@ -67,11 +68,11 @@ def mark_notification_read(notification_id: int):
     with get_db_cursor() as cur:
         cur.execute("UPDATE notifications SET read = 1 WHERE id = %s", (notification_id,))
 
-def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lon: Optional[float]) -> int:
+def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
         cur.execute(
-            "INSERT INTO volunteers (name, contact, lat, lon, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (name, contact, lat, lon, datetime.now(timezone.utc)),
+            "INSERT INTO volunteers (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (name, contact, lat, lon, city, datetime.now(timezone.utc)),
         )
         vid = cur.fetchone()['id']
         return vid

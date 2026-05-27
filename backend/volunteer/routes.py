@@ -23,7 +23,7 @@ router = APIRouter()
 
 @router.post("/volunteers/register")
 def register(vol: vschemas.VolunteerCreate):
-    vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon)
+    vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon, vol.city)
     if vol.username and vol.password:
         hashed = get_password_hash(vol.password)
         try:
@@ -35,16 +35,31 @@ def register(vol: vschemas.VolunteerCreate):
 
 @router.get("/volunteers/map")
 def get_map_points(current_user: dict = Depends(get_current_user)):
-    # return shops with their active lots (grouped by shop) and needy tickets with coords
+    volunteer_city = None
+    if current_user.get('related_id'):
+        vol = vdb.get_volunteer_by_id(current_user['related_id'])
+        if vol:
+            volunteer_city = vol.get('city')
+
     shops_map = {}
     with get_db_cursor() as cur:
-        cur.execute("""
-            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
-            FROM shops s
-            JOIN lots l ON s.id = l.shop_id
-            WHERE l.status = 'active'
-            AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
-        """)
+        if volunteer_city:
+            cur.execute("""
+                SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
+                FROM shops s
+                JOIN lots l ON s.id = l.shop_id
+                WHERE l.status = 'active'
+                AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
+                AND s.city ILIKE %s
+            """, (volunteer_city,))
+        else:
+            cur.execute("""
+                SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
+                FROM shops s
+                JOIN lots l ON s.id = l.shop_id
+                WHERE l.status = 'active'
+                AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
+            """)
         for r in cur.fetchall():
             if r['lat'] is None or r['lon'] is None:
                 continue
@@ -79,7 +94,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
                 'lon': r['lon']
             })
 
-    return {'shops': shops, 'tickets': tickets}
+    return {'shops': shops, 'tickets': tickets, 'volunteer_city': volunteer_city}
 
 @router.get("/volunteers/{volunteer_id}", response_model=vschemas.VolunteerOut)
 def get_volunteer(volunteer_id: int):

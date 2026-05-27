@@ -67,6 +67,7 @@ class NeedyProfileCreate(BaseModel):
     apartment: Optional[str] = None
     floor_num: Optional[str] = None
     entrance: Optional[str] = None
+    city: Optional[str] = None
 
 
 class NeedyProfileOut(BaseModel):
@@ -81,6 +82,7 @@ class NeedyProfileOut(BaseModel):
     apartment: Optional[str]
     floor_num: Optional[str]
     entrance: Optional[str]
+    city: Optional[str] = None
 
 
 class NeedyProfileUpdate(BaseModel):
@@ -92,3 +94,4 @@ class NeedyProfileUpdate(BaseModel):
     apartment: Optional[str] = None
     floor_num: Optional[str] = None
     entrance: Optional[str] = None
+    city: Optional[str] = None

@@ -42,6 +42,8 @@ def init_db():
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS time_slot TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS category TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS comment TEXT")
+        cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS city TEXT")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS city TEXT")
 
         cur.execute(
             """
@@ -57,20 +59,23 @@ def init_db():
             """
         )
 
-def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, lon: Optional[float] = None) -> int:
+def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, lon: Optional[float] = None, city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
         cur.execute(
-            "INSERT INTO shops (name, contact, lat, lon, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (name, contact, lat, lon, datetime.now(timezone.utc)),
+            "INSERT INTO shops (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (name, contact, lat, lon, city, datetime.now(timezone.utc)),
         )
         shop_id = cur.fetchone()['id']
         return shop_id
 
 def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
+        cur.execute("SELECT city FROM shops WHERE id = %s", (shop_id,))
+        row = cur.fetchone()
+        city = row['city'] if row else None
         cur.execute(
-            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
-            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, datetime.now(timezone.utc)),
+            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
+            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, datetime.now(timezone.utc)),
         )
         lot_id = cur.fetchone()['id']
         return lot_id
@@ -84,7 +89,7 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
-def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None) -> List[Dict[str, Any]]:
+def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None, city: str = None) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         filters = ["status = 'active'", "(expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
         params = []
@@ -94,6 +99,9 @@ def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, 
         if search:
             filters.append("(description ILIKE %s OR address ILIKE %s)")
             params.extend([f"%{search}%", f"%{search}%"])
+        if city:
+            filters.append("city ILIKE %s")
+            params.append(city)
         where = " AND ".join(filters)
         params.extend([limit, offset])
         cur.execute(f"SELECT * FROM lots WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s", params)

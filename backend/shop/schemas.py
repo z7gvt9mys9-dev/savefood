@@ -8,6 +8,7 @@ class ShopCreate(BaseModel):
     contact: Optional[str] = Field(None, example="+7 900 000 00 00")
     lat: Optional[float] = None
     lon: Optional[float] = None
+    city: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = None
 
@@ -19,6 +20,7 @@ class ShopOut(BaseModel):
     created_at: datetime
     lat: Optional[float]
     lon: Optional[float]
+    city: Optional[str]
 
 
 class LotCreate(BaseModel):
@@ -77,3 +79,4 @@ class ShopUpdate(BaseModel):
     contact: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    city: Optional[str] = None

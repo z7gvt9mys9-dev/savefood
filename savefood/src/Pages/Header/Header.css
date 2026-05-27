@@ -95,6 +95,30 @@
   color: #000 !important;
 }
 
+/* ─── Language switcher ─── */
+.lang-switcher {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  border-bottom: none !important;
+}
+
+.lang-btn {
+  background: none;
+  border: 1px solid #333;
+  color: #666;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 3px 7px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  border-radius: 2px;
+}
+
+.lang-btn:hover { border-color: #888; color: #ccc; }
+.lang-btn.active { border-color: #fff; color: #fff; }
+
 .btn-logout {
   background: none;
   border: 1px solid #444;
@@ -186,6 +210,7 @@
   .nav.open .nav-links li:nth-child(2) { transition-delay: 0.18s; }
   .nav.open .nav-links li:nth-child(3) { transition-delay: 0.24s; }
   .nav.open .nav-links li:nth-child(4) { transition-delay: 0.30s; }
+  .nav.open .nav-links li:nth-child(5) { transition-delay: 0.36s; }
 
   .nav-links li:last-child { border-bottom: none; }
 
