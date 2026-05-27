@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import AddressInput from '../Auth/AddressInput';
+import EmptyState from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Shop.css';
 
 const ShopDashboard = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const shopId = user?.relatedId;
 
   const [activeTab, setActiveTab] = useState('overview');
@@ -145,26 +148,26 @@ const ShopDashboard = () => {
       <div className="stats-grid">
         <div className="stat-box">
           <span className="stat-value">{lots.length}</span>
-          <span className="stat-label">Активных лотов</span>
+          <span className="stat-label">{t('shop.active_lots')}</span>
         </div>
         <div className="stat-box">
-          <span className="stat-value">{history.reduce((acc, l) => acc + (l.quantity || 0), 0)} кг</span>
-          <span className="stat-label">Всего спасено еды</span>
+          <span className="stat-value">{history.reduce((acc, l) => acc + (l.quantity || 0), 0)} {t('shop.kg')}</span>
+          <span className="stat-label">{t('shop.saved_food')}</span>
         </div>
         <div className="stat-box">
           <span className="stat-value">{history.length}</span>
-          <span className="stat-label">Завершенных раздач</span>
+          <span className="stat-label">{t('shop.completed')}</span>
         </div>
       </div>
       <div className="info-section">
-        <h3>Ваш статус: Партнер (Активен)</h3>
-        <p>Адрес: {shopInfo.address || '—'}</p>
+        <h3>{t('shop.your_status')}: {t('shop.status_active')}</h3>
+        <p>{t('common.address')}: {shopInfo.address || '—'}</p>
       </div>
       <div className="tg-connect-section">
-        <h3>Уведомления в Telegram</h3>
+        <h3>{t('shop.telegram_title')}</h3>
         {tgLink ? (
           <div className="tg-link-box">
-            <p>Ссылка действует 10 минут:</p>
+            <p>{t('shop.telegram_link_label')}</p>
             <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
               Открыть @{tgLink.bot_name} в Telegram
             </a>
@@ -181,7 +184,7 @@ const ShopDashboard = () => {
             } catch { alert('Ошибка подключения к серверу'); }
             finally { setTgLoading(false); }
           }} disabled={tgLoading}>
-            {tgLoading ? 'Загрузка...' : 'Подключить Telegram'}
+            {tgLoading ? t('common.loading') : t('shop.telegram_connect')}
           </button>
         )}
       </div>
@@ -269,22 +272,24 @@ const ShopDashboard = () => {
   const renderActiveLots = () => (
     <div className="tab-content">
       <div className="lot-list">
-        {lots.length === 0 ? <p className="empty-msg">У вас пока нет активных лотов.</p> : lots.map(lot => (
+        {lots.length === 0
+          ? <EmptyState icon="📦" title={t('empty.lots_title')} description={t('empty.lots_shop_desc')} action={t('empty.lots_action')} onAction={() => setActiveTab('create')} />
+          : lots.map(lot => (
           <div key={lot.id} className="lot-item">
             <div className="lot-info">
               <h4>{lot.description}</h4>
-              <p>Статус: <span className={`status-${lot.status}`}>{lot.status === 'active' ? 'Ожидает волонтера' : 'Забран волонтером'}</span></p>
-              {lot.time_slot && <p>Время выдачи: {lot.time_slot}</p>}
-              <p>Истекает: {lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString() : '—'}</p>
+              <p>{t('common.status')}: <span className={`status-${lot.status}`}>{lot.status === 'active' ? t('shop.status_waiting') : t('shop.status_taken')}</span></p>
+              {lot.time_slot && <p>{t('shop.time_slot')}: {lot.time_slot}</p>}
+              <p>{t('shop.expiry')}: {lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString() : '—'}</p>
             </div>
             <div className="lot-actions">
               {lot.status === 'taken' && (
-                <button className="btn-small btn-success" onClick={() => handleConfirmTransfer(lot.id)}>Подтвердить передачу</button>
+                <button className="btn-small btn-success" onClick={() => handleConfirmTransfer(lot.id)}>{t('shop.confirm_transfer')}</button>
               )}
               {lot.status === 'active' && (
-                <button className="btn-small" onClick={() => setEditLot({ ...lot, expiry_date: lot.expiry_date ? lot.expiry_date.slice(0,10) : '' })}>Редактировать</button>
+                <button className="btn-small" onClick={() => setEditLot({ ...lot, expiry_date: lot.expiry_date ? lot.expiry_date.slice(0,10) : '' })}>{t('common.edit')}</button>
               )}
-              <button className="btn-small btn-danger" onClick={() => handleDeleteLot(lot.id)}>Удалить</button>
+              <button className="btn-small btn-danger" onClick={() => handleDeleteLot(lot.id)}>{t('common.delete')}</button>
             </div>
           </div>
         ))}
@@ -294,9 +299,9 @@ const ShopDashboard = () => {
 
   const renderNotifications = () => (
     <div className="tab-content">
-      <h3>Уведомления</h3>
+      <h3>{t('common.notifications')}</h3>
       {notifications.length === 0 ? (
-        <p className="empty-msg">Нет уведомлений</p>
+        <EmptyState icon="🔔" title={t('empty.notifications_title')} description={t('empty.notifications_desc')} />
       ) : (
         <div className="notification-list">
           {notifications.map(n => (
@@ -312,35 +317,37 @@ const ShopDashboard = () => {
 
   const renderHistory = () => (
     <div className="tab-content">
+      {history.length === 0 ? (
+        <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+      ) : (
       <table className="history-table">
         <thead>
           <tr>
-            <th>Дата</th>
-            <th>Описание</th>
-            <th>Кол-во</th>
-            <th>Статус</th>
+            <th>{t('shop.col_date')}</th>
+            <th>{t('shop.col_desc')}</th>
+            <th>{t('shop.col_qty')}</th>
+            <th>{t('shop.col_status')}</th>
           </tr>
         </thead>
         <tbody>
-          {history.length === 0 ? (
-            <tr><td colSpan="4" style={{textAlign: 'center', padding: '20px'}}>История пуста</td></tr>
-          ) : history.map(h => (
+          {history.map(h => (
             <tr key={h.id}>
               <td>{new Date(h.created_at).toLocaleDateString()}</td>
               <td>{h.description}</td>
-              <td>{h.quantity} кг</td>
-              <td>{h.status === 'taken' ? 'Передано' : 'Утилизировано'}</td>
+              <td>{h.quantity} {t('shop.kg')}</td>
+              <td>{h.status === 'taken' ? t('shop.transferred') : t('shop.disposed')}</td>
             </tr>
           ))}
         </tbody>
       </table>
+      )}
       {historyHasMore && (
         <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => {
           fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=${historyOffset}`)
             .then(r => r.json())
             .then(data => { setHistory(prev => [...prev, ...data]); setHistoryHasMore(data.length === 20); setHistoryOffset(h => h + data.length); })
             .catch(() => {});
-        }}>Показать ещё</button>
+        }}>{t('common.show_more')}</button>
       )}
     </div>
   );
@@ -391,19 +398,19 @@ const ShopDashboard = () => {
       <aside className="sidebar">
         <h2>{shopInfo.name}</h2>
         <nav>
-          <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>Дашборд</button>
-          <button className={activeTab === 'create' ? 'active' : ''} onClick={() => setActiveTab('create')}>Создать лот</button>
-          <button className={activeTab === 'active' ? 'active' : ''} onClick={() => setActiveTab('active')}>Активные лоты</button>
-          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>История</button>
+          <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>{t('shop.overview')}</button>
+          <button className={activeTab === 'create' ? 'active' : ''} onClick={() => setActiveTab('create')}>{t('shop.add_lot')}</button>
+          <button className={activeTab === 'active' ? 'active' : ''} onClick={() => setActiveTab('active')}>{t('shop.lots')}</button>
+          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('shop.history')}</button>
           <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>
-            Уведомления {notifications.filter(n => !n.read).length > 0 && `(${notifications.filter(n => !n.read).length})`}
+            {t('shop.notifications')} {notifications.filter(n => !n.read).length > 0 && `(${notifications.filter(n => !n.read).length})`}
           </button>
         </nav>
       </aside>
 
       <main className="main-content">
         <header className="content-header">
-          <h1>{activeTab === 'overview' ? 'Обзор' : activeTab === 'create' ? 'Новый лот' : activeTab === 'active' ? 'Мониторинг лотов' : activeTab === 'notifications' ? 'Уведомления' : 'Архив списаний'}</h1>
+          <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'active' ? t('shop.lots') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
         </header>
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'create' && renderCreateLot()}

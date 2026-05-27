@@ -1,10 +1,12 @@
 import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import './Footer.css';
 
 const Footer = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t } = useTranslation();
 
   const smoothScrollTo = (targetY, duration = 900) => {
     const startY = window.scrollY;
@@ -54,29 +56,29 @@ const Footer = () => {
         <div className="footer-grid">
           <div className="footer-brand">
             <h2>SaveFood</h2>
-            <p>Превращаем излишки продуктов в реальную помощь.</p>
+            <p>{t('footer.tagline')}</p>
           </div>
           <div className="footer-links">
             <div className="link-group">
-              <h4>Платформа</h4>
+              <h4>{t('footer.platform')}</h4>
               <ul>
-                <li><a href="/about#role-shop"    onClick={handleHashLink('/about', 'role-shop')}>Магазинам</a></li>
-                <li><a href="/about#role-volunteer" onClick={handleHashLink('/about', 'role-volunteer')}>Волонтерам</a></li>
-                <li><a href="/about#role-needy"   onClick={handleHashLink('/about', 'role-needy')}>Нуждающимся</a></li>
+                <li><a href="/about#role-shop"      onClick={handleHashLink('/about', 'role-shop')}>{t('footer.for_shops')}</a></li>
+                <li><a href="/about#role-volunteer"  onClick={handleHashLink('/about', 'role-volunteer')}>{t('footer.for_volunteers')}</a></li>
+                <li><a href="/about#role-needy"     onClick={handleHashLink('/about', 'role-needy')}>{t('footer.for_needy')}</a></li>
               </ul>
             </div>
             <div className="link-group">
-              <h4>Компания</h4>
+              <h4>{t('footer.company')}</h4>
               <ul>
-                <li><a href="/about"          onClick={handleHashLink('/about', '')}>О проекте</a></li>
-                <li><a href="/about#contacts" onClick={handleHashLink('/about', 'contacts')}>Контакты</a></li>
-                <li><a href="/about#faq"      onClick={handleHashLink('/about', 'faq')}>FAQ</a></li>
+                <li><a href="/about"          onClick={handleHashLink('/about', '')}>{t('footer.about')}</a></li>
+                <li><a href="/about#contacts" onClick={handleHashLink('/about', 'contacts')}>{t('footer.contacts')}</a></li>
+                <li><a href="/about#faq"      onClick={handleHashLink('/about', 'faq')}>{t('footer.faq')}</a></li>
               </ul>
             </div>
           </div>
         </div>
         <div className="footer-bottom">
-          <p>&copy; 2026 SaveFood. All rights reserved.</p>
+          <p>&copy; 2026 SaveFood. {t('footer.rights')}.</p>
           <div className="socials">
             <a href="https://t.me/My_funny550_bot" target="_blank" rel="noreferrer">TG</a>
             <a href="/" aria-label="VK">VK</a>

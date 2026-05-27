@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import AddressInput from './AddressInput';
@@ -37,6 +38,7 @@ const AuthPage = () => {
     setFormData({ ...formData, address: addr.address, lat: addr.lat, lon: addr.lon, city: addr.city });
   };
 
+  const { t } = useTranslation();
   const { login } = useAuth();
   const navigate = useNavigate();
 
@@ -111,96 +113,67 @@ const AuthPage = () => {
 
   const renderRoleSelection = () => (
     <div className="role-selector">
-      <button 
-        className={`role-btn ${role === 'shop' ? 'active' : ''}`} 
+      <button
+        className={`role-btn ${role === 'shop' ? 'active' : ''}`}
         onClick={() => { setRole('shop'); setStep(1); }}
       >
-        Магазин
+        {t('auth.role_shop')}
       </button>
-      <button 
-        className={`role-btn ${role === 'volunteer' ? 'active' : ''}`} 
+      <button
+        className={`role-btn ${role === 'volunteer' ? 'active' : ''}`}
         onClick={() => { setRole('volunteer'); setStep(1); }}
       >
-        Волонтер
+        {t('auth.role_volunteer')}
       </button>
       <button
         className={`role-btn ${role === 'needy' ? 'active' : ''}`}
         onClick={() => { setRole('needy'); setStep(1); }}
       >
-        Нуждающийся
+        {t('auth.role_needy')}
       </button>
       <button
         className={`role-btn ${role === 'admin' ? 'active' : ''}`}
         onClick={() => { setRole('admin'); setStep(1); }}
       >
-        Администратор
+        {t('auth.role_admin')}
       </button>
     </div>
   );
 
   const renderLoginForm = () => (
     <form onSubmit={handleSubmit} className="auth-form">
-      <h2>Вход: {role === 'shop' ? 'Магазин' : role === 'volunteer' ? 'Волонтер' : role === 'admin' ? 'Администратор' : 'Нуждающийся'}</h2>
+      <h2>{t('auth.login')}: {t(`auth.role_${role}`)}</h2>
 
       {role === 'shop' || role === 'admin' ? (
         <>
-          <input type="email" name="email" placeholder="Email" onChange={handleInputChange} required />
-          <input type="password" name="password" placeholder="Пароль" onChange={handleInputChange} required />
+          <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
+          <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
         </>
       ) : (
         <>
-          <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-          <input type="password" name="password" placeholder="Пароль" onChange={handleInputChange} required />
+          <input type="tel" name="phone" placeholder={t('auth.phone')} onChange={handleInputChange} required />
+          <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
         </>
       )}
 
-      <button type="submit" className="btn btn-primary">Войти</button>
+      <button type="submit" className="btn btn-primary">{t('auth.submit_login')}</button>
       {role !== 'admin' && (
-        <p onClick={() => setIsLogin(false)} className="toggle-auth">Нет аккаунта? Зарегистрироваться</p>
+        <p onClick={() => setIsLogin(false)} className="toggle-auth">{t('auth.switch_to_register')}</p>
       )}
     </form>
   );
 
   const renderShopReg = () => (
     <form onSubmit={handleSubmit} className="auth-form">
-      <h2>Регистрация Магазина</h2>
-      <input type="text" name="name" placeholder="Название магазина/кафе" onChange={handleInputChange} required />
-      <input type="text" name="legalData" placeholder="Юридические данные (ИНН/ОГРН)" onChange={handleInputChange} required />
-      <input type="text" name="contact" placeholder="Контактное лицо / Телефон" onChange={handleInputChange} required />
-      <input type="email" name="email" placeholder="Email для входа" onChange={handleInputChange} required />
-      <input type="password" name="password" placeholder="Пароль" onChange={handleInputChange} required />
-      
-      <AddressInput 
-        label="Фактический адрес объекта" 
-        onChange={handleAddressChange} 
-        value={formData.address}
-      />
-      
-      <div className="consent-box">
-        <label className="checkbox-label">
-          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-          <span>Я согласен с <a href="#" onClick={(e) => { e.preventDefault(); alert('Политика конфиденциальности: Мы удаляем ваши документы сразу после проверки и не передаем данные третьим лицам.'); }}>политикой конфиденциальности</a> и обработкой данных</span>
-        </label>
-      </div>
-
-      <div className="info-box">
-        <p>После входа вы сможете формировать лоты списаний и настраивать окна выдачи.</p>
-      </div>
-
-      <button type="submit" className="btn btn-primary">Зарегистрироваться</button>
-      <p onClick={() => setIsLogin(true)} className="toggle-auth">Уже есть аккаунт? Войти</p>
-    </form>
-  );
-
-  const renderVolunteerReg = () => (
-    <form onSubmit={handleSubmit} className="auth-form">
-      <h2>Стать Волонтером</h2>
-      <input type="text" name="name" placeholder="Ваше имя" onChange={handleInputChange} required />
-      <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-      <input type="password" name="password" placeholder="Придумайте пароль" onChange={handleInputChange} required />
+      <h2>{t('auth.register')}: {t('auth.role_shop')}</h2>
+      <input type="text" name="name" placeholder={t('auth.name')} onChange={handleInputChange} required />
+      <input type="text" name="legalData" placeholder={t('auth.legal')} onChange={handleInputChange} required />
+      <input type="text" name="contact" placeholder={t('auth.contact')} onChange={handleInputChange} required />
+      <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
+      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
 
       <AddressInput
-        label="Ваш город / адрес (для зоны доставки)"
+        label={t('auth.address')}
         onChange={handleAddressChange}
         value={formData.address}
       />
@@ -208,16 +181,37 @@ const AuthPage = () => {
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-          <span>Я согласен с политикой конфиденциальности</span>
+          <span>{t('auth.agree')} (<a href="#" onClick={(e) => { e.preventDefault(); alert('Политика конфиденциальности: Мы удаляем ваши документы сразу после проверки и не передаем данные третьим лицам.'); }}>{t('auth.privacy')}</a>)</span>
         </label>
       </div>
 
-      <div className="gps-notice">
-        <p>⚠️ Для работы волонтером <strong>необходим доступ к геолокации</strong>. Это нужно для навигации и подтверждения доставки.</p>
+      <button type="submit" className="btn btn-primary">{t('auth.submit_register')}</button>
+      <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
+    </form>
+  );
+
+  const renderVolunteerReg = () => (
+    <form onSubmit={handleSubmit} className="auth-form">
+      <h2>{t('auth.register')}: {t('auth.role_volunteer')}</h2>
+      <input type="text" name="name" placeholder={t('auth.name')} onChange={handleInputChange} required />
+      <input type="tel" name="phone" placeholder={t('auth.phone')} onChange={handleInputChange} required />
+      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
+
+      <AddressInput
+        label={t('volunteer.your_city')}
+        onChange={handleAddressChange}
+        value={formData.address}
+      />
+
+      <div className="consent-box">
+        <label className="checkbox-label">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
+          <span>{t('auth.agree')}</span>
+        </label>
       </div>
 
-      <button type="submit" className="btn btn-primary">Зарегистрироваться</button>
-      <p onClick={() => setIsLogin(true)} className="toggle-auth">Уже есть аккаунт? Войти</p>
+      <button type="submit" className="btn btn-primary">{t('auth.submit_register')}</button>
+      <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
     </form>
   );
 
@@ -290,8 +284,8 @@ const AuthPage = () => {
 
   const renderTgStep = () => (
     <div className="auth-form">
-      <h2>Привяжите Telegram для уведомлений</h2>
-      <p style={{ color: '#aaa', marginBottom: 20 }}>Получайте уведомления о доставках прямо в Telegram</p>
+      <h2>{t('auth.telegram_title')}</h2>
+      <p style={{ color: '#aaa', marginBottom: 20 }}>{t('auth.telegram_desc')}</p>
       {regToken && (
         <button
           className="btn btn-primary"
@@ -307,14 +301,14 @@ const AuthPage = () => {
             } catch { alert('Ошибка подключения'); }
           }}
         >
-          Открыть Telegram
+          {t('auth.telegram_open')}
         </button>
       )}
       <button
         className="btn btn-secondary"
         onClick={() => { setTgStep(false); setIsLogin(true); }}
       >
-        Пропустить
+        {t('auth.telegram_skip')}
       </button>
     </div>
   );

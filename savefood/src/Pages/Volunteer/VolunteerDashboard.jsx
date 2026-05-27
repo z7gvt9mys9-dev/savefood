@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
+import EmptyState from '../../components/EmptyState';
 import './Volunteer.css';
 
 const haversineMeters = (lat1, lon1, lat2, lon2) => {
@@ -66,6 +68,7 @@ const RouteMapView = ({ points }) => {
 
 const VolunteerDashboard = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const volunteerId = user?.relatedId;
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -304,8 +307,10 @@ const VolunteerDashboard = () => {
         </YMaps>
       </div>
       <div className="task-list-mobile">
-        <h3>Доступные задачи</h3>
-        {mapData.shops.length === 0 && <p className="empty-msg">Нет доступных лотов</p>}
+        <h3>{t('volunteer.available_tasks')}</h3>
+        {mapData.shops.length === 0 && (
+          <EmptyState icon="🗺️" title={t('empty.map_title')} description={t('empty.map_desc')} />
+        )}
         {mapData.shops.flatMap(s =>
           s.lots.map(lot => (
             <div key={lot.lot_id} className="task-card-mobile">
@@ -326,7 +331,7 @@ const VolunteerDashboard = () => {
                 disabled={loading || !!activeRoute}
                 onClick={() => handleTakeTask(lot.lot_id)}
               >
-                Взять
+                {t('volunteer.take')}
               </button>
             </div>
           ))
@@ -338,7 +343,13 @@ const VolunteerDashboard = () => {
   const renderRoute = () => (
     <div className="volunteer-tab route-page">
       {!activeRoute ? (
-        <p className="empty-msg">У вас нет активного маршрута.</p>
+        <EmptyState
+          icon="🚗"
+          title={t('empty.route_title')}
+          description={t('empty.route_desc')}
+          action={t('empty.route_action')}
+          onAction={() => setActiveTab('map')}
+        />
       ) : (
         <>
           <div className="map-container-mobile mini-map">
@@ -441,26 +452,26 @@ const VolunteerDashboard = () => {
         {activeTab === 'route' && renderRoute()}
         {activeTab === 'stats' && (
           <div className="volunteer-tab">
-            <h3>Статистика</h3>
+            <h3>{t('volunteer.stats')}</h3>
             {!stats ? (
-              <p className="empty-msg">Загрузка...</p>
+              <p className="empty-msg">{t('common.loading')}</p>
             ) : (
               <div className="stats-row" style={{ flexWrap: 'wrap' }}>
                 <div className="v-stat">
                   <span>{stats.total_routes}</span>
-                  Маршрутов
+                  {t('volunteer.total_routes')}
                 </div>
                 <div className="v-stat">
                   <span>{stats.total_deliveries}</span>
-                  Доставок
+                  {t('volunteer.total_deliveries')}
                 </div>
                 <div className="v-stat">
                   <span>{stats.total_kg}</span>
-                  Кг еды
+                  {t('volunteer.total_kg')}
                 </div>
                 <div className="v-stat">
                   <span>{stats.avg_rating ? stats.avg_rating.toFixed(1) : '—'}</span>
-                  Рейтинг {stats.rating_count > 0 && `(${stats.rating_count})`}
+                  {t('volunteer.rating')} {stats.rating_count > 0 && `(${stats.rating_count})`}
                 </div>
               </div>
             )}
@@ -468,10 +479,10 @@ const VolunteerDashboard = () => {
         )}
         {activeTab === 'history' && (
           <div className="volunteer-tab">
-            <h3>Мои маршруты</h3>
+            <h3>{t('volunteer.my_routes')}</h3>
             <div className="stats-row">
-              <div className="v-stat"><span>{routes.length}</span> Маршрутов</div>
-              <div className="v-stat"><span>{routes.filter(r=>r.status==='finished').length}</span> Завершено</div>
+              <div className="v-stat"><span>{routes.length}</span> {t('volunteer.total_routes')}</div>
+              <div className="v-stat"><span>{routes.filter(r=>r.status==='finished').length}</span> {t('volunteer.completed_count')}</div>
               {volunteerRating?.average && (
                 <div className="v-stat">
                   <span>{'★'.repeat(Math.round(volunteerRating.average))}{'☆'.repeat(5 - Math.round(volunteerRating.average))}</span>
@@ -495,14 +506,16 @@ const VolunteerDashboard = () => {
                     {tgLoading ? '...' : 'Telegram'}
                   </button>
                 )}
-                <span style={{ fontSize: '0.78rem', color: '#555' }}>Уведомления</span>
+                <span style={{ fontSize: '0.78rem', color: '#555' }}>{t('common.notifications')}</span>
               </div>
             </div>
-          {routes.length === 0 ? <p className="empty-msg">История пуста</p> : routes.map(r => (
+          {routes.length === 0 ? (
+            <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+          ) : routes.map(r => (
               <div key={r.id} className="task-card-mobile">
                 <div className="task-info">
-                  <p>Маршрут #{r.id}</p>
-                  <p>Статус: {r.status === 'finished' ? 'Завершён' : r.status === 'timed_out' ? 'Истёк' : 'В процессе'}</p>
+                  <p>{t('volunteer.route')} #{r.id}</p>
+                  <p>{t('common.status')}: {r.status === 'finished' ? t('volunteer.status_finished') : r.status === 'timed_out' ? t('volunteer.status_timed_out') : t('volunteer.status_in_progress')}</p>
                   <p>{new Date(r.started_at).toLocaleDateString()}</p>
                 </div>
               </div>
@@ -512,10 +525,10 @@ const VolunteerDashboard = () => {
       </main>
 
       <nav className="mobile-nav">
-        <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>Карта</button>
-        <button className={activeTab === 'route' ? 'active' : ''} onClick={() => { setActiveTab('route'); fetchActiveRoute(); }}>Маршрут</button>
-        <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>История</button>
-        <button className={activeTab === 'stats' ? 'active' : ''} onClick={() => { setActiveTab('stats'); fetchStats(); }}>Статистика</button>
+        <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>{t('volunteer.map')}</button>
+        <button className={activeTab === 'route' ? 'active' : ''} onClick={() => { setActiveTab('route'); fetchActiveRoute(); }}>{t('volunteer.route')}</button>
+        <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('volunteer.history')}</button>
+        <button className={activeTab === 'stats' ? 'active' : ''} onClick={() => { setActiveTab('stats'); fetchStats(); }}>{t('volunteer.stats')}</button>
       </nav>
     </div>
   );

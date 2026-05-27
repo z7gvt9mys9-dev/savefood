@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import './Style/AboutPage.css';
 
 const steps = [
@@ -17,6 +18,7 @@ const stats = [
 
 const AboutPage = () => {
   const { hash } = useLocation();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!hash) return;
@@ -36,11 +38,8 @@ const AboutPage = () => {
 
       {/* Hero */}
       <section className="about-hero">
-        <h1>О проекте SaveFood</h1>
-        <p className="about-lead">
-          Мы соединяем магазины, у которых есть лишняя еда, с людьми, которым она нужна.
-          Волонтёры делают это возможным.
-        </p>
+        <h1>{t('about.title')}</h1>
+        <p className="about-lead">{t('about.lead')}</p>
       </section>
 
       {/* Миссия */}

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
+import EmptyState from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Admin.css';
 
 const AdminPanel = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('moderation');
   const [pendingNeedy, setPendingNeedy] = useState([]);
   const [stats, setStats] = useState({});
@@ -87,55 +90,53 @@ const AdminPanel = () => {
 
   const renderModeration = () => (
     <div className="admin-tab">
-      <h2>Очередь модерации (24ч)</h2>
+      <h2>{t('admin.moderation_queue')}</h2>
+      {pendingNeedy.length === 0 ? (
+        <EmptyState icon="✅" title={t('empty.moderation_title')} description={t('empty.moderation_desc')} />
+      ) : (
       <table className="admin-table">
         <thead>
           <tr>
-            <th>Пользователь</th>
-            <th>Контакт</th>
-            <th>Документ</th>
-            <th>Действия</th>
+            <th>{t('admin.col_user')}</th>
+            <th>{t('admin.col_contact')}</th>
+            <th>{t('admin.col_document')}</th>
+            <th>{t('admin.col_actions')}</th>
           </tr>
         </thead>
         <tbody>
-          {pendingNeedy.length === 0 ? (
-            <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px' }}>Очередь пуста</td></tr>
-          ) : pendingNeedy.map(item => (
+          {pendingNeedy.map(item => (
             <tr key={item.id}>
               <td>{item.name}</td>
               <td>{item.contact || '—'}</td>
-              <td>{item.document ? <a href={`${API_URL}/needy_uploads/${item.document.split('/').pop()}`} target="_blank" rel="noreferrer">Просмотреть</a> : '—'}</td>
+              <td>{item.document ? <a href={`${API_URL}/needy_uploads/${item.document.split('/').pop()}`} target="_blank" rel="noreferrer">{t('admin.view_doc')}</a> : '—'}</td>
               <td>
-                <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>Одобрить</button>
-                <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>Отклонить</button>
+                <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>{t('admin.approve')}</button>
+                <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>{t('admin.reject')}</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+      )}
     </div>
   );
 
   const renderDispatcher = () => (
     <div className="admin-tab">
-      <h2>Диспетчерская (Мониторинг)</h2>
+      <h2>{t('admin.dispatch')}</h2>
       <div className="incident-list">
-        <h3>Активные маршруты</h3>
+        <h3>{t('admin.active_routes')}</h3>
         {activeRoutes.length === 0 ? (
-          <p className="empty-msg">Нет активных маршрутов</p>
+          <EmptyState icon="🗺️" title={t('empty.routes_title')} description={t('empty.routes_desc')} />
         ) : activeRoutes.map(r => (
           <div key={r.id} className="incident-card">
             <div style={{ flex: 1 }}>
-              <p><strong>Волонтер:</strong> {r.volunteer_name || `ID ${r.volunteer_id}`}</p>
-              <p><strong>Маршрут №{r.id}</strong> — лот #{r.lot_id}</p>
-              <p><strong>Начат:</strong> {new Date(r.started_at).toLocaleString()}</p>
+              <p><strong>{t('admin.volunteer_label')}:</strong> {r.volunteer_name || `ID ${r.volunteer_id}`}</p>
+              <p><strong>{t('admin.route_label')} №{r.id}</strong> — лот #{r.lot_id}</p>
+              <p><strong>{t('admin.started')}:</strong> {new Date(r.started_at).toLocaleString()}</p>
             </div>
-            <button
-              className="btn-small btn-danger"
-              onClick={() => handleResetRoute(r.id)}
-              title="Освободить тикеты и лот, перевести маршрут в timed_out"
-            >
-              Сбросить
+            <button className="btn-small btn-danger" onClick={() => handleResetRoute(r.id)}>
+              {t('admin.reset_route')}
             </button>
           </div>
         ))}
@@ -212,32 +213,30 @@ const AdminPanel = () => {
     );
   };
 
-  const ROLE_LABELS = { shop: 'Магазин', volunteer: 'Волонтёр', needy: 'Нуждающийся', admin: 'Администратор' };
-
   const renderUsers = () => (
     <div className="admin-tab">
-      <h2>Управление пользователями</h2>
+      <h2>{t('admin.users')}</h2>
       <table className="admin-table">
         <thead>
           <tr>
             <th>Логин</th>
-            <th>Роль</th>
-            <th>Статус</th>
-            <th>Дата регистрации</th>
-            <th>Действия</th>
+            <th>{t('admin.col_role')}</th>
+            <th>{t('admin.col_status')}</th>
+            <th>{t('admin.col_created')}</th>
+            <th>{t('admin.col_actions')}</th>
           </tr>
         </thead>
         <tbody>
           {users.length === 0 ? (
-            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>Нет пользователей</td></tr>
+            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>{t('common.no_data')}</td></tr>
           ) : users.map(u => (
             <tr key={u.id} style={{ opacity: u.is_blocked ? 0.6 : 1 }}>
               <td>{u.username}</td>
-              <td>{ROLE_LABELS[u.role] || u.role}</td>
+              <td>{t(`nav.roles.${u.role}`) || u.role}</td>
               <td>
                 {u.is_blocked
-                  ? <span style={{ color: '#f55' }}>Заблокирован</span>
-                  : <span style={{ color: '#5f5' }}>Активен</span>}
+                  ? <span style={{ color: '#f55' }}>{t('admin.blocked')}</span>
+                  : <span style={{ color: '#5f5' }}>{t('admin.active')}</span>}
               </td>
               <td>{new Date(u.created_at).toLocaleDateString()}</td>
               <td>
@@ -246,7 +245,7 @@ const AdminPanel = () => {
                     className={`btn-small ${u.is_blocked ? 'btn-success' : 'btn-danger'}`}
                     onClick={() => handleBlockUser(u.id, u.is_blocked)}
                   >
-                    {u.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                    {u.is_blocked ? t('admin.unblock') : t('admin.block')}
                   </button>
                 )}
               </td>
@@ -259,21 +258,22 @@ const AdminPanel = () => {
 
   const renderAuditLog = () => (
     <div className="admin-tab">
-      <h2>Журнал действий</h2>
+      <h2>{t('admin.logs')}</h2>
+      {auditLog.length === 0 ? (
+        <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+      ) : (
       <table className="admin-table audit-table">
         <thead>
           <tr>
-            <th>Время</th>
-            <th>Действие</th>
-            <th>Admin</th>
-            <th>Объект</th>
-            <th>Детали</th>
+            <th>{t('admin.log_time')}</th>
+            <th>{t('admin.log_action')}</th>
+            <th>{t('admin.log_admin')}</th>
+            <th>{t('admin.log_object')}</th>
+            <th>{t('admin.log_details')}</th>
           </tr>
         </thead>
         <tbody>
-          {auditLog.length === 0 ? (
-            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '20px' }}>Журнал пуст</td></tr>
-          ) : auditLog.map(entry => (
+          {auditLog.map(entry => (
             <tr key={entry.id}>
               <td className="audit-time">{new Date(entry.created_at).toLocaleString()}</td>
               <td><span className="audit-action">{entry.action}</span></td>
@@ -284,6 +284,7 @@ const AdminPanel = () => {
           ))}
         </tbody>
       </table>
+      )}
     </div>
   );
 
@@ -292,11 +293,11 @@ const AdminPanel = () => {
       <aside className="sidebar">
         <h2>SaveFood Admin</h2>
         <nav>
-          <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>Модерация</button>
-          <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>Диспетчерская</button>
-          <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>Пользователи</button>
-          <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>Аналитика</button>
-          <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>Логи</button>
+          <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.moderation')}</button>
+          <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
+          <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
+          <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>{t('admin.analytics')}</button>
+          <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>{t('admin.logs')}</button>
         </nav>
       </aside>
 

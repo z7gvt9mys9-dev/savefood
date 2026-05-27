@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import QRCode from 'react-qr-code';
 import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import AddressInput from '../Auth/AddressInput';
+import EmptyState from '../../components/EmptyState';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Needy.css';
@@ -12,6 +14,7 @@ const PAGE = 20;
 
 const NeedyDashboard = () => {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const needyId = user?.relatedId;
 
   const [activeTab, setActiveTab] = useState('map');
@@ -351,7 +354,7 @@ const NeedyDashboard = () => {
       </div>
       <div className="tab-content">
         <div className="lot-grid">
-          {lots.length === 0 && <p className="empty-msg">Нет доступных лотов</p>}
+          {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description={t('empty.lots_city_desc')} />}
           {lots.map(lot => (
             <div key={lot.id} className="lot-card-compact">
               {lot.photo && (
@@ -436,25 +439,25 @@ const NeedyDashboard = () => {
   return (
     <div className="dashboard-container">
       <aside className="sidebar">
-        <h2>Моя Помощь</h2>
+        <h2>SaveFood</h2>
         <nav>
-          <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>Карта лотов</button>
-          <button className={activeTab === 'order' ? 'active' : ''} onClick={() => setActiveTab('order')}>Текущий заказ</button>
+          <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>{t('needy.lots')}</button>
+          <button className={activeTab === 'order' ? 'active' : ''} onClick={() => setActiveTab('order')}>{t('needy.order')}</button>
           <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>
-            Уведомления {unreadCount > 0 && `(${unreadCount})`}
+            {t('common.notifications')} {unreadCount > 0 && `(${unreadCount})`}
           </button>
-          <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>Анкета</button>
-          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>История</button>
+          <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>{t('common.profile')}</button>
+          <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('common.history')}</button>
         </nav>
       </aside>
 
       <main className="main-content">
         <header className="content-header">
           <h1>
-            {activeTab === 'map' ? 'Доступная еда' :
-             activeTab === 'order' ? 'Статус доставки' :
-             activeTab === 'notifications' ? 'Уведомления' :
-             activeTab === 'profile' ? 'Мой профиль' : 'Архив помощи'}
+            {activeTab === 'map' ? t('needy.lots') :
+             activeTab === 'order' ? t('needy.order') :
+             activeTab === 'notifications' ? t('common.notifications') :
+             activeTab === 'profile' ? t('common.profile') : t('common.history')}
           </h1>
         </header>
         {activeTab === 'map' && renderMap()}
