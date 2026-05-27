@@ -1,14 +1,16 @@
-from fastapi import APIRouter, HTTPException, UploadFile, Depends
-from typing import List
+from fastapi import APIRouter, HTTPException, UploadFile, Depends, WebSocket, WebSocketDisconnect
+from typing import List, Optional
 import os
 import shutil
 import uuid
+import json as json_mod
+import asyncio
 
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
 from backend import auth
-from backend.database import create_user
+from backend.database import create_user, get_db_cursor
 
 router = APIRouter()
 
@@ -138,8 +140,8 @@ def moderate_needy(needy_id: int, status: str, current_user: dict = Depends(auth
 
 
 @router.get("/lots", response_model=List[shop_schemas.LotOut])
-def all_active_lots():
-    rows = shop_db.get_all_active_lots()
+def all_active_lots(limit: int = 20, offset: int = 0, category: Optional[str] = None, search: Optional[str] = None):
+    rows = shop_db.get_all_active_lots(limit=limit, offset=offset, category=category, search=search)
     return rows
 
 
@@ -167,6 +169,85 @@ def assign_ticket(ticket_id: int, volunteer_name: str):
 
 
 @router.get("/needy/{needy_id}/history", response_model=List[schemas.TicketOut])
-def history(needy_id: int):
-    data = db.get_history(needy_id)
+def history(needy_id: int, limit: int = 20, offset: int = 0):
+    data = db.get_history(needy_id, limit=limit, offset=offset)
     return data
+
+
+@router.delete("/needy/{needy_id}/ticket/{ticket_id}")
+def cancel_ticket(needy_id: int, ticket_id: int, current_user: dict = Depends(auth.get_current_user)):
+    if current_user["role"] not in ("needy", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if current_user["role"] == "needy" and current_user.get("related_id") != needy_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM tickets WHERE id = %s AND needy_id = %s", (ticket_id, needy_id))
+        ticket = cur.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if ticket["status"] != "open":
+            raise HTTPException(status_code=400, detail="Можно отменить только открытую заявку")
+        cur.execute("DELETE FROM tickets WHERE id = %s", (ticket_id,))
+    return {"ok": True}
+
+
+@router.websocket("/ws/needy/{needy_id}")
+async def ws_needy(websocket: WebSocket, needy_id: int):
+    await websocket.accept()
+    last_id = 0
+    try:
+        def get_last():
+            with get_db_cursor() as cur:
+                cur.execute(
+                    "SELECT COALESCE(MAX(id), 0) as mid FROM notifications WHERE needy_id = %s",
+                    (needy_id,),
+                )
+                return cur.fetchone()["mid"]
+
+        last_id = await asyncio.to_thread(get_last)
+
+        while True:
+            await asyncio.sleep(3)
+
+            def fetch_new(lid):
+                with get_db_cursor() as cur:
+                    cur.execute(
+                        "SELECT id, type, payload FROM notifications WHERE needy_id = %s AND id > %s ORDER BY id ASC",
+                        (needy_id, lid),
+                    )
+                    return [dict(r) for r in cur.fetchall()]
+
+            rows = await asyncio.to_thread(fetch_new, last_id)
+            for row in rows:
+                last_id = row["id"]
+                await websocket.send_json({"type": row["type"], "payload": row["payload"]})
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+
+
+@router.post("/needy/{needy_id}/ticket/{ticket_id}/rate")
+def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: str = "", current_user: dict = Depends(auth.get_current_user)):
+    if current_user["role"] not in ("needy", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if current_user["role"] == "needy" and current_user.get("related_id") != needy_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not (1 <= rating <= 5):
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM tickets WHERE id = %s AND needy_id = %s", (ticket_id, needy_id))
+        ticket = cur.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if ticket["status"] != "fulfilled":
+            raise HTTPException(status_code=400, detail="Can only rate fulfilled deliveries")
+        cur.execute(
+            """
+            INSERT INTO delivery_ratings (ticket_id, volunteer_id, rating, comment)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (ticket_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
+            """,
+            (ticket_id, ticket.get("assigned_volunteer_id"), rating, comment),
+        )
+    return {"ok": True}

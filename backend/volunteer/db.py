@@ -109,9 +109,12 @@ def finish_route(route_id: int):
     with get_db_cursor() as cur:
         cur.execute("UPDATE volunteer_routes SET status = 'finished', finished_at = %s WHERE id = %s", (datetime.now(timezone.utc), route_id))
 
-def get_routes_by_volunteer(volunteer_id: int) -> List[Dict[str, Any]]:
+def get_routes_by_volunteer(volunteer_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM volunteer_routes WHERE volunteer_id = %s ORDER BY started_at DESC", (volunteer_id,))
+        cur.execute(
+            "SELECT * FROM volunteer_routes WHERE volunteer_id = %s ORDER BY started_at DESC LIMIT %s OFFSET %s",
+            (volunteer_id, limit, offset)
+        )
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 

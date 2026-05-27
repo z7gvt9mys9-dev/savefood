@@ -128,9 +128,12 @@ def assign_ticket(ticket_id: int, volunteer_name: str) -> Optional[Dict[str, Any
         updated = cur.fetchone()
         return dict(updated)
 
-def get_history(needy_id: int) -> List[Dict[str, Any]]:
+def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM tickets WHERE needy_id = %s AND status IN ('assigned','fulfilled') ORDER BY created_at DESC", (needy_id,))
+        cur.execute(
+            "SELECT * FROM tickets WHERE needy_id = %s AND status IN ('assigned','fulfilled') ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (needy_id, limit, offset)
+        )
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 

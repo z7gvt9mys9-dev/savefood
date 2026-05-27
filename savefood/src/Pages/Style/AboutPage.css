@@ -1,0 +1,289 @@
+.about-page {
+  background: #000;
+  color: #fff;
+  min-height: 100vh;
+}
+
+/* ─── Hero ─── */
+.about-hero {
+  text-align: center;
+  padding: 80px 24px 60px;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.about-hero h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin: 0 0 20px;
+}
+
+.about-lead {
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  color: #888;
+  max-width: 620px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+/* ─── Sections ─── */
+.about-section {
+  padding: 64px 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.about-section--dark {
+  background: #060606;
+  max-width: 100%;
+  padding: 64px 0;
+}
+.about-section--dark > * {
+  max-width: 1100px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 24px;
+  padding-right: 24px;
+}
+.about-section--dark h2 {
+  max-width: 1100px;
+  margin: 0 auto 40px;
+  padding: 0 24px;
+}
+
+.about-section h2 {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin: 0 0 36px;
+}
+
+.about-section p {
+  color: #aaa;
+  line-height: 1.8;
+  margin: 0 0 16px;
+}
+.about-section p strong { color: #fff; }
+
+/* ─── Grid 2 ─── */
+.about-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  align-items: center;
+}
+
+.about-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.value-item {
+  background: #0d0d0d;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+.value-item b { color: #fff; font-size: 0.95rem; }
+
+/* ─── Steps ─── */
+.steps-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.step-card {
+  background: #0d0d0d;
+  border: 1px solid #1e1e1e;
+  border-radius: 12px;
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.step-num {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #222;
+  margin-bottom: 16px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+}
+
+.step-card h3 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 12px;
+}
+
+.step-card p { color: #888; font-size: 0.9rem; margin: 0; line-height: 1.6; }
+
+/* ─── Stats ─── */
+.about-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.about-stat {
+  background: #0d0d0d;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  padding: 30px 20px;
+  text-align: center;
+}
+
+.about-stat-value {
+  display: block;
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.about-stat-label {
+  font-size: 0.8rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ─── Roles ─── */
+.roles-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.role-card {
+  background: #0d0d0d;
+  border: 1px solid #1e1e1e;
+  border-radius: 12px;
+  padding: 32px 24px;
+}
+
+.role-card h3 { font-size: 1.1rem; margin: 0 0 12px; }
+.role-card p { color: #888; font-size: 0.9rem; line-height: 1.6; margin: 0 0 20px; }
+
+.role-cta {
+  display: inline-block;
+  border: 1px solid #fff;
+  color: #fff;
+  text-decoration: none;
+  padding: 8px 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  transition: background 0.2s, color 0.2s;
+}
+.role-cta:hover { background: #fff; color: #000; }
+
+/* ─── Privacy ─── */
+.about-privacy {
+  max-width: 700px;
+  font-size: 0.95rem;
+}
+
+/* ─── CTA ─── */
+.about-cta-section {
+  text-align: center;
+  padding: 80px 24px;
+  border-top: 1px solid #1a1a1a;
+}
+.about-cta-section h2 {
+  font-size: 2rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin: 0 0 12px;
+}
+.about-cta-section p { color: #888; margin: 0 0 32px; }
+
+.about-cta-btn {
+  display: inline-block;
+  background: #fff;
+  color: #000;
+  text-decoration: none;
+  padding: 14px 40px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  font-size: 0.9rem;
+  transition: opacity 0.2s;
+}
+.about-cta-btn:hover { opacity: 0.85; }
+
+/* ─── Highlight on anchor navigation ─── */
+@keyframes highlight-pulse {
+  0%   { box-shadow: 0 0 0 3px #fff, 0 0 32px 6px rgba(255,255,255,0.25); background: rgba(255,255,255,0.07); }
+  50%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.5), 0 0 20px 4px rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); }
+  100% { box-shadow: none; background: transparent; }
+}
+.highlight-active {
+  animation: highlight-pulse 2.2s ease-out forwards;
+  border-radius: 10px;
+}
+
+/* ─── FAQ ─── */
+.faq-list { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+.faq-item {
+  background: #0a0a0a;
+  border: 1px solid #1e1e1e;
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+.faq-item h4 { margin: 0 0 8px; font-size: 0.95rem; color: #fff; }
+.faq-item p  { margin: 0; font-size: 0.88rem; color: #888; line-height: 1.6; }
+
+/* ─── Contacts ─── */
+.contacts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 20px;
+  max-width: 760px;
+}
+.contact-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.contact-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #555;
+  font-weight: 600;
+}
+.contact-item a {
+  color: #5dade2;
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.contact-item a:hover { text-decoration: underline; }
+.contact-item p { margin: 0; color: #888; font-size: 0.88rem; line-height: 1.5; }
+
+/* ─── Mobile ─── */
+@media (max-width: 768px) {
+  .about-hero { padding: 48px 20px 40px; }
+
+  .about-grid-2 { grid-template-columns: 1fr; gap: 32px; }
+  .steps-row { grid-template-columns: 1fr; }
+  .about-stats { grid-template-columns: 1fr 1fr; }
+  .roles-grid { grid-template-columns: 1fr; }
+  .about-values { grid-template-columns: 1fr 1fr; }
+}

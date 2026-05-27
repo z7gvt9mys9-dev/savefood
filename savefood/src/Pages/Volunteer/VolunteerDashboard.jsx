@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../api';
 import './Volunteer.css';
 
 const haversineMeters = (lat1, lon1, lat2, lon2) => {
@@ -9,6 +11,57 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
   const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
   const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+};
+
+// Inner component — must be rendered inside <YMaps> to use useYMaps
+const RouteMapView = ({ points }) => {
+  const ymaps = useYMaps(['multiRouter.MultiRoute']);
+  const mapRef = useRef(null);
+  const routeRef = useRef(null);
+  const shopPoint = points.find(p => p.kind === 'shop');
+  const center = shopPoint?.lat ? [shopPoint.lat, shopPoint.lon] : [55.75, 37.62];
+
+  useEffect(() => {
+    if (!ymaps || !mapRef.current) return;
+    // clean up previous route
+    if (routeRef.current) {
+      mapRef.current.geoObjects.remove(routeRef.current);
+      routeRef.current = null;
+    }
+    const coords = points.filter(p => p.lat && p.lon).map(p => [p.lat, p.lon]);
+    if (coords.length < 2) return;
+    const multiRoute = new ymaps.multiRouter.MultiRoute(
+      { referencePoints: coords },
+      {
+        routeActiveStrokeColor: '#4CAF50',
+        routeActiveStrokeWidth: 4,
+        boundsAutoApply: true,
+        wayPointStartIconColor: '#ff6b35',
+        wayPointFinishIconColor: '#2196F3',
+      }
+    );
+    mapRef.current.geoObjects.add(multiRoute);
+    routeRef.current = multiRoute;
+    return () => {
+      if (mapRef.current && routeRef.current) {
+        mapRef.current.geoObjects.remove(routeRef.current);
+        routeRef.current = null;
+      }
+    };
+  }, [ymaps, JSON.stringify(points)]);
+
+  return (
+    <Map instanceRef={mapRef} state={{ center, zoom: 13 }} width="100%" height="100%">
+      {points.map((p, i) => p.lat && p.lon && (
+        <Placemark
+          key={i}
+          geometry={[p.lat, p.lon]}
+          properties={{ balloonContent: p.description || '' }}
+          options={{ preset: p.kind === 'shop' ? 'islands#redShoppingIcon' : 'islands#greenHomeIcon' }}
+        />
+      ))}
+    </Map>
+  );
 };
 
 const VolunteerDashboard = () => {
@@ -23,28 +76,67 @@ const VolunteerDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [routes, setRoutes] = useState([]);
   const [gpsStatus, setGpsStatus] = useState('unknown');
+  const [volunteerRating, setVolunteerRating] = useState(null);
+  const [tgLink, setTgLink] = useState(null);
+  const [tgLoading, setTgLoading] = useState(false);
+  const qrScannerRef = useRef(null);
+
+  const stopScanner = useCallback(() => {
+    if (qrScannerRef.current) {
+      qrScannerRef.current.stop()
+        .then(() => { qrScannerRef.current.clear(); qrScannerRef.current = null; })
+        .catch(() => { qrScannerRef.current = null; });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!scanning) { stopScanner(); return; }
+    const scanner = new Html5Qrcode('qr-reader');
+    qrScannerRef.current = scanner;
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 250 },
+      async (decodedText) => {
+        stopScanner();
+        const match = decodedText.match(/^SF-(\d+)$/);
+        if (match && nextTicket && parseInt(match[1]) === nextTicket.ticket_id) {
+          await handleCompletePoint(nextTicket.ticket_id);
+          setScanning(false);
+        } else {
+          alert('Неверный QR-код. Ожидается: SF-' + (nextTicket?.ticket_id ?? '?'));
+          setScanning(false);
+        }
+      },
+      () => {}
+    ).catch(() => { setScanning(false); });
+    return stopScanner;
+  }, [scanning]);
 
   useEffect(() => {
     fetchMapData();
     if (volunteerId) {
       fetchActiveRoute();
-      fetch(`http://localhost:8000/volunteers/${volunteerId}/history`, { headers: authHeader })
+      fetch(`${API_URL}/volunteers/${volunteerId}/history`, { headers: authHeader })
         .then(res => res.ok ? res.json() : [])
         .then(data => setRoutes(Array.isArray(data) ? data : []))
+        .catch(() => {});
+      fetch(`${API_URL}/volunteers/${volunteerId}/rating`, { headers: authHeader })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => { if (data) setVolunteerRating(data); })
         .catch(() => {});
     }
   }, [volunteerId]);
 
   const fetchMapData = async () => {
     try {
-      const res = await fetch('http://localhost:8000/volunteers/map', { headers: authHeader });
+      const res = await fetch(`${API_URL}/volunteers/map`, { headers: authHeader });
       if (res.ok) setMapData(await res.json());
     } catch {}
   };
 
   const fetchActiveRoute = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/volunteers/${volunteerId}/active_route`, { headers: authHeader });
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/active_route`, { headers: authHeader });
       if (!res.ok) return;
       const data = await res.json();
       setActiveRoute(data && data.id ? data : null);
@@ -55,7 +147,7 @@ const VolunteerDashboard = () => {
     if (!volunteerId) { alert('Необходима авторизация'); return; }
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/volunteers/${volunteerId}/start_route`, {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/start_route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ lot_id: lotId }),
@@ -73,7 +165,7 @@ const VolunteerDashboard = () => {
   const handleCompletePoint = async (ticketId = null) => {
     if (!activeRoute) return;
     try {
-      const res = await fetch(`http://localhost:8000/volunteers/route/${activeRoute.id}/complete_point`, {
+      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
@@ -88,7 +180,7 @@ const VolunteerDashboard = () => {
   const handleFinishRoute = async () => {
     if (!activeRoute) return;
     try {
-      const res = await fetch(`http://localhost:8000/volunteers/route/${activeRoute.id}/finish`, {
+      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ volunteer_id: volunteerId }),
@@ -153,6 +245,14 @@ const VolunteerDashboard = () => {
         {mapData.shops.flatMap(s =>
           s.lots.map(lot => (
             <div key={lot.lot_id} className="task-card-mobile">
+              {lot.photo && (
+                <img
+                  src={`${API_URL}${lot.photo}`}
+                  alt={lot.description}
+                  className="lot-photo"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              )}
               <div className="task-info">
                 <h4>{s.name}</h4>
                 <p>{lot.description} — {lot.quantity} шт.</p>
@@ -178,20 +278,8 @@ const VolunteerDashboard = () => {
       ) : (
         <>
           <div className="map-container-mobile mini-map">
-            <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY }}>
-              <Map
-                state={{ center: shopPoint?.lat ? [shopPoint.lat, shopPoint.lon] : [55.75, 37.62], zoom: 14 }}
-                width="100%" height="100%"
-              >
-                {points.map((p, i) => p.lat && p.lon && (
-                  <Placemark
-                    key={i}
-                    geometry={[p.lat, p.lon]}
-                    properties={{ balloonContent: p.description || '' }}
-                    options={{ preset: p.kind === 'shop' ? 'islands#redShoppingIcon' : 'islands#greenHomeIcon' }}
-                  />
-                ))}
-              </Map>
+            <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY, load: 'package.full' }}>
+              <RouteMapView points={points} />
             </YMaps>
           </div>
           <div className="navigator-card">
@@ -223,13 +311,10 @@ const VolunteerDashboard = () => {
                 </button>
               ) : nextTicket ? (
                 scanning ? (
-                  <div className="scanner-mock" onClick={async () => {
-                    await handleCompletePoint(nextTicket.ticket_id);
-                    setScanning(false);
-                  }}>
-                    <div className="scanner-frame"></div>
-                    <p>Наведите камеру на QR-код получателя</p>
-                    <button className="btn-small" onClick={(e) => { e.stopPropagation(); setScanning(false); }}>Отмена</button>
+                  <div className="scanner-container">
+                    <p style={{ textAlign: 'center', color: '#aaa', marginBottom: 8 }}>Наведите камеру на QR-код получателя</p>
+                    <div id="qr-reader" style={{ width: '100%', borderRadius: 8, overflow: 'hidden' }}></div>
+                    <button className="btn-small" style={{ marginTop: 10, width: '100%' }} onClick={() => setScanning(false)}>Отмена</button>
                   </div>
                 ) : (
                   <div>
@@ -271,8 +356,33 @@ const VolunteerDashboard = () => {
             <div className="stats-row">
               <div className="v-stat"><span>{routes.length}</span> Маршрутов</div>
               <div className="v-stat"><span>{routes.filter(r=>r.status==='finished').length}</span> Завершено</div>
+              {volunteerRating?.average && (
+                <div className="v-stat">
+                  <span>{'★'.repeat(Math.round(volunteerRating.average))}{'☆'.repeat(5 - Math.round(volunteerRating.average))}</span>
+                  <span style={{ fontSize: '0.8em', color: '#aaa' }}>{volunteerRating.average} ({volunteerRating.count})</span>
+                </div>
+              )}
+              <div className="v-stat" style={{ justifyContent: 'center', gap: 6 }}>
+                {tgLink ? (
+                  <a href={tgLink.link} target="_blank" rel="noreferrer"
+                    style={{ fontSize: '0.78rem', color: '#5dade2', textDecoration: 'none', fontWeight: 600 }}>
+                    @{tgLink.bot_name}
+                  </a>
+                ) : (
+                  <button className="btn-small" onClick={async () => {
+                    setTgLoading(true);
+                    try {
+                      const res = await fetch(`${API_URL}/auth/telegram/init-link`, { headers: authHeader });
+                      if (res.ok) setTgLink(await res.json());
+                    } finally { setTgLoading(false); }
+                  }} disabled={tgLoading} style={{ fontSize: '0.75rem' }}>
+                    {tgLoading ? '...' : 'Telegram'}
+                  </button>
+                )}
+                <span style={{ fontSize: '0.78rem', color: '#555' }}>Уведомления</span>
+              </div>
             </div>
-            {routes.length === 0 ? <p className="empty-msg">История пуста</p> : routes.map(r => (
+          {routes.length === 0 ? <p className="empty-msg">История пуста</p> : routes.map(r => (
               <div key={r.id} className="task-card-mobile">
                 <div className="task-info">
                   <p>Маршрут #{r.id}</p>

@@ -100,8 +100,19 @@ h2 {
 .hero-ctas {
   display: flex;
   justify-content: center;
-  gap: 20px;
-  flex-wrap: wrap;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+
+.hero-ctas .btn {
+  flex: 1;
+  max-width: 200px;
+  text-align: center;
+}
+
+@media (max-width: 600px) {
+  .hero-ctas { flex-wrap: wrap; }
+  .hero-ctas .btn { max-width: none; width: 100%; }
 }
 
 .metrics {
@@ -228,48 +239,38 @@ h2 {
   background-color: var(--dark);
 }
 
-.faq-list {
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.faq-item {
-  border-bottom: 1px solid #222;
-}
-
-.faq-question {
-  padding: 25px 0;
+.faq .faq-list {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: center;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 1.1rem;
-  color: var(--white);
+  gap: 20px;
 }
 
-.faq-answer {
-  padding: 0 0 25px 0;
+.faq .faq-item {
+  width: 100%;
+  max-width: 800px;
+  background: #0a0a0a;
+  border: 1px solid #1e1e1e;
+  border-radius: 10px;
+  padding: 30px;
+  text-align: center;
+}
+
+.faq .faq-item h4 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  color: #fff;
+  font-weight: 600;
+}
+
+.faq .faq-item p {
+  margin: 0;
+  font-size: 0.88rem;
   color: #888;
-  animation: fadeIn 0.3s ease;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-.faq-icon {
-  font-size: 1.2rem;
-  color: var(--white);
+  line-height: 1.65;
 }
 
 @media (max-width: 768px) {
-  .hero h1 {
-    font-size: 2.5rem;
-  }
-  
-  section {
-    padding: 60px 0;
-  }
+  .hero h1 { font-size: 2.5rem; }
+  section { padding: 60px 0; }
 }

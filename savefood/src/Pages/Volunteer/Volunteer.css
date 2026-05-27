@@ -180,10 +180,95 @@
   padding: 20px;
   text-align: center;
   border: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 .v-stat span {
   display: block;
   font-size: 1.5rem;
   font-weight: bold;
+}
+
+.lot-photo {
+  width: 100%; max-height: 120px; object-fit: cover; border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.scanner-container {
+  padding: 12px;
+  background: #0d1117;
+  border: 1px solid #2d2d2d;
+  border-radius: 8px;
+  margin-top: 8px;
+}
+
+/* ─── Desktop layout ─── */
+@media (min-width: 769px) {
+  .mobile-container {
+    max-width: none;
+    background-color: transparent;
+    padding-bottom: 0;
+    min-height: auto;
+  }
+
+  .mobile-content {
+    padding: 0;
+  }
+
+  .mobile-nav {
+    position: static;
+    transform: none;
+    left: auto;
+    max-width: none;
+    width: auto;
+    background-color: #0a0a0a;
+    border-top: none;
+    border-bottom: 1px solid #222;
+    border-radius: 10px;
+    margin-bottom: 24px;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 8px 10px;
+    order: -1;
+  }
+
+  .mobile-container {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mobile-nav button {
+    padding: 8px 22px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    letter-spacing: 0.5px;
+  }
+
+  .mobile-nav button.active {
+    background-color: #1e1e1e;
+    color: #fff;
+  }
+
+  .map-container-mobile {
+    height: 520px;
+    border-radius: 12px;
+    margin-bottom: 24px;
+  }
+
+  .map-container-mobile.mini-map {
+    height: 320px;
+  }
+
+  .task-card-mobile {
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+
+  .navigator-card {
+    border-radius: 10px;
+  }
 }

@@ -10,6 +10,7 @@ import ShopDashboard from './Pages/Shop/ShopDashboard';
 import NeedyDashboard from './Pages/Needy/NeedyDashboard';
 import VolunteerDashboard from './Pages/Volunteer/VolunteerDashboard';
 import AdminPanel from './Pages/Admin/AdminPanel';
+import AboutPage from './Pages/AboutPage';
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <main className="content">
             <Routes>
               <Route path="/" element={<HomePage />} />
+              <Route path="/about" element={<AboutPage />} />
               <Route path="/auth" element={<AuthPage />} />
               
               <Route path="/shop" element={

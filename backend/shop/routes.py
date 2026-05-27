@@ -108,11 +108,11 @@ def take_lot(lot_id: int, payload: schemas.TakeLotRequest):
 
 
 @router.get("/shops/{shop_id}/history", response_model=List[schemas.LotOut])
-def get_history(shop_id: int):
+def get_history(shop_id: int, limit: int = 20, offset: int = 0):
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
-    rows = db.get_history(shop_id)
+    rows = db.get_history(shop_id, limit=limit, offset=offset)
     return rows
 
 

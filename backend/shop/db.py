@@ -84,11 +84,19 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
-def get_all_active_lots() -> List[Dict[str, Any]]:
+def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        cur.execute(
-            "SELECT * FROM lots WHERE status = 'active' AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day') ORDER BY created_at DESC"
-        )
+        filters = ["status = 'active'", "(expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
+        params = []
+        if category:
+            filters.append("category ILIKE %s")
+            params.append(category)
+        if search:
+            filters.append("(description ILIKE %s OR address ILIKE %s)")
+            params.extend([f"%{search}%", f"%{search}%"])
+        where = " AND ".join(filters)
+        params.extend([limit, offset])
+        cur.execute(f"SELECT * FROM lots WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s", params)
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
@@ -134,11 +142,11 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
         updated = cur.fetchone()
         return dict(updated)
 
-def get_history(shop_id: int) -> List[Dict[str, Any]]:
+def get_history(shop_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('taken', 'expired', 'removed') ORDER BY COALESCE(taken_at, created_at) DESC",
-            (shop_id,)
+            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('taken', 'expired', 'removed') ORDER BY COALESCE(taken_at, created_at) DESC LIMIT %s OFFSET %s",
+            (shop_id, limit, offset)
         )
         rows = cur.fetchall()
         return [dict(r) for r in rows]

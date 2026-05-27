@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../api';
 import AddressInput from './AddressInput';
 import './Auth.css';
 
@@ -49,9 +50,9 @@ const AuthPage = () => {
     if (isLogin) {
       try {
         const fd = new FormData();
-        fd.append('username', role === 'shop' ? formData.email : formData.phone);
+        fd.append('username', (role === 'shop' || role === 'admin') ? formData.email : formData.phone);
         fd.append('password', formData.password);
-        const res = await fetch('http://localhost:8000/auth/login', { method: 'POST', body: fd });
+        const res = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
         if (!res.ok) throw new Error('Неверный логин или пароль');
         const data = await res.json();
         login(data.access_token, data.role, data.related_id);
@@ -64,13 +65,13 @@ const AuthPage = () => {
         let endpoint = '';
         let body = {};
         if (role === 'shop') {
-          endpoint = 'http://localhost:8000/shops/register';
+          endpoint = `${API_URL}/shops/register`;
           body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, username: formData.email, password: formData.password };
         } else if (role === 'volunteer') {
-          endpoint = 'http://localhost:8000/volunteers/register';
+          endpoint = `${API_URL}/volunteers/register`;
           body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
         } else {
-          endpoint = 'http://localhost:8000/needy/register';
+          endpoint = `${API_URL}/needy/register`;
           body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
         }
         const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -82,7 +83,7 @@ const AuthPage = () => {
         if (role === 'needy' && formData.document && data.id) {
           const fd = new FormData();
           fd.append('file', formData.document);
-          await fetch(`http://localhost:8000/needy/${data.id}/profile/upload`, {
+          await fetch(`${API_URL}/needy/${data.id}/profile/upload`, {
             method: 'POST',
             body: fd,
           }).catch(() => {});
@@ -109,20 +110,26 @@ const AuthPage = () => {
       >
         Волонтер
       </button>
-      <button 
-        className={`role-btn ${role === 'needy' ? 'active' : ''}`} 
+      <button
+        className={`role-btn ${role === 'needy' ? 'active' : ''}`}
         onClick={() => { setRole('needy'); setStep(1); }}
       >
         Нуждающийся
+      </button>
+      <button
+        className={`role-btn ${role === 'admin' ? 'active' : ''}`}
+        onClick={() => { setRole('admin'); setStep(1); }}
+      >
+        Администратор
       </button>
     </div>
   );
 
   const renderLoginForm = () => (
     <form onSubmit={handleSubmit} className="auth-form">
-      <h2>Вход: {role === 'shop' ? 'Магазин' : role === 'volunteer' ? 'Волонтер' : 'Нуждающийся'}</h2>
-      
-      {role === 'shop' ? (
+      <h2>Вход: {role === 'shop' ? 'Магазин' : role === 'volunteer' ? 'Волонтер' : role === 'admin' ? 'Администратор' : 'Нуждающийся'}</h2>
+
+      {role === 'shop' || role === 'admin' ? (
         <>
           <input type="email" name="email" placeholder="Email" onChange={handleInputChange} required />
           <input type="password" name="password" placeholder="Пароль" onChange={handleInputChange} required />
@@ -135,7 +142,9 @@ const AuthPage = () => {
       )}
 
       <button type="submit" className="btn btn-primary">Войти</button>
-      <p onClick={() => setIsLogin(false)} className="toggle-auth">Нет аккаунта? Зарегистрироваться</p>
+      {role !== 'admin' && (
+        <p onClick={() => setIsLogin(false)} className="toggle-auth">Нет аккаунта? Зарегистрироваться</p>
+      )}
     </form>
   );
 

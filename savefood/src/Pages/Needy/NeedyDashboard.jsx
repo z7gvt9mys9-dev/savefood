@@ -1,8 +1,14 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import QRCode from 'react-qr-code';
+import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import AddressInput from '../Auth/AddressInput';
 import { useAuth } from '../../context/AuthContext';
+import { API_URL } from '../../api';
 import './Needy.css';
+
+const YMAPS_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
+
+const PAGE = 20;
 
 const NeedyDashboard = () => {
   const { user } = useAuth();
@@ -11,49 +17,104 @@ const NeedyDashboard = () => {
   const [activeTab, setActiveTab] = useState('map');
   const [activeOrder, setActiveOrder] = useState(null);
   const [lots, setLots] = useState([]);
+  const [lotsOffset, setLotsOffset] = useState(0);
+  const [lotsHasMore, setLotsHasMore] = useState(true);
   const [notifications, setNotifications] = useState([]);
   const [history, setHistory] = useState([]);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
   const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '' });
+  const [tgLink, setTgLink] = useState(null);
+  const [tgLoading, setTgLoading] = useState(false);
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterSearch, setFilterSearch] = useState('');
+  const [ratings, setRatings] = useState({});
 
   const lotPositions = useMemo(
     () => lots.map(lot => ({ ...lot, _top: Math.random() * 80, _left: Math.random() * 80 })),
     [lots]
   );
 
+  const loadLots = useCallback(async (offset = 0, append = false, category = filterCategory, search = filterSearch) => {
+    try {
+      const params = new URLSearchParams({ limit: PAGE, offset });
+      if (category) params.append('category', category);
+      if (search) params.append('search', search);
+      const res = await fetch(`${API_URL}/lots?${params}`);
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : [];
+      setLots(prev => append ? [...prev, ...arr] : arr);
+      setLotsHasMore(arr.length === PAGE);
+      setLotsOffset(offset + arr.length);
+    } catch {}
+  }, [filterCategory, filterSearch]);
+
+  const loadHistory = async (offset = 0, append = false) => {
+    if (!needyId) return;
+    try {
+      const res = await fetch(`${API_URL}/needy/${needyId}/history?limit=${PAGE}&offset=${offset}`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : [];
+      setHistory(prev => append ? [...prev, ...arr] : arr);
+      setHistoryHasMore(arr.length === PAGE);
+      setHistoryOffset(offset + arr.length);
+    } catch {}
+  };
+
   useEffect(() => {
-    fetch('http://localhost:8000/lots')
-      .then(res => res.json())
-      .then(data => setLots(Array.isArray(data) ? data : []))
-      .catch(() => {});
+    loadLots(0);
 
     if (!needyId) return;
 
-    fetch(`http://localhost:8000/needy/${needyId}/profile`, {
+    fetch(`${API_URL}/needy/${needyId}/profile`, {
       headers: { Authorization: `Bearer ${user?.token}` },
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => { if (data) setProfile(prev => ({ ...prev, ...data })); })
       .catch(() => {});
 
-    fetch(`http://localhost:8000/needy/${needyId}/notifications`, {
+    fetch(`${API_URL}/needy/${needyId}/notifications`, {
       headers: { Authorization: `Bearer ${user?.token}` },
     })
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
 
-    fetch(`http://localhost:8000/needy/${needyId}/history`, {
-      headers: { Authorization: `Bearer ${user?.token}` },
-    })
-      .then(res => res.json())
-      .then(data => setHistory(Array.isArray(data) ? data : []))
-      .catch(() => {});
+    loadHistory(0);
+  }, [needyId]);
+
+  // WebSocket: live notification stream
+  useEffect(() => {
+    if (!needyId) return;
+    const apiBase = process.env.REACT_APP_API_URL ?? '';
+    const wsUrl = apiBase
+      ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
+      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/needy/${needyId}`;
+    let ws;
+    let reconnectTimer;
+    const connect = () => {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (e) => {
+        try {
+          const data = JSON.parse(e.data);
+          setNotifications(prev => [{
+            id: Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
+          }, ...prev]);
+        } catch {}
+      };
+      ws.onclose = () => { reconnectTimer = setTimeout(connect, 5000); };
+      ws.onerror = () => ws.close();
+    };
+    connect();
+    return () => { clearTimeout(reconnectTimer); ws?.close(); };
   }, [needyId]);
 
   const handleBook = async (lot) => {
     if (!needyId) { alert('Необходима авторизация'); return; }
     try {
-      const res = await fetch(`http://localhost:8000/needy/${needyId}/ticket`, {
+      const res = await fetch(`${API_URL}/needy/${needyId}/ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({
@@ -76,11 +137,64 @@ const NeedyDashboard = () => {
     }
   };
 
+  const handleCancelTicket = async () => {
+    if (!activeOrder?.ticketId || !needyId) return;
+    if (!window.confirm('Отменить заявку?')) return;
+    try {
+      const res = await fetch(`${API_URL}/needy/${needyId}/ticket/${activeOrder.ticketId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.detail || 'Не удалось отменить заявку');
+        return;
+      }
+      setActiveOrder(null);
+      setActiveTab('map');
+    } catch {
+      alert('Ошибка подключения к серверу');
+    }
+  };
+
+  useEffect(() => {
+    setLotsOffset(0);
+    loadLots(0, false, filterCategory, filterSearch);
+  }, [filterCategory, filterSearch]);
+
+  const handleRateDelivery = async (ticketId, rating) => {
+    if (!needyId) return;
+    try {
+      const res = await fetch(
+        `${API_URL}/needy/${needyId}/ticket/${ticketId}/rate?rating=${rating}`,
+        { method: 'POST', headers: { Authorization: `Bearer ${user?.token}` } }
+      );
+      if (res.ok) setRatings(prev => ({ ...prev, [ticketId]: rating }));
+      else alert('Не удалось сохранить оценку');
+    } catch { alert('Ошибка подключения'); }
+  };
+
+  const handleConnectTelegram = async () => {
+    setTgLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (!res.ok) { alert('Ошибка генерации ссылки'); return; }
+      const data = await res.json();
+      setTgLink(data);
+    } catch {
+      alert('Ошибка подключения к серверу');
+    } finally {
+      setTgLoading(false);
+    }
+  };
+
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!needyId) { alert('Необходима авторизация'); return; }
     try {
-      const res = await fetch(`http://localhost:8000/needy/${needyId}/profile`, {
+      const res = await fetch(`${API_URL}/needy/${needyId}/profile`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({
@@ -110,11 +224,7 @@ const NeedyDashboard = () => {
         <div className="form-row">
           <div className="form-group">
             <label>Состав семьи (чел)</label>
-            <input
-              type="number"
-              value={profile.family_size}
-              onChange={(e) => setProfile({ ...profile, family_size: e.target.value })}
-            />
+            <input type="number" value={profile.family_size} onChange={(e) => setProfile({ ...profile, family_size: e.target.value })} />
           </div>
           <div className="form-group">
             <label>Уровень срочности</label>
@@ -127,54 +237,117 @@ const NeedyDashboard = () => {
         </div>
         <div className="form-group">
           <label>Удобное время получения (например: 14:00-18:00)</label>
-          <input
-            type="text"
-            placeholder="14:00-18:00"
-            value={profile.available_time}
-            onChange={(e) => setProfile({ ...profile, available_time: e.target.value })}
-          />
+          <input type="text" placeholder="14:00-18:00" value={profile.available_time} onChange={(e) => setProfile({ ...profile, available_time: e.target.value })} />
         </div>
         <div className="form-group">
           <label>Пищевые ограничения</label>
-          <textarea
-            placeholder="Например: аллергия на лактозу"
-            value={profile.preferences}
-            onChange={(e) => setProfile({ ...profile, preferences: e.target.value })}
-          />
+          <textarea placeholder="Например: аллергия на лактозу" value={profile.preferences} onChange={(e) => setProfile({ ...profile, preferences: e.target.value })} />
         </div>
         <button type="submit" className="btn btn-primary">Сохранить изменения</button>
       </form>
+
+      <div className="tg-connect-section">
+        <h3>Уведомления в Telegram</h3>
+        {tgLink ? (
+          <div className="tg-link-box">
+            <p>Ссылка действует 10 минут. Нажмите кнопку ниже, чтобы открыть бота:</p>
+            <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
+              Открыть @{tgLink.bot_name} в Telegram
+            </a>
+            {tgLink.already_linked && <p className="tg-hint">У вас уже подключён Telegram — ссылка обновит привязку.</p>}
+          </div>
+        ) : (
+          <button className="btn btn-secondary" onClick={handleConnectTelegram} disabled={tgLoading}>
+            {tgLoading ? 'Загрузка...' : 'Подключить Telegram'}
+          </button>
+        )}
+      </div>
     </div>
   );
 
+  const lotsWithCoords = useMemo(() => lots.filter(l => l.lat && l.lon), [lots]);
+  const mapCenter = lotsWithCoords.length > 0
+    ? [lotsWithCoords[0].lat, lotsWithCoords[0].lon]
+    : [55.7522, 37.6156];
+
   const renderMap = () => (
-    <div className="tab-content">
-      <div className="map-placeholder">
-        <p>Интерактивная карта лотов</p>
-        <div className="map-mock">
-          {lotPositions.map(lot => (
-            <div key={lot.id} className="map-marker" style={{top: `${lot._top}%`, left: `${lot._left}%`}}>
-              📍
+    <>
+      <div className="tab-content">
+        <div className="lot-filters">
+          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+            <option value="">Все категории</option>
+            <option value="Выпечка">Выпечка</option>
+            <option value="Овощи/Фрукты">Овощи/Фрукты</option>
+            <option value="Готовая еда">Готовая еда</option>
+            <option value="Молочные продукты">Молочные продукты</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Поиск по описанию или адресу..."
+            value={filterSearch}
+            onChange={e => setFilterSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="map-container">
+        <YMaps query={{ apikey: YMAPS_KEY, lang: 'ru_RU' }}>
+          <Map
+            state={{ center: mapCenter, zoom: 12 }}
+            width="100%"
+            height="100%"
+            options={{ suppressMapOpenBlock: true }}
+          >
+            {lotsWithCoords.map(lot => (
+              <Placemark
+                key={lot.id}
+                geometry={[lot.lat, lot.lon]}
+                properties={{
+                  balloonContentHeader: lot.description,
+                  balloonContentBody: `${lot.quantity} кг/шт · ${lot.address || ''}`,
+                  balloonContentFooter: lot.time_slot ? `Выдача: ${lot.time_slot}` : '',
+                  hintContent: lot.description,
+                }}
+                options={{ preset: 'islands#greenFoodIcon', iconColor: '#2ecc71' }}
+              />
+            ))}
+          </Map>
+        </YMaps>
+        {lotsWithCoords.length === 0 && (
+          <div className="map-no-coords">Нет лотов с указанными координатами</div>
+        )}
+      </div>
+      <div className="tab-content">
+        <div className="lot-grid">
+          {lots.length === 0 && <p className="empty-msg">Нет доступных лотов</p>}
+          {lots.map(lot => (
+            <div key={lot.id} className="lot-card-compact">
+              {lot.photo && (
+                <img
+                  src={`${API_URL}${lot.photo}`}
+                  alt={lot.description}
+                  className="lot-photo"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              )}
+              <h4>{lot.description}</h4>
+              <p>{lot.address || 'Адрес уточняется'}</p>
+              <span className="distance">{lot.quantity} кг/шт</span>
+              {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
+              <button className="btn-small" onClick={() => handleBook(lot)}>Забронировать</button>
             </div>
           ))}
         </div>
+        {lotsHasMore && (
+          <button className="btn btn-secondary" style={{ margin: '16px auto', display: 'block' }} onClick={() => loadLots(lotsOffset, true)}>
+            Показать ещё
+          </button>
+        )}
+        <div className="limit-notice" style={{marginTop: '20px'}}>
+          <p>Вы можете оформить заявку не чаще 1 раза в неделю.</p>
+        </div>
       </div>
-      <div className="lot-grid">
-        {lots.length === 0 && <p className="empty-msg">Нет доступных лотов</p>}
-        {lots.map(lot => (
-          <div key={lot.id} className="lot-card-compact">
-            <h4>{lot.description}</h4>
-            <p>{lot.address || 'Адрес уточняется'}</p>
-            <span className="distance">{lot.quantity} кг/шт</span>
-            {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
-            <button className="btn-small" onClick={() => handleBook(lot)}>Забронировать</button>
-          </div>
-        ))}
-      </div>
-      <div className="limit-notice" style={{marginTop: '20px'}}>
-        <p>Вы можете оформить заявку не чаще 1 раза в неделю.</p>
-      </div>
-    </div>
+    </>
   );
 
   const renderOrder = () => (
@@ -198,12 +371,17 @@ const NeedyDashboard = () => {
             )}
             <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
           </div>
+          <button className="btn btn-danger" style={{ marginTop: '16px', width: '100%' }} onClick={handleCancelTicket}>
+            Отменить заявку
+          </button>
         </div>
       ) : (
         <p className="empty-msg">У вас нет активных заказов.</p>
       )}
     </div>
   );
+
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   const renderNotifications = () => (
     <div className="tab-content">
@@ -231,7 +409,7 @@ const NeedyDashboard = () => {
           <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>Карта лотов</button>
           <button className={activeTab === 'order' ? 'active' : ''} onClick={() => setActiveTab('order')}>Текущий заказ</button>
           <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>
-            Уведомления {notifications.filter(n => !n.read).length > 0 && `(${notifications.filter(n => !n.read).length})`}
+            Уведомления {unreadCount > 0 && `(${unreadCount})`}
           </button>
           <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>Анкета</button>
           <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>История</button>
@@ -260,8 +438,26 @@ const NeedyDashboard = () => {
                   <p><strong>{t.items || 'Продукты'}</strong></p>
                   <p>Статус: {t.status === 'fulfilled' ? 'Получено' : 'В процессе'}</p>
                   <p>{new Date(t.created_at).toLocaleDateString()}</p>
+                  {t.status === 'fulfilled' && (
+                    <div className="rating-row">
+                      <span style={{ color: '#aaa', fontSize: '0.85em' }}>Оценить: </span>
+                      {[1,2,3,4,5].map(star => (
+                        <button
+                          key={star}
+                          className={`star-btn ${(ratings[t.id] || t.rating) >= star ? 'active' : ''}`}
+                          onClick={() => handleRateDelivery(t.id, star)}
+                        >★</button>
+                      ))}
+                      {(ratings[t.id] || t.rating) && <span style={{ color: '#aaa', fontSize: '0.8em', marginLeft: 6 }}>{ratings[t.id] || t.rating}/5</span>}
+                    </div>
+                  )}
                 </div>
               ))
+            )}
+            {historyHasMore && (
+              <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => loadHistory(historyOffset, true)}>
+                Показать ещё
+              </button>
             )}
           </div>
         )}

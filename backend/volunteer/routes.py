@@ -9,6 +9,7 @@ from backend.shop import db as shopdb
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
 from backend.auth import get_password_hash, get_current_user
+from backend import telegram_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
 
@@ -33,10 +34,10 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
     shops_map = {}
     with get_db_cursor() as cur:
         cur.execute("""
-            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity 
-            FROM shops s 
-            JOIN lots l ON s.id = l.shop_id 
-            WHERE l.status = 'active' 
+            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
+            FROM shops s
+            JOIN lots l ON s.id = l.shop_id
+            WHERE l.status = 'active'
             AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
         """)
         for r in cur.fetchall():
@@ -54,7 +55,8 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
             shops_map[sid]['lots'].append({
                 'lot_id': r['lot_id'],
                 'description': r['description'],
-                'quantity': r['quantity']
+                'quantity': r['quantity'],
+                'photo': r['photo'],
             })
 
     shops = list(shops_map.values())
@@ -248,7 +250,10 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     if order:
         with get_db_cursor() as cur:
             for t in order:
-                cur.execute("UPDATE tickets SET status = 'assigned', assigned_volunteer = %s WHERE id = %s AND status = 'open'", (vol_name, t['id']))
+                cur.execute(
+                    "UPDATE tickets SET status = 'assigned', assigned_volunteer = %s, assigned_volunteer_id = %s WHERE id = %s AND status = 'open'",
+                    (vol_name, volunteer_id, t['id']),
+                )
                 if cur.rowcount > 0:
                     assigned_ids.add(t['id'])
 
@@ -263,6 +268,13 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
         vdb.create_notification(volunteer_id, 'route_created', f'Route {route_id} created')
     except Exception:
         logging.warning("Failed to create route notification for volunteer %s", volunteer_id, exc_info=True)
+
+    # Telegram: notify shop that lot was taken
+    try:
+        lot_desc = lot.get('description', f'лот #{payload.lot_id}')
+        telegram_service.notify_shop(lot['shop_id'], f"🛒 Волонтёр <b>{vol_name}</b> взял ваш лот «{lot_desc}». Маршрут #{route_id} в пути.")
+    except Exception:
+        pass
 
     return {'route_id': route_id, 'points': filtered_points}
 
@@ -349,6 +361,10 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
                         "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
                         (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),
                     )
+                    try:
+                        telegram_service.notify_needy(needy_id, f"🚗 {payload_text}")
+                    except Exception:
+                        pass
 
     # mark point as done and persist
     points[target_idx]['done'] = True
@@ -358,9 +374,8 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
 
 
 @router.get("/volunteers/{volunteer_id}/history")
-def history(volunteer_id: int):
-    routes = vdb.get_routes_by_volunteer(volunteer_id)
-    # parse points JSON
+def history(volunteer_id: int, limit: int = 20, offset: int = 0):
+    routes = vdb.get_routes_by_volunteer(volunteer_id, limit=limit, offset=offset)
     for r in routes:
         try:
             r['points'] = json.loads(r['points'])
@@ -395,6 +410,24 @@ def volunteer_notifications(volunteer_id: int):
 def volunteer_mark_notification_read(notification_id: int):
     vdb.mark_notification_read(notification_id)
     return {"ok": True}
+
+
+@router.get("/volunteers/{volunteer_id}/rating")
+def get_volunteer_rating(volunteer_id: int):
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT ROUND(AVG(dr.rating)::numeric, 1) as average, COUNT(*) as count
+            FROM delivery_ratings dr
+            WHERE dr.volunteer_id = %s
+            """,
+            (volunteer_id,),
+        )
+        row = cur.fetchone()
+        return {
+            "average": float(row["average"]) if row["average"] else None,
+            "count": int(row["count"]),
+        }
 
 
 @router.post("/volunteers/route/{route_id}/finish")

@@ -68,3 +68,29 @@
 }
 
 .yellow-text { color: #f1c40f; }
+
+.incident-card {
+  display: flex; align-items: flex-start; gap: 12px;
+}
+
+.charts-row {
+  display: flex;
+  gap: 20px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.chart-box {
+  flex: 1;
+  min-width: 280px;
+  background: #0d1117;
+  border: 1px solid #222;
+  border-radius: 8px;
+  padding: 16px;
+}
+.chart-box h3 {
+  margin: 0 0 12px 0;
+  font-size: 0.95rem;
+  color: #ccc;
+}
+
+.yellow-text { color: #f1c40f; }

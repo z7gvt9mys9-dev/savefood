@@ -1,3 +1,4 @@
+import json as json_mod
 from fastapi import APIRouter, HTTPException, Depends
 from backend import auth
 from backend.needy import db as needy_db
@@ -9,6 +10,8 @@ def require_admin(current_user: dict = Depends(auth.get_current_user)):
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+# ── Moderation ──────────────────────────────────────────────────────────────
 
 @router.get("/needy")
 def list_needy(status: str = None, _user: dict = Depends(require_admin)):
@@ -37,6 +40,8 @@ def admin_stats(_user: dict = Depends(require_admin)):
         'percent_expired_lots': round((expired_lots / total_lots * 100) if total_lots else 0.0, 1),
     }
 
+# ── Routes dispatcher ────────────────────────────────────────────────────────
+
 @router.get("/routes")
 def list_active_routes(_user: dict = Depends(require_admin)):
     with get_db_cursor() as cur:
@@ -48,5 +53,71 @@ def list_active_routes(_user: dict = Depends(require_admin)):
             WHERE vr.status = 'in_progress'
             ORDER BY vr.started_at DESC
         """)
-        rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [dict(r) for r in cur.fetchall()]
+
+@router.post("/routes/{route_id}/reset")
+def reset_route(route_id: int, _user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM volunteer_routes WHERE id = %s", (route_id,))
+        route = cur.fetchone()
+        if not route:
+            raise HTTPException(status_code=404, detail="Route not found")
+        # free assigned tickets back to open
+        try:
+            points = json_mod.loads(route.get('points') or '[]')
+            for p in points:
+                if p.get('kind') == 'ticket' and p.get('ticket_id'):
+                    cur.execute(
+                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
+                        (p['ticket_id'],)
+                    )
+        except Exception:
+            pass
+        # release lot
+        if route.get('lot_id'):
+            cur.execute(
+                "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s",
+                (route['lot_id'],)
+            )
+        cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = %s", (route_id,))
+    return {"ok": True}
+
+# ── Lot management ───────────────────────────────────────────────────────────
+
+@router.post("/lots/{lot_id}/reset")
+def reset_lot(lot_id: int, _user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id FROM lots WHERE id = %s", (lot_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Lot not found")
+        cur.execute(
+            "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s",
+            (lot_id,)
+        )
+    return {"ok": True}
+
+# ── User management ──────────────────────────────────────────────────────────
+
+@router.get("/users")
+def list_users(_user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT id, username, role, related_id, is_blocked, created_at FROM users ORDER BY created_at DESC"
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+@router.post("/users/{user_id}/block")
+def block_user(user_id: int, _user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE users SET is_blocked = TRUE WHERE id = %s RETURNING id", (user_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}
+
+@router.post("/users/{user_id}/unblock")
+def unblock_user(user_id: int, _user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE users SET is_blocked = FALSE WHERE id = %s RETURNING id", (user_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}

@@ -9,15 +9,16 @@ import time
 from backend.shop import db, routes as shop_routes
 from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
-from backend import auth_routes, database
+from backend import auth_routes, database, telegram_routes, proxy_service
 from backend.admin import routes as admin_routes
 from backend.database import get_db_cursor
 
 app = FastAPI(title="SaveFood - Backend")
 
+_cors_origin = os.getenv("CORS_ORIGIN", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify the actual origin
+    allow_origins=["*"] if _cors_origin == "*" else [_cors_origin],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -27,11 +28,20 @@ os.makedirs(shop_routes.UPLOAD_DIR, exist_ok=True)
 os.makedirs(needy_routes.UPLOAD_DIR, exist_ok=True)
 
 @app.on_event("startup")
-def startup():
+async def startup():
     database.init_common_db()
     db.init_db()
     needy_db.init_db()
     vol_db.init_db()
+    database.init_ticket_extensions()
+    proxy_service.start_proxy()
+    await telegram_routes.start_polling()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    proxy_service.stop_proxy()
+    await telegram_routes.stop_polling()
 
 
     def expire_loop():
@@ -92,6 +102,7 @@ app.include_router(shop_routes.router)
 app.include_router(needy_routes.router)
 app.include_router(vol_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(telegram_routes.router)
 
 
 @app.get("/stats")

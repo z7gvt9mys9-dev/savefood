@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import './Footer.css';
 
 const Footer = () => {
@@ -14,17 +15,17 @@ const Footer = () => {
             <div className="link-group">
               <h4>Платформа</h4>
               <ul>
-                <li><a href="/">Магазинам</a></li>
-                <li><a href="/">Волонтерам</a></li>
-                <li><a href="/">Нуждающимся</a></li>
+                <li><Link to="/about#role-shop">Магазинам</Link></li>
+                <li><Link to="/about#role-volunteer">Волонтерам</Link></li>
+                <li><Link to="/about#role-needy">Нуждающимся</Link></li>
               </ul>
             </div>
             <div className="link-group">
               <h4>Компания</h4>
               <ul>
-                <li><a href="/">О проекте</a></li>
-                <li><a href="/">Контакты</a></li>
-                <li><a href="/">FAQ</a></li>
+                <li><Link to="/about">О проекте</Link></li>
+                <li><Link to="/about#contacts">Контакты</Link></li>
+                <li><Link to="/about#faq">FAQ</Link></li>
               </ul>
             </div>
           </div>
@@ -32,8 +33,8 @@ const Footer = () => {
         <div className="footer-bottom">
           <p>&copy; 2026 SaveFood. All rights reserved.</p>
           <div className="socials">
-            <a href="/">TG</a>
-            <a href="/">VK</a>
+            <a href="https://t.me/My_funny550_bot" target="_blank" rel="noreferrer">TG</a>
+            <a href="/" aria-label="VK">VK</a>
           </div>
         </div>
       </div>

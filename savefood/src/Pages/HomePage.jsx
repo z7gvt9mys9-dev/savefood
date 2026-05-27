@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { API_URL } from '../api';
 import './Style/HomePage.css';
 
 const HomePage = () => {
   const navigate = useNavigate();
-  const [openFaq, setOpenFaq] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/stats')
+    fetch(`${API_URL}/stats`)
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch stats');
         return res.json();
@@ -25,10 +25,6 @@ const HomePage = () => {
         setLoading(false);
       });
   }, []);
-
-  const toggleFaq = (index) => {
-    setOpenFaq(openFaq === index ? null : index);
-  };
 
   const metrics = stats ? [
     { 
@@ -96,16 +92,20 @@ const HomePage = () => {
 
   const faqs = [
     {
-      q: 'Что если волонтер не приедет?',
-      a: 'Наша служба поддержки переназначит маршрут в течение 30 минут.'
-    },
-    {
       q: 'Вся ли еда безопасна?',
-      a: 'Да, лоты автоматически удаляются системой за 24 часа до истечения срока годности.'
+      a: 'Лоты автоматически снимаются системой до истечения срока годности. Каждый лот содержит фото и описание — получатель видит, что берёт.'
     },
     {
       q: 'Как распределяется еда, если её мало?',
-      a: 'У нас действует честная система приоритетов, учитывающая размер семьи и срочность.'
+      a: 'Действует система приоритетов: учитывается размер семьи, срочность и дата последней доставки. Никакого ручного отбора.'
+    },
+    {
+      q: 'Могут ли мои данные попасть к третьим лицам?',
+      a: 'Нет. Документы нуждающихся удаляются сразу после проверки. Геолокация используется только для маршрутизации и нигде не хранится.'
+    },
+    {
+      q: 'Как магазин узнаёт, что лот забрали?',
+      a: 'Магазин получает push-уведомление в Telegram в момент, когда волонтёр подтверждает получение продуктов.'
     }
   ];
 
@@ -173,18 +173,15 @@ const HomePage = () => {
         </div>
       </section>
 
-      {/* 6. FAQ Block */}
+      {/* FAQ Block */}
       <section className="faq">
         <div className="container">
-          <h2>Ответы на острые вопросы</h2>
+          <h2>FAQ</h2>
           <div className="faq-list">
             {faqs.map((faq, idx) => (
-              <div key={idx} className={`faq-item ${openFaq === idx ? 'open' : ''}`}>
-                <div className="faq-question" onClick={() => toggleFaq(idx)}>
-                  {faq.q}
-                  <span className="faq-icon">{openFaq === idx ? '−' : '+'}</span>
-                </div>
-                {openFaq === idx && <div className="faq-answer">{faq.a}</div>}
+              <div key={idx} className="faq-item">
+                <h4>{faq.q}</h4>
+                <p>{faq.a}</p>
               </div>
             ))}
           </div>

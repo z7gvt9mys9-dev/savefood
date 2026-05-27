@@ -42,6 +42,31 @@ def init_common_db():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+                id SERIAL PRIMARY KEY,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # tickets-dependent DDL is in init_ticket_extensions(), called after needy init_db
+
+def init_ticket_extensions():
+    """Run after needy init_db() so the tickets table exists."""
+    with get_db_cursor() as cur:
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_volunteer_id INTEGER")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS delivery_ratings (
+                ticket_id INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
+                volunteer_id INTEGER,
+                rating SMALLINT NOT NULL,
+                comment TEXT,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
 def create_user(username, hashed_password, role, related_id=None):
     with get_db_cursor() as cur:
