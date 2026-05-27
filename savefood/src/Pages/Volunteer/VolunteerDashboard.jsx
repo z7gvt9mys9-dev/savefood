@@ -74,6 +74,7 @@ const VolunteerDashboard = () => {
 
   const [activeTab, setActiveTab] = useState('map');
   const [mapData, setMapData] = useState({ shops: [], tickets: [] });
+  const [filterCategory, setFilterCategory] = useState('');
   const [activeRoute, setActiveRoute] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -307,34 +308,53 @@ const VolunteerDashboard = () => {
         </YMaps>
       </div>
       <div className="task-list-mobile">
-        <h3>{t('volunteer.available_tasks')}</h3>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          {['', 'Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'].map(cat => (
+            <button
+              key={cat}
+              onClick={() => setFilterCategory(cat)}
+              style={{
+                padding: '4px 10px', fontSize: '0.75rem', borderRadius: 12,
+                border: '1px solid', cursor: 'pointer',
+                borderColor: filterCategory === cat ? '#4CAF50' : '#333',
+                background: filterCategory === cat ? '#4CAF5022' : 'transparent',
+                color: filterCategory === cat ? '#4CAF50' : '#888',
+              }}
+            >
+              {cat || t('needy.filter_all')}
+            </button>
+          ))}
+        </div>
         {mapData.shops.length === 0 && (
           <EmptyState icon="🗺️" title={t('empty.map_title')} description={t('empty.map_desc')} />
         )}
         {mapData.shops.flatMap(s =>
-          s.lots.map(lot => (
-            <div key={lot.lot_id} className="task-card-mobile">
-              {lot.photo && (
-                <img
-                  src={`${API_URL}${lot.photo}`}
-                  alt={lot.description}
-                  className="lot-photo"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              )}
-              <div className="task-info">
-                <h4>{s.name}</h4>
-                <p>{lot.description} — {lot.quantity} шт.</p>
+          s.lots
+            .filter(lot => !filterCategory || lot.category === filterCategory)
+            .map(lot => (
+              <div key={lot.lot_id} className="task-card-mobile">
+                {lot.photo && (
+                  <img
+                    src={`${API_URL}${lot.photo}`}
+                    alt={lot.description}
+                    className="lot-photo"
+                    onError={(e) => { e.target.style.display = 'none'; }}
+                  />
+                )}
+                <div className="task-info">
+                  {lot.category && <span className="category-badge">{lot.category}</span>}
+                  <h4>{s.name}</h4>
+                  <p>{lot.description} — {lot.quantity} шт.</p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  disabled={loading || !!activeRoute}
+                  onClick={() => handleTakeTask(lot.lot_id)}
+                >
+                  {t('volunteer.take')}
+                </button>
               </div>
-              <button
-                className="btn btn-primary"
-                disabled={loading || !!activeRoute}
-                onClick={() => handleTakeTask(lot.lot_id)}
-              >
-                {t('volunteer.take')}
-              </button>
-            </div>
-          ))
+            ))
         )}
       </div>
     </div>

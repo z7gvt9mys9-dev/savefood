@@ -175,6 +175,19 @@
   border: 1px solid #2a2a2a;
 }
 
+/* ─── Category badge ─── */
+.category-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: #4CAF5022;
+  color: #4CAF50;
+  border: 1px solid #4CAF5044;
+  margin-bottom: 4px;
+}
+
 /* ─── Mobile ─── */
 @media (max-width: 768px) {
   .map-container { height: 300px; border-radius: 8px; }

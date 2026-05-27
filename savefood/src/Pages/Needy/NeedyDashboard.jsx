@@ -365,11 +365,12 @@ const NeedyDashboard = () => {
                   onError={(e) => { e.target.style.display = 'none'; }}
                 />
               )}
+              {lot.category && <span className="category-badge">{lot.category}</span>}
               <h4>{lot.description}</h4>
               <p>{lot.address || 'Адрес уточняется'}</p>
               <span className="distance">{lot.quantity} кг/шт</span>
               {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
-              <button className="btn-small" onClick={() => handleBook(lot)}>Забронировать</button>
+              <button className="btn-small" onClick={() => handleBook(lot)}>{t('needy.book')}</button>
             </div>
           ))}
         </div>
@@ -389,15 +390,37 @@ const NeedyDashboard = () => {
     <div className="tab-content">
       {activeOrder ? (
         <div className="order-status-card">
-          <h2>Текущий заказ</h2>
+          <h2>{t('needy.order')}</h2>
           <div className="status-stepper">
             <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>Сборка</div>
             <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>Доставка</div>
           </div>
+
+          {volunteerLocation?.lat && (
+            <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
+              <p style={{ color: '#4CAF50', fontSize: '0.82em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>●</span> {t('needy.volunteer_location')}
+              </p>
+              <YMaps query={{ apikey: YMAPS_KEY }}>
+                <Map
+                  state={{ center: [volunteerLocation.lat, volunteerLocation.lon], zoom: 14 }}
+                  width="100%"
+                  height="180px"
+                  options={{ suppressMapOpenBlock: true }}
+                >
+                  <Placemark
+                    geometry={[volunteerLocation.lat, volunteerLocation.lon]}
+                    properties={{ hintContent: 'Волонтёр' }}
+                    options={{ preset: 'islands#bluePersonIcon' }}
+                  />
+                </Map>
+              </YMaps>
+            </div>
+          )}
+
           <div className="order-details">
             <p><strong>Продукты:</strong> {activeOrder.description}</p>
-            <p><strong>Статус:</strong> Волонтер собирает продукты</p>
-            <p><strong>Ожидаемое время:</strong> {activeOrder.eta}</p>
+            <p><strong>Статус:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : 'Волонтёр ищется'}</p>
           </div>
           <div className="qr-section">
             <p>Покажите этот код волонтеру при получении:</p>
@@ -407,11 +430,11 @@ const NeedyDashboard = () => {
             <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
           </div>
           <button className="btn btn-danger" style={{ marginTop: '16px', width: '100%' }} onClick={handleCancelTicket}>
-            Отменить заявку
+            {t('needy.cancel_ticket')}
           </button>
         </div>
       ) : (
-        <p className="empty-msg">У вас нет активных заказов.</p>
+        <EmptyState icon="📦" title={t('empty.tickets_title')} description={t('empty.tickets_desc')} action={t('empty.tickets_action')} onAction={() => setActiveTab('map')} />
       )}
     </div>
   );
