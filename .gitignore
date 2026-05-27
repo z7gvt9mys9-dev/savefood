@@ -72,6 +72,22 @@ secrets/
 # Node
 node_modules/
 npm-debug.log
+yarn-error.log
+yarn-debug.log*
+.pnp/
+.pnp.js
+
+# Create React App — local env overrides
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# TypeScript
+*.tsbuildinfo
+
+# React / CRA test coverage
+savefood/coverage/
 
 # Capacitor native platforms (generated, not committed)
 savefood/android/
