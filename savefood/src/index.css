@@ -1,3 +1,13 @@
+html,
+body {
+  /* Clip the off-canvas mobile nav drawer (parked off the right edge) so it
+     doesn't add horizontal overflow and shift centered content left.
+     `clip` avoids creating a scroll container, keeping the sticky header intact;
+     `hidden` is the fallback for browsers without `overflow: clip` support. */
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

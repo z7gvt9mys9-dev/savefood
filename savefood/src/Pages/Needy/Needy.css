@@ -188,6 +188,58 @@
   margin-bottom: 4px;
 }
 
+/* ─── Shop group ─── */
+.shop-group {
+  margin-bottom: 28px;
+}
+
+.shop-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 12px;
+  border-bottom: 1px solid #1e1e1e;
+  margin-bottom: 14px;
+}
+
+.shop-group-icon { font-size: 1.2rem; }
+
+.shop-group-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #ddd;
+}
+
+/* ─── Lot actions ─── */
+.lot-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid #444;
+  color: #aaa;
+}
+.btn-outline:hover { border-color: #fff; color: #fff; }
+
+/* ─── Self-pickup banner ─── */
+.self-pickup-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(46,204,113,0.08);
+  border: 1px solid rgba(46,204,113,0.25);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
 /* ─── Mobile ─── */
 @media (max-width: 768px) {
   .map-container { height: 300px; border-radius: 8px; }

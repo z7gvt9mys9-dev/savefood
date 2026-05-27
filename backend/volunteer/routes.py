@@ -35,31 +35,15 @@ def register(vol: vschemas.VolunteerCreate):
 
 @router.get("/volunteers/map")
 def get_map_points(current_user: dict = Depends(get_current_user)):
-    volunteer_city = None
-    if current_user.get('related_id'):
-        vol = vdb.get_volunteer_by_id(current_user['related_id'])
-        if vol:
-            volunteer_city = vol.get('city')
-
     shops_map = {}
     with get_db_cursor() as cur:
-        if volunteer_city:
-            cur.execute("""
-                SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
-                FROM shops s
-                JOIN lots l ON s.id = l.shop_id
-                WHERE l.status = 'active'
-                AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
-                AND s.city ILIKE %s
-            """, (volunteer_city,))
-        else:
-            cur.execute("""
-                SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
-                FROM shops s
-                JOIN lots l ON s.id = l.shop_id
-                WHERE l.status = 'active'
-                AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
-            """)
+        cur.execute("""
+            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
+            FROM shops s
+            JOIN lots l ON s.id = l.shop_id
+            WHERE l.status = 'active'
+            AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
+        """)
         for r in cur.fetchall():
             if r['lat'] is None or r['lon'] is None:
                 continue
@@ -83,7 +67,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
 
     tickets = []
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
+        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL AND (self_pickup IS NULL OR self_pickup = FALSE)")
         for r in cur.fetchall():
             tickets.append({
                 'ticket_id': r['id'],
@@ -94,7 +78,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
                 'lon': r['lon']
             })
 
-    return {'shops': shops, 'tickets': tickets, 'volunteer_city': volunteer_city}
+    return {'shops': shops, 'tickets': tickets}
 
 @router.get("/volunteers/{volunteer_id}", response_model=vschemas.VolunteerOut)
 def get_volunteer(volunteer_id: int):
@@ -177,9 +161,9 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
     if not taken:
         raise HTTPException(status_code=400, detail="Lot is not available")
 
-    # collect open tickets with coords
+    # collect open tickets with coords, excluding self-pickup tickets
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL")
+        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL AND (self_pickup IS NULL OR self_pickup = FALSE)")
         tickets = [dict(r) for r in cur.fetchall()]
 
     # filter by available_time (only include tickets where needy is at home now or not specified)

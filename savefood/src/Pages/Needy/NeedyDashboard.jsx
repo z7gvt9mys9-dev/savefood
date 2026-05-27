@@ -26,7 +26,7 @@ const NeedyDashboard = () => {
   const [history, setHistory] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '' });
+  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '', lat: null, lon: null });
   const [tgLink, setTgLink] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
@@ -34,18 +34,13 @@ const NeedyDashboard = () => {
   const [ratings, setRatings] = useState({});
   const [volunteerLocation, setVolunteerLocation] = useState(null);
   const locationPollRef = useRef(null);
-
-  const lotPositions = useMemo(
-    () => lots.map(lot => ({ ...lot, _top: Math.random() * 80, _left: Math.random() * 80 })),
-    [lots]
-  );
+  const ticketPollRef = useRef(null);
 
   const loadLots = useCallback(async (offset = 0, append = false, category = filterCategory, search = filterSearch) => {
     try {
       const params = new URLSearchParams({ limit: PAGE, offset });
       if (category) params.append('category', category);
       if (search) params.append('search', search);
-      if (profile.city) params.append('city', profile.city);
       const res = await fetch(`${API_URL}/lots?${params}`);
       const data = await res.json();
       const arr = Array.isArray(data) ? data : [];
@@ -53,7 +48,7 @@ const NeedyDashboard = () => {
       setLotsHasMore(arr.length === PAGE);
       setLotsOffset(offset + arr.length);
     } catch {}
-  }, [filterCategory, filterSearch, profile.city]);
+  }, [filterCategory, filterSearch]);
 
   const loadHistory = async (offset = 0, append = false) => {
     if (!needyId) return;
@@ -120,7 +115,7 @@ const NeedyDashboard = () => {
   useEffect(() => {
     if (locationPollRef.current) clearInterval(locationPollRef.current);
     const assignedVolunteerId = activeOrder?.assigned_volunteer_id;
-    const ticketFulfilled = activeOrder?.status === 'fulfilled';
+    const ticketFulfilled = activeOrder?.ticketStatus === 'fulfilled';
     if (!assignedVolunteerId || ticketFulfilled) { setVolunteerLocation(null); return; }
     const poll = () => {
       fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`)
@@ -131,9 +126,35 @@ const NeedyDashboard = () => {
     poll();
     locationPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(locationPollRef.current);
-  }, [activeOrder?.assigned_volunteer_id, activeOrder?.status]);
+  }, [activeOrder?.assigned_volunteer_id, activeOrder?.ticketStatus]);
 
-  const handleBook = async (lot) => {
+  // Poll the active ticket so the recipient learns when a volunteer is assigned
+  // (assigned_volunteer_id is set server-side when the volunteer takes the route).
+  useEffect(() => {
+    if (ticketPollRef.current) clearInterval(ticketPollRef.current);
+    const ticketId = activeOrder?.ticketId;
+    if (!ticketId || activeOrder?.selfPickup || activeOrder?.ticketStatus === 'fulfilled') return;
+    const poll = () => {
+      fetch(`${API_URL}/needy/${needyId}/tickets`, { headers: { Authorization: `Bearer ${user?.token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(list => {
+          if (!Array.isArray(list)) return;
+          const t = list.find(x => x.id === ticketId);
+          if (!t) return;
+          setActiveOrder(prev => {
+            if (!prev || prev.ticketId !== ticketId) return prev;
+            if (prev.assigned_volunteer_id === t.assigned_volunteer_id && prev.ticketStatus === t.status) return prev;
+            return { ...prev, assigned_volunteer_id: t.assigned_volunteer_id, ticketStatus: t.status };
+          });
+        })
+        .catch(() => {});
+    };
+    poll();
+    ticketPollRef.current = setInterval(poll, 15000);
+    return () => clearInterval(ticketPollRef.current);
+  }, [activeOrder?.ticketId, activeOrder?.selfPickup, activeOrder?.ticketStatus, needyId]);
+
+  const handleBook = async (lot, selfPickup = false) => {
     if (!needyId) { alert('Необходима авторизация'); return; }
     try {
       const res = await fetch(`${API_URL}/needy/${needyId}/ticket`, {
@@ -141,12 +162,15 @@ const NeedyDashboard = () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({
           items: lot.description,
-          address: profile.address || '',
+          address: selfPickup ? (lot.address || '') : (profile.address || ''),
           lot_id: lot.id,
           available_time: profile.available_time || '',
-          apartment: profile.apartment || null,
-          floor_num: profile.floor_num || null,
-          entrance: profile.entrance || null,
+          lat: selfPickup ? null : (profile.lat ?? null),
+          lon: selfPickup ? null : (profile.lon ?? null),
+          apartment: selfPickup ? null : (profile.apartment || null),
+          floor_num: selfPickup ? null : (profile.floor_num || null),
+          entrance: selfPickup ? null : (profile.entrance || null),
+          self_pickup: selfPickup,
         }),
       });
       if (!res.ok) {
@@ -155,7 +179,14 @@ const NeedyDashboard = () => {
         return;
       }
       const ticket = await res.json();
-      setActiveOrder({ ...lot, ticketId: ticket.id, status: 'picking', eta: 'Ожидайте волонтера' });
+      setActiveOrder({
+        ...lot,
+        ticketId: ticket.id,
+        selfPickup,
+        shopName: lot.shop_name || 'Магазин',
+        status: selfPickup ? 'self_pickup' : 'picking',
+        eta: selfPickup ? null : 'Ожидайте волонтера',
+      });
       setActiveTab('order');
     } catch {
       alert('Ошибка подключения к серверу');
@@ -231,6 +262,9 @@ const NeedyDashboard = () => {
           apartment: profile.apartment || null,
           floor_num: profile.floor_num || null,
           entrance: profile.entrance || null,
+          city: profile.city || null,
+          lat: profile.lat ?? null,
+          lon: profile.lon ?? null,
         }),
       });
       if (!res.ok) { alert('Ошибка сохранения'); return; }
@@ -247,7 +281,7 @@ const NeedyDashboard = () => {
         <AddressInput
           label="Адрес проживания"
           value={profile.address}
-          onChange={(addr) => setProfile({ ...profile, address: addr.address, apartment: addr.apartment || profile.apartment, floor_num: addr.floor_num || profile.floor_num, entrance: addr.entrance || profile.entrance })}
+          onChange={(addr) => setProfile({ ...profile, address: addr.address, lat: addr.lat ?? profile.lat, lon: addr.lon ?? profile.lon, city: addr.city ?? profile.city, apartment: addr.apartment || profile.apartment, floor_num: addr.floor_num || profile.floor_num, entrance: addr.entrance || profile.entrance })}
         />
         <div className="form-row">
           <div className="form-group">
@@ -293,10 +327,20 @@ const NeedyDashboard = () => {
     </div>
   );
 
-  const lotsWithCoords = useMemo(() => lots.filter(l => l.lat && l.lon), [lots]);
+  const lotsWithCoords = useMemo(() => lots.filter(l => l.shop_lat && l.shop_lon), [lots]);
   const mapCenter = lotsWithCoords.length > 0
-    ? [lotsWithCoords[0].lat, lotsWithCoords[0].lon]
+    ? [lotsWithCoords[0].shop_lat, lotsWithCoords[0].shop_lon]
     : [55.7522, 37.6156];
+
+  const lotsByShop = useMemo(() => {
+    const groups = {};
+    lots.forEach(lot => {
+      const sid = lot.shop_id;
+      if (!groups[sid]) groups[sid] = { shopId: sid, shopName: lot.shop_name || 'Магазин', lots: [] };
+      groups[sid].lots.push(lot);
+    });
+    return Object.values(groups);
+  }, [lots]);
 
   const renderMap = () => (
     <>
@@ -329,51 +373,55 @@ const NeedyDashboard = () => {
             {lotsWithCoords.map(lot => (
               <Placemark
                 key={lot.id}
-                geometry={[lot.lat, lot.lon]}
+                geometry={[lot.shop_lat, lot.shop_lon]}
                 properties={{
-                  balloonContentHeader: lot.description,
-                  balloonContentBody: `${lot.quantity} кг/шт · ${lot.address || ''}`,
+                  balloonContentHeader: lot.shop_name || lot.description,
+                  balloonContentBody: `${lot.description} · ${lot.quantity} кг/шт`,
                   balloonContentFooter: lot.time_slot ? `Выдача: ${lot.time_slot}` : '',
-                  hintContent: lot.description,
+                  hintContent: lot.shop_name || lot.description,
                 }}
                 options={{ preset: 'islands#greenFoodIcon', iconColor: '#2ecc71' }}
               />
             ))}
-            {volunteerLocation && volunteerLocation.lat && volunteerLocation.lon && (
-              <Placemark
-                geometry={[volunteerLocation.lat, volunteerLocation.lon]}
-                properties={{ balloonContent: 'Волонтёр', hintContent: 'Волонтёр' }}
-                options={{ preset: 'islands#bluePersonIcon' }}
-              />
-            )}
           </Map>
         </YMaps>
         {lotsWithCoords.length === 0 && (
-          <div className="map-no-coords">Нет лотов с указанными координатами</div>
+          <div className="map-no-coords">Нет магазинов с координатами</div>
         )}
       </div>
       <div className="tab-content">
-        <div className="lot-grid">
-          {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description={t('empty.lots_city_desc')} />}
-          {lots.map(lot => (
-            <div key={lot.id} className="lot-card-compact">
-              {lot.photo && (
-                <img
-                  src={`${API_URL}${lot.photo}`}
-                  alt={lot.description}
-                  className="lot-photo"
-                  onError={(e) => { e.target.style.display = 'none'; }}
-                />
-              )}
-              {lot.category && <span className="category-badge">{lot.category}</span>}
-              <h4>{lot.description}</h4>
-              <p>{lot.address || 'Адрес уточняется'}</p>
-              <span className="distance">{lot.quantity} кг/шт</span>
-              {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
-              <button className="btn-small" onClick={() => handleBook(lot)}>{t('needy.book')}</button>
+        {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description="Нет доступных лотов" />}
+        {lotsByShop.map(group => (
+          <div key={group.shopId} className="shop-group">
+            <div className="shop-group-header">
+              <span className="shop-group-icon">🏪</span>
+              <h4>{group.shopName}</h4>
             </div>
-          ))}
-        </div>
+            <div className="lot-grid">
+              {group.lots.map(lot => (
+                <div key={lot.id} className="lot-card-compact">
+                  {lot.photo && (
+                    <img
+                      src={`${API_URL}${lot.photo}`}
+                      alt={lot.description}
+                      className="lot-photo"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
+                  )}
+                  {lot.category && <span className="category-badge">{lot.category}</span>}
+                  <h4>{lot.description}</h4>
+                  <p>{lot.address || 'Адрес уточняется'}</p>
+                  <span className="distance">{lot.quantity} кг/шт</span>
+                  {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
+                  <div className="lot-actions">
+                    <button className="btn-small" onClick={() => handleBook(lot, false)}>🚚 Жду волонтёра</button>
+                    <button className="btn-small btn-outline" onClick={() => handleBook(lot, true)}>🚶 Заберу сам</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
         {lotsHasMore && (
           <button className="btn btn-secondary" style={{ margin: '16px auto', display: 'block' }} onClick={() => loadLots(lotsOffset, true)}>
             Показать ещё
@@ -391,44 +439,72 @@ const NeedyDashboard = () => {
       {activeOrder ? (
         <div className="order-status-card">
           <h2>{t('needy.order')}</h2>
-          <div className="status-stepper">
-            <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>Сборка</div>
-            <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>Доставка</div>
-          </div>
 
-          {volunteerLocation?.lat && (
-            <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
-              <p style={{ color: '#4CAF50', fontSize: '0.82em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span>●</span> {t('needy.volunteer_location')}
-              </p>
-              <YMaps query={{ apikey: YMAPS_KEY }}>
-                <Map
-                  state={{ center: [volunteerLocation.lat, volunteerLocation.lon], zoom: 14 }}
-                  width="100%"
-                  height="180px"
-                  options={{ suppressMapOpenBlock: true }}
-                >
-                  <Placemark
-                    geometry={[volunteerLocation.lat, volunteerLocation.lon]}
-                    properties={{ hintContent: 'Волонтёр' }}
-                    options={{ preset: 'islands#bluePersonIcon' }}
-                  />
-                </Map>
-              </YMaps>
-            </div>
+          {activeOrder.selfPickup ? (
+            <>
+              <div className="self-pickup-banner">
+                <span style={{ fontSize: '2rem' }}>🚶</span>
+                <div>
+                  <p style={{ fontWeight: 'bold', margin: '0 0 4px' }}>Самовывоз из магазина</p>
+                  <p style={{ color: '#aaa', fontSize: '0.85em', margin: 0 }}>{activeOrder.shopName}</p>
+                </div>
+              </div>
+              <div className="order-details">
+                <p><strong>Продукты:</strong> {activeOrder.description}</p>
+                <p><strong>Адрес магазина:</strong> {activeOrder.address || 'Уточните у магазина'}</p>
+                {activeOrder.time_slot && <p><strong>Время выдачи:</strong> {activeOrder.time_slot}</p>}
+              </div>
+              <div className="qr-section">
+                <p>Покажите этот QR-код в магазине:</p>
+                {activeOrder.ticketId && (
+                  <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+                )}
+                <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="status-stepper">
+                <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>Сборка</div>
+                <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>Доставка</div>
+              </div>
+
+              {volunteerLocation?.lat && (
+                <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
+                  <p style={{ color: '#4CAF50', fontSize: '0.82em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>●</span> {t('needy.volunteer_location')}
+                  </p>
+                  <YMaps query={{ apikey: YMAPS_KEY }}>
+                    <Map
+                      state={{ center: [volunteerLocation.lat, volunteerLocation.lon], zoom: 14 }}
+                      width="100%"
+                      height="180px"
+                      options={{ suppressMapOpenBlock: true }}
+                    >
+                      <Placemark
+                        geometry={[volunteerLocation.lat, volunteerLocation.lon]}
+                        properties={{ hintContent: 'Волонтёр' }}
+                        options={{ preset: 'islands#bluePersonIcon' }}
+                      />
+                    </Map>
+                  </YMaps>
+                </div>
+              )}
+
+              <div className="order-details">
+                <p><strong>Продукты:</strong> {activeOrder.description}</p>
+                <p><strong>Статус:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : 'Волонтёр ищется'}</p>
+              </div>
+              <div className="qr-section">
+                <p>Покажите этот код волонтеру при получении:</p>
+                {activeOrder.ticketId && (
+                  <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+                )}
+                <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
+              </div>
+            </>
           )}
 
-          <div className="order-details">
-            <p><strong>Продукты:</strong> {activeOrder.description}</p>
-            <p><strong>Статус:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : 'Волонтёр ищется'}</p>
-          </div>
-          <div className="qr-section">
-            <p>Покажите этот код волонтеру при получении:</p>
-            {activeOrder.ticketId && (
-              <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
-            )}
-            <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
-          </div>
           <button className="btn btn-danger" style={{ marginTop: '16px', width: '100%' }} onClick={handleCancelTicket}>
             {t('needy.cancel_ticket')}
           </button>

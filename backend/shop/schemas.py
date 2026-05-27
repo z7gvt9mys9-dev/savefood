@@ -49,6 +49,9 @@ class LotOut(BaseModel):
     taken_by: Optional[str]
     category: Optional[str]
     comment: Optional[str]
+    shop_name: Optional[str] = None
+    shop_lat: Optional[float] = None
+    shop_lon: Optional[float] = None
 
 
 class LotUpdate(BaseModel):

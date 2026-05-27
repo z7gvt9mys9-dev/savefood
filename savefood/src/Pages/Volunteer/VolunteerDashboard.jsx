@@ -15,6 +15,32 @@ const haversineMeters = (lat1, lon1, lat2, lon2) => {
   return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 };
 
+const isMobileDevice = () =>
+  (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ||
+  /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+// Open the device's navigation app routed to (lat, lon). On mobile we try the
+// Yandex Navigator deep link and fall back to web Yandex Maps if the app isn't
+// installed (the page stays visible, so the timeout fires). On desktop there is
+// no nav app, so we just open the web route — the on-site map is the real fallback.
+const openInNavigator = (lat, lon) => {
+  const webUrl = `https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`;
+  if (!isMobileDevice()) {
+    window.open(webUrl, '_blank', 'noopener');
+    return;
+  }
+  const appUrl = `yandexnavi://build_route_on_map?lat_to=${lat}&lon_to=${lon}`;
+  let opened = false;
+  const onHide = () => { opened = true; };
+  document.addEventListener('visibilitychange', onHide, { once: true });
+  const fallback = setTimeout(() => {
+    document.removeEventListener('visibilitychange', onHide);
+    if (!opened && document.visibilityState === 'visible') window.location.href = webUrl;
+  }, 1500);
+  window.location.href = appUrl;
+  setTimeout(() => clearTimeout(fallback), 4000);
+};
+
 // Inner component — must be rendered inside <YMaps> to use useYMaps
 const RouteMapView = ({ points }) => {
   const ymaps = useYMaps(['multiRouter.MultiRoute']);
@@ -382,6 +408,20 @@ const VolunteerDashboard = () => {
               <h2>{!isShopDone ? 'Заберите из магазина' : nextTicket ? 'Доставьте получателю' : 'Маршрут выполнен'}</h2>
               <span className="badge">В пути</span>
             </div>
+
+            {(() => {
+              const dest = !isShopDone ? shopPoint : nextTicket;
+              if (!dest?.lat || !dest?.lon) return null;
+              return (
+                <button
+                  className="btn btn-secondary btn-full"
+                  style={{ marginBottom: 12 }}
+                  onClick={() => openInNavigator(dest.lat, dest.lon)}
+                >
+                  🧭 Открыть в навигаторе
+                </button>
+              );
+            })()}
 
             <div className="route-points">
               {points.map((p, i) => {

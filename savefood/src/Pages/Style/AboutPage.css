@@ -213,8 +213,13 @@
 }
 .about-cta-section p { color: #888; margin: 0 0 32px; }
 
-.about-cta-btn {
+.about-cta-section .about-cta-btn {
   display: inline-block;
+  /* Override the global `.btn-primary { width: 100% }` (leaked from Auth.css),
+     which together with the horizontal padding overflowed the viewport. */
+  width: auto;
+  max-width: 100%;
+  box-sizing: border-box;
   background: #fff;
   color: #000;
   text-decoration: none;

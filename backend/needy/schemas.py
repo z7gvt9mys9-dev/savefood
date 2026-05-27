@@ -29,6 +29,7 @@ class TicketCreate(BaseModel):
     apartment: Optional[str] = None
     floor_num: Optional[str] = None
     entrance: Optional[str] = None
+    self_pickup: bool = False
 
 
 class TicketOut(BaseModel):
@@ -43,10 +44,12 @@ class TicketOut(BaseModel):
     status: str
     created_at: datetime
     assigned_volunteer: Optional[str]
+    assigned_volunteer_id: Optional[int] = None
     fulfilled_at: Optional[datetime]
     apartment: Optional[str]
     floor_num: Optional[str]
     entrance: Optional[str]
+    self_pickup: Optional[bool] = None
 
 
 class NotificationOut(BaseModel):
@@ -68,6 +71,8 @@ class NeedyProfileCreate(BaseModel):
     floor_num: Optional[str] = None
     entrance: Optional[str] = None
     city: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
 
 class NeedyProfileOut(BaseModel):
@@ -83,6 +88,8 @@ class NeedyProfileOut(BaseModel):
     floor_num: Optional[str]
     entrance: Optional[str]
     city: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
 
 
 class NeedyProfileUpdate(BaseModel):
@@ -95,3 +102,5 @@ class NeedyProfileUpdate(BaseModel):
     floor_num: Optional[str] = None
     entrance: Optional[str] = None
     city: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None

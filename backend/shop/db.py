@@ -49,7 +49,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
-                shop_id INTEGER NOT NULL,
+                shop_id INTEGER,
                 lot_id INTEGER,
                 type TEXT,
                 payload TEXT,
@@ -58,6 +58,10 @@ def init_db():
             )
             """
         )
+        # `notifications` is shared by shop/needy/volunteer modules (each filters by
+        # its own *_id column). Relax the legacy shop_id NOT NULL so needy/volunteer
+        # rows (which leave shop_id NULL) can be inserted.
+        cur.execute("ALTER TABLE notifications ALTER COLUMN shop_id DROP NOT NULL")
 
 def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, lon: Optional[float] = None, city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
@@ -89,22 +93,25 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
-def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None, city: str = None) -> List[Dict[str, Any]]:
+def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        filters = ["status = 'active'", "(expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
+        filters = ["l.status = 'active'", "(l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
         params = []
         if category:
-            filters.append("category ILIKE %s")
+            filters.append("l.category ILIKE %s")
             params.append(category)
         if search:
-            filters.append("(description ILIKE %s OR address ILIKE %s)")
+            filters.append("(l.description ILIKE %s OR l.address ILIKE %s)")
             params.extend([f"%{search}%", f"%{search}%"])
-        if city:
-            filters.append("city ILIKE %s")
-            params.append(city)
         where = " AND ".join(filters)
         params.extend([limit, offset])
-        cur.execute(f"SELECT * FROM lots WHERE {where} ORDER BY created_at DESC LIMIT %s OFFSET %s", params)
+        cur.execute(f"""
+            SELECT l.*, s.name as shop_name, s.lat as shop_lat, s.lon as shop_lon
+            FROM lots l
+            JOIN shops s ON s.id = l.shop_id
+            WHERE {where}
+            ORDER BY l.created_at DESC LIMIT %s OFFSET %s
+        """, params)
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 

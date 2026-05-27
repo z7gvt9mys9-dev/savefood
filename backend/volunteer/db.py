@@ -38,7 +38,7 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS notifications (
                 id SERIAL PRIMARY KEY,
-                volunteer_id INTEGER NOT NULL,
+                volunteer_id INTEGER,
                 type TEXT,
                 payload TEXT,
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -46,6 +46,9 @@ def init_db():
             )
             """
         )
+        # Shared `notifications` table may have been created first by the shop module
+        # (which omits volunteer_id). Ensure the column exists.
+        cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS volunteer_id INTEGER")
 
 def create_notification(volunteer_id: int, notification_type: str, payload: str, created_at: Optional[datetime] = None):
     with get_db_cursor() as cur:

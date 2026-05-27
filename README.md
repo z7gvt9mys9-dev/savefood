@@ -23,7 +23,7 @@
 |---|---|
 | Backend | Python 3.11, FastAPI, PostgreSQL 15 |
 | Frontend | React 18, react-router-dom v7 |
-| Карты | Yandex Maps JS API v3 |
+| Карты | Yandex Maps + Geosuggest/Геокодер (подсказки адресов) |
 | i18n | react-i18next (ru / kk / en) |
 | Мобильное приложение | Capacitor 8 (Android / iOS) |
 | Уведомления | Telegram Bot (aiogram 3.x), WebSocket |
@@ -229,6 +229,72 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/
 - JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные
 - Rate limiting на `/auth/login`: 5 запросов в минуту с одного IP
 - Все admin-эндпоинты защищены проверкой роли
+
+---
+
+---
+
+## Тестирование
+
+### Backend
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+### Frontend
+
+```bash
+cd savefood
+npm test
+```
+
+---
+
+## Устранение неполадок
+
+**Ошибка подключения к БД**
+- Убедитесь, что контейнер PostgreSQL запущен: `docker ps`
+- Проверьте переменные в `.env`
+
+**Карта не загружается**
+- Проверьте `REACT_APP_YANDEX_MAPS_API_KEY` в `.env`
+- API ключ должен быть активным в консоли Yandex Cloud
+
+**Telegram-бот не отправляет сообщения**
+- Убедитесь, что `TELEGRAM_BOT_TOKEN` заполнен
+- Webhook настроен правильно (см. раздел "Telegram-бот")
+- Проверьте CORS и порт в конфиге Nginx
+
+**Проблемы при сборке APK**
+- Обновите Java: `java -version` (требуется Java 21+)
+- Очистите кеш: `./gradlew clean`
+
+---
+
+## Вклад
+
+Если вы хотите помочь развитию проекта:
+
+1. Fork репозитория
+2. Создайте ветку для вашей функции (`git checkout -b feature/new-feature`)
+3. Делайте коммиты с чёткими сообщениями
+4. Push в вашу ветку
+5. Откройте Pull Request с описанием изменений
+
+Перед отправкой убедитесь:
+- Код работает локально и тесты проходят
+- Переводы добавлены для всех трёх языков (ru/kk/en)
+- API документация обновлена (если нужно)
+
+---
+
+## Контакты и поддержка
+
+- **Email**: igel2020i@gmail.com
+- **Telegram**: @savefood_bot
+- **Issues**: [GitHub Issues](https://github.com/your-username/savefood/issues)
 
 ---
 

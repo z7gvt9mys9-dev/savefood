@@ -18,6 +18,43 @@ const labelStyle = {
   color: '#ccc',
 };
 
+const SUGGEST_KEY = process.env.REACT_APP_YANDEX_SUGGEST_API_KEY || '';
+const GEOCODER_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
+
+const EMPTY_COORDS = { lat: null, lon: null, city: null };
+
+const geocodeBy = async (param) => {
+  const res = await fetch(
+    `https://geocode-maps.yandex.ru/1.x/?apikey=${GEOCODER_KEY}&format=json&lang=ru_RU&results=1&${param}`
+  );
+  const data = await res.json();
+  const obj = data?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+  if (!obj) return null;
+  const [lon, lat] = (obj.Point?.pos || '').split(' ').map(Number);
+  const comps = obj.metaDataProperty?.GeocoderMetaData?.Address?.Components || [];
+  const pick = (kind) => comps.find(c => c.kind === kind)?.name || null;
+  return {
+    lat: Number.isFinite(lat) ? lat : null,
+    lon: Number.isFinite(lon) ? lon : null,
+    city: pick('locality') || pick('area') || pick('province') || null,
+  };
+};
+
+// Resolve coordinates + city for a picked suggestion via the Yandex HTTP Geocoder.
+// Prefer the suggest result's `uri` (exact match), fall back to the address text.
+const geocode = async (item) => {
+  if (!GEOCODER_KEY) return EMPTY_COORDS;
+  try {
+    if (item.uri) {
+      const byUri = await geocodeBy(`uri=${encodeURIComponent(item.uri)}`);
+      if (byUri?.lat != null) return byUri;
+    }
+    return (await geocodeBy(`geocode=${encodeURIComponent(item.address)}`)) || EMPTY_COORDS;
+  } catch {
+    return EMPTY_COORDS;
+  }
+};
+
 const AddressInput = ({ value, onChange, placeholder, label }) => {
   const [suggestions, setSuggestions] = useState([]);
   const [query, setQuery] = useState(value || '');
@@ -29,17 +66,18 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
 
   useEffect(() => {
     const fetchSuggestions = async () => {
-      if (query.length > 3) {
+      if (query.length > 3 && SUGGEST_KEY) {
         try {
           const response = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=5`
+            `https://suggest-maps.yandex.ru/v1/suggest?apikey=${SUGGEST_KEY}&text=${encodeURIComponent(query)}&lang=ru_RU&results=5&print_address=1&attrs=uri`
           );
           const data = await response.json();
-          setSuggestions(data.map(item => ({
-            address: item.display_name,
-            lat: parseFloat(item.lat),
-            lon: parseFloat(item.lon),
-            city: item.address?.city || item.address?.town || item.address?.village || item.address?.county || null,
+          setSuggestions((data.results || []).map(r => ({
+            address: r.address?.formatted_address
+              || [r.title?.text, r.subtitle?.text].filter(Boolean).join(', '),
+            title: r.title?.text || '',
+            subtitle: r.subtitle?.text || '',
+            uri: r.uri || null,
           })));
           setShowSuggestions(true);
         } catch {
@@ -49,7 +87,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
         setSuggestions([]);
       }
     };
-    const timer = setTimeout(fetchSuggestions, 500);
+    const timer = setTimeout(fetchSuggestions, 300);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -67,15 +105,16 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
     onChange(next);
   };
 
-  const handleSelect = (s) => {
+  const handleSelect = async (s) => {
     setQuery(s.address);
-    setLatLon({ lat: s.lat, lon: s.lon, city: s.city });
     setShowSuggestions(false);
+    const coords = await geocode(s);
+    setLatLon(coords);
     onChange({
       address: s.address,
-      lat: s.lat,
-      lon: s.lon,
-      city: s.city,
+      lat: coords.lat,
+      lon: coords.lon,
+      city: coords.city,
       apartment,
       floor_num: floorNum,
       entrance,
@@ -130,7 +169,8 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
                 onMouseOver={(e) => { e.currentTarget.style.background = '#222'; e.currentTarget.style.color = '#fff'; }}
                 onMouseOut={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#ccc'; }}
               >
-                {s.address}
+                <div>{s.title || s.address}</div>
+                {s.subtitle && <div style={{ color: '#777', fontSize: '0.72rem', marginTop: 2 }}>{s.subtitle}</div>}
               </li>
             ))}
           </ul>
