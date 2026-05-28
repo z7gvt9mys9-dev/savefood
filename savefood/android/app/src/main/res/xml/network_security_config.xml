@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SSL pinning configuration for SaveFood mobile app.
+
+  TODO: Replace the placeholder domain "api.savefood.kz" and pin values below
+  with real production values BEFORE shipping a release build.
+
+  How to get the primary pin (run on a machine that can reach the production host):
+    openssl s_client -connect api.savefood.kz:443 -servername api.savefood.kz < /dev/null 2>/dev/null \
+      | openssl x509 -pubkey -noout \
+      | openssl pkey -pubin -outform der \
+      | openssl dgst -sha256 -binary \
+      | openssl enc -base64
+
+  How to get the backup pin: pin the SPKI of the issuing intermediate CA the same way.
+  Two pins are mandatory — when the leaf cert rotates, the app keeps working via the backup.
+
+  expiration MUST be set to the date of the next planned cert rotation.
+  After that date the system stops enforcing pinning, so ship a new APK with refreshed
+  pins BEFORE the old expiration is reached.
+-->
+<network-security-config>
+
+    <!-- Production: pinning enforced, cleartext blocked -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.savefood.kz</domain>
+        <pin-set expiration="2026-12-31">
+            <!-- TODO: primary pin — SHA-256 of leaf cert SPKI -->
+            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
+            <!-- TODO: backup pin — SHA-256 of intermediate CA SPKI -->
+            <pin digest="SHA-256">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=</pin>
+        </pin-set>
+    </domain-config>
+
+    <!-- Development: local backends, no pinning, cleartext allowed -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">10.0.2.2</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+
+</network-security-config>

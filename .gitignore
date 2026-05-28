@@ -89,9 +89,23 @@ yarn-debug.log*
 # React / CRA test coverage
 savefood/coverage/
 
-# Capacitor native platforms (generated, not committed)
-savefood/android/
-savefood/ios/
+# Capacitor native platforms (generated, not committed).
+# Use ** (not trailing /) so that !-exceptions below can un-ignore specific files.
+savefood/android/**
+savefood/ios/**
+
+# SSL pinning configs are security-critical and must be tracked despite the ignores above.
+# Intermediate directories must also be un-ignored for git to see the leaf files.
+!savefood/android/app/
+!savefood/android/app/src/
+!savefood/android/app/src/main/
+!savefood/android/app/src/main/AndroidManifest.xml
+!savefood/android/app/src/main/res/
+!savefood/android/app/src/main/res/xml/
+!savefood/android/app/src/main/res/xml/network_security_config.xml
+!savefood/ios/App/
+!savefood/ios/App/App/
+!savefood/ios/App/App/Info.plist
 
 # Type checkers / caches
 .mypy_cache/
