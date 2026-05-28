@@ -92,12 +92,113 @@ def _build_bot_and_dp():
                 disable_web_page_preview=True,
             )
 
+    HELP_TEXT = (
+        "📋 <b>Команды SaveFood-бота</b>\n\n"
+        "/start — добро пожаловать / привязать аккаунт\n"
+        "/help — это сообщение\n"
+        "/status — проверить, привязан ли аккаунт и текущий статус\n"
+        "/chat — как переписываться с волонтёром или получателем\n"
+        "/unlink — отвязать Telegram от аккаунта SaveFood\n\n"
+        "💬 Просто отправьте текст — он будет переслан вашему волонтёру/получателю "
+        "при наличии активного маршрута."
+    )
+
+    @bot_router.message(Command("help"))
+    async def handle_help(message: Message):
+        await message.answer(HELP_TEXT, parse_mode="HTML")
+
+    @bot_router.message(Command("status"))
+    async def handle_status(message: Message):
+        chat_id = str(message.chat.id)
+        with get_db_cursor() as cur:
+            cur.execute(
+                "SELECT id, username, role, related_id FROM users WHERE telegram_chat_id = %s",
+                (chat_id,),
+            )
+            user = cur.fetchone()
+
+        if not user:
+            await message.answer(
+                "❌ Аккаунт <b>не привязан</b>.\n\n"
+                f'Войдите на <a href="{SITE_URL}">платформу</a> и подключите Telegram в настройках профиля.',
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            return
+
+        role_labels = {"shop": "Магазин", "volunteer": "Волонтёр", "needy": "Получатель", "admin": "Администратор"}
+        role_label = role_labels.get(user["role"], user["role"])
+        lines = [
+            f"✅ Аккаунт привязан",
+            f"👤 {user['username']} · {role_label}",
+        ]
+
+        role = user["role"]
+        related_id = user["related_id"]
+        with get_db_cursor() as cur:
+            if role == "volunteer":
+                cur.execute(
+                    "SELECT id, status, started_at FROM volunteer_routes "
+                    "WHERE volunteer_id = %s AND status = 'in_progress' ORDER BY started_at DESC LIMIT 1",
+                    (related_id,),
+                )
+                route = cur.fetchone()
+                if route:
+                    lines.append(f"🚗 Активный маршрут #{route['id']}")
+                else:
+                    lines.append("🟢 Нет активного маршрута")
+
+            elif role == "needy":
+                cur.execute(
+                    "SELECT id, status FROM tickets WHERE needy_id = %s AND status IN ('open','assigned') LIMIT 1",
+                    (related_id,),
+                )
+                ticket = cur.fetchone()
+                if ticket:
+                    status_label = "назначен волонтёр" if ticket["status"] == "assigned" else "ожидает"
+                    lines.append(f"📦 Активная заявка #{ticket['id']} — {status_label}")
+                else:
+                    lines.append("🟢 Нет активных заявок")
+
+            elif role == "shop":
+                cur.execute(
+                    "SELECT COUNT(*) as cnt FROM lots WHERE shop_id = %s AND status = 'active'",
+                    (related_id,),
+                )
+                row = cur.fetchone()
+                cnt = row["cnt"] if row else 0
+                lines.append(f"🏪 Активных лотов: {cnt}")
+
+        await message.answer("\n".join(lines), parse_mode="HTML")
+
+    @bot_router.message(Command("unlink"))
+    async def handle_unlink(message: Message):
+        chat_id = str(message.chat.id)
+        with get_db_cursor() as cur:
+            cur.execute(
+                "UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = %s RETURNING username",
+                (chat_id,),
+            )
+            row = cur.fetchone()
+        if row:
+            await message.answer(
+                f"✅ Telegram отвязан от аккаунта <b>{html.escape(row['username'])}</b>.\n"
+                "Уведомления больше не будут приходить сюда.",
+                parse_mode="HTML",
+            )
+        else:
+            await message.answer("❓ Этот чат не был привязан ни к одному аккаунту.")
+
     @bot_router.message(Command("chat"))
     async def handle_chat_command(message: Message):
         await message.answer(
             "💬 Просто напишите сообщение в этот чат — оно будет переслано волонтёру/получателю, "
             "если у вас есть активный маршрут.",
         )
+
+    @bot_router.message(lambda msg: bool(msg.text and msg.text.startswith("/")))
+    async def handle_unknown_command(message: Message):
+        await message.answer("❓ Неизвестная команда. Введите /help чтобы посмотреть список команд.")
 
     @bot_router.message(F.text & ~F.text.startswith('/'))
     async def handle_relay_message(message: Message):
@@ -171,6 +272,22 @@ def _build_bot_and_dp():
     return _bot, _dp
 
 
+async def _register_commands(bot) -> None:
+    """Push the command menu to Telegram so it shows up in the UI."""
+    try:
+        from aiogram.types import BotCommand
+        await bot.set_my_commands([
+            BotCommand(command="start",  description="Добро пожаловать / привязать аккаунт"),
+            BotCommand(command="help",   description="Список команд"),
+            BotCommand(command="status", description="Статус аккаунта и активных задач"),
+            BotCommand(command="chat",   description="Как переписываться через бота"),
+            BotCommand(command="unlink", description="Отвязать Telegram от SaveFood"),
+        ])
+        logging.info("[telegram] Bot commands registered")
+    except Exception as e:
+        logging.warning("[telegram] Failed to register commands: %s", e)
+
+
 async def start_polling():
     """Start long-polling in a background asyncio task."""
     global _polling_task
@@ -179,6 +296,8 @@ async def start_polling():
     bot, dp = _build_bot_and_dp()
     if bot is None:
         return
+
+    await _register_commands(bot)
 
     async def _run():
         try:
