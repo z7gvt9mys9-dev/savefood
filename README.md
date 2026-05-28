@@ -127,6 +127,22 @@ APK: `android/app/build/outputs/apk/debug/app-debug.apk`
 
 **Требования:** Java 21, Android SDK 36, Gradle 8.14+
 
+### SSL pinning перед релизом
+
+Перед сборкой release APK замените плейсхолдеры в `savefood/android/app/src/main/res/xml/network_security_config.xml` реальными SHA-256-пинами:
+
+```bash
+# Получить primary pin (запускать с доступом к прод-серверу)
+openssl s_client -connect api.yourdomain.com:443 -servername api.yourdomain.com \
+  < /dev/null 2>/dev/null \
+  | openssl x509 -pubkey -noout \
+  | openssl pkey -pubin -outform der \
+  | openssl dgst -sha256 -binary \
+  | openssl enc -base64
+```
+
+Обязательно указать два пина (primary + backup): если сертификат ротируется, а backup отсутствует — приложение перестанет работать. Обновляйте пины и выпускайте новую версию **до** истечения `expiration` в pin-set.
+
 ---
 
 ## Роли
@@ -229,6 +245,7 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/
 - JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные
 - Rate limiting на `/auth/login`: 5 запросов в минуту с одного IP
 - Все admin-эндпоинты защищены проверкой роли
+- **SSL pinning (mobile):** Android — `network_security_config.xml` с SHA-256 SPKI pin-set, cleartext-трафик заблокирован; iOS — `NSAppTransportSecurity` отключает `NSAllowsArbitraryLoads`, Certificate Transparency включена для прод-домена. Защищает от MITM-атак даже при скомпрометированном корневом CA.
 
 ---
 
