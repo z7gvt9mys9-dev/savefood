@@ -6,6 +6,13 @@ import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Shop.css';
 
+const CAT_KEYS = {
+  'Выпечка': 'bakery',
+  'Овощи/Фрукты': 'vegetables',
+  'Готовая еда': 'prepared',
+  'Молочные продукты': 'dairy',
+};
+
 const ShopDashboard = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -15,7 +22,7 @@ const ShopDashboard = () => {
   const [lots, setLots] = useState([]);
   const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [shopInfo, setShopInfo] = useState({ name: 'Загрузка...' });
+  const [shopInfo, setShopInfo] = useState({});
   const [photoFile, setPhotoFile] = useState(null);
   const [editLot, setEditLot] = useState(null);
   const [historyOffset, setHistoryOffset] = useState(0);
@@ -34,22 +41,23 @@ const ShopDashboard = () => {
 
   const fetchShopData = () => {
     if (!shopId) return;
-    fetch(`${API_URL}/shops/${shopId}`)
+    const authHeader = { Authorization: `Bearer ${user?.token}` };
+    fetch(`${API_URL}/shops/${shopId}`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setShopInfo(data))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/lots`)
+    fetch(`${API_URL}/shops/${shopId}/lots`, { headers: authHeader })
       .then(res => res.json())
-      .then(data => setLots(data))
+      .then(data => setLots(Array.isArray(data) ? data : []))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=0`)
+    fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=0`, { headers: authHeader })
       .then(res => res.json())
-      .then(data => { setHistory(data); setHistoryHasMore(data.length === 20); setHistoryOffset(data.length); })
+      .then(data => { const arr = Array.isArray(data) ? data : []; setHistory(arr); setHistoryHasMore(arr.length === 20); setHistoryOffset(arr.length); })
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/notifications`)
+    fetch(`${API_URL}/shops/${shopId}/notifications`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -61,7 +69,7 @@ const ShopDashboard = () => {
 
   const handleCreateLot = async (e) => {
     e.preventDefault();
-    if (!shopId) { alert('Не удалось определить магазин'); return; }
+    if (!shopId) { alert(t('shop.error_no_shop')); return; }
     const fd = new FormData();
     fd.append('description', newLot.description);
     fd.append('quantity', String(newLot.quantity));
@@ -78,16 +86,16 @@ const ShopDashboard = () => {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.detail || 'Ошибка создания лота');
+        alert(err.detail || t('shop.error_create'));
         return;
       }
-      alert('Лот успешно создан!');
+      alert(t('shop.lot_created'));
       setNewLot({ description: '', quantity: 1, category: 'Выпечка', expiry_date: '', address: '', time_slot: '18:00 - 20:00' });
       setPhotoFile(null);
       fetchShopData();
       setActiveTab('active');
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
@@ -97,10 +105,10 @@ const ShopDashboard = () => {
         method: 'POST',
         headers: { Authorization: `Bearer ${user?.token}` },
       });
-      if (!res.ok) { alert('Не удалось подтвердить передачу'); return; }
+      if (!res.ok) { alert(t('shop.error_confirm')); return; }
       fetchShopData();
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
@@ -121,27 +129,29 @@ const ShopDashboard = () => {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { alert('Не удалось сохранить изменения'); return; }
+      if (!res.ok) { alert(t('shop.error_save')); return; }
       setEditLot(null);
       fetchShopData();
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
   const handleDeleteLot = async (lotId) => {
-    if (!window.confirm('Удалить лот?')) return;
+    if (!window.confirm(t('shop.confirm_delete'))) return;
     try {
       const res = await fetch(`${API_URL}/lots/${lotId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${user?.token}` },
       });
-      if (!res.ok) { alert('Не удалось удалить лот'); return; }
+      if (!res.ok) { alert(t('shop.error_delete')); return; }
       fetchShopData();
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
+
+  const catLabel = cat => t(`categories.${CAT_KEYS[cat]}`, { defaultValue: cat });
 
   const renderOverview = () => (
     <div className="tab-content">
@@ -169,7 +179,7 @@ const ShopDashboard = () => {
           <div className="tg-link-box">
             <p>{t('shop.telegram_link_label')}</p>
             <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
-              Открыть @{tgLink.bot_name} в Telegram
+              {t('shop.open_telegram', { name: tgLink.bot_name })}
             </a>
           </div>
         ) : (
@@ -180,8 +190,8 @@ const ShopDashboard = () => {
                 headers: { Authorization: `Bearer ${user?.token}` },
               });
               if (res.ok) setTgLink(await res.json());
-              else alert('Ошибка генерации ссылки');
-            } catch { alert('Ошибка подключения к серверу'); }
+              else alert(t('shop.error_tg'));
+            } catch { alert(t('common.connection_error')); }
             finally { setTgLoading(false); }
           }} disabled={tgLoading}>
             {tgLoading ? t('common.loading') : t('shop.telegram_connect')}
@@ -194,12 +204,12 @@ const ShopDashboard = () => {
   const renderCreateLot = () => (
     <div className="tab-content">
       <form className="admin-form" onSubmit={handleCreateLot}>
-        <h2>Новый лот</h2>
+        <h2>{t('shop.add_lot')}</h2>
         <div className="form-group">
-          <label>Описание продуктов</label>
+          <label>{t('shop.lot_name')}</label>
           <input
             type="text"
-            placeholder="Например: Пакет с выпечкой (5 круассанов, 2 багета)"
+            placeholder={t('shop.lot_placeholder')}
             value={newLot.description}
             onChange={(e) => setNewLot({...newLot, description: e.target.value})}
             required
@@ -208,16 +218,16 @@ const ShopDashboard = () => {
 
         <div className="form-row">
           <div className="form-group">
-            <label>Категория</label>
+            <label>{t('shop.category')}</label>
             <select value={newLot.category} onChange={(e) => setNewLot({...newLot, category: e.target.value})}>
-              <option>Выпечка</option>
-              <option>Овощи/Фрукты</option>
-              <option>Готовая еда</option>
-              <option>Молочные продукты</option>
+              <option value="Выпечка">{t('categories.bakery')}</option>
+              <option value="Овощи/Фрукты">{t('categories.vegetables')}</option>
+              <option value="Готовая еда">{t('categories.prepared')}</option>
+              <option value="Молочные продукты">{t('categories.dairy')}</option>
             </select>
           </div>
           <div className="form-group">
-            <label>Вес/Кол-во (кг/шт)</label>
+            <label>{t('shop.weight')}</label>
             <input
               type="number"
               value={newLot.quantity}
@@ -229,7 +239,7 @@ const ShopDashboard = () => {
 
         <div className="form-row">
           <div className="form-group">
-            <label>Срок годности (до)</label>
+            <label>{t('shop.expiry')}</label>
             <input
               type="datetime-local"
               value={newLot.expiry_date}
@@ -238,7 +248,7 @@ const ShopDashboard = () => {
             />
           </div>
           <div className="form-group">
-            <label>Окно выдачи (время)</label>
+            <label>{t('shop.time_slot')}</label>
             <input
               type="text"
               placeholder="18:00 - 21:00"
@@ -250,21 +260,21 @@ const ShopDashboard = () => {
         </div>
 
         <AddressInput
-          label="Адрес выдачи (подтвержденный)"
+          label={t('shop.address_label')}
           value={newLot.address || shopInfo.address}
           onChange={(addr) => setNewLot({...newLot, address: addr.address})}
         />
 
         <div className="form-group">
-          <label>Фотография лота</label>
+          <label>{t('shop.photo')}</label>
           <input type="file" onChange={(e) => setPhotoFile(e.target.files[0])} />
         </div>
 
         <div className="warning-box">
-          <p>Лот будет автоматически скрыт за 24 часа до истечения срока годности.</p>
+          <p>{t('shop.auto_hide')}</p>
         </div>
 
-        <button type="submit" className="btn btn-primary">Опубликовать лот</button>
+        <button type="submit" className="btn btn-primary">{t('shop.publish')}</button>
       </form>
     </div>
   );
@@ -335,7 +345,7 @@ const ShopDashboard = () => {
               <td>{new Date(h.created_at).toLocaleDateString()}</td>
               <td>{h.description}</td>
               <td>{h.quantity} {t('shop.kg')}</td>
-              <td>{h.status === 'taken' ? t('shop.transferred') : t('shop.disposed')}</td>
+              <td>{(h.status === 'taken' || h.status === 'confirmed') ? t('shop.transferred') : t('shop.disposed')}</td>
             </tr>
           ))}
         </tbody>
@@ -343,9 +353,9 @@ const ShopDashboard = () => {
       )}
       {historyHasMore && (
         <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => {
-          fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=${historyOffset}`)
+          fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=${historyOffset}`, { headers: { Authorization: `Bearer ${user?.token}` } })
             .then(r => r.json())
-            .then(data => { setHistory(prev => [...prev, ...data]); setHistoryHasMore(data.length === 20); setHistoryOffset(h => h + data.length); })
+            .then(data => { const arr = Array.isArray(data) ? data : []; setHistory(prev => [...prev, ...arr]); setHistoryHasMore(arr.length === 20); setHistoryOffset(h => h + arr.length); })
             .catch(() => {});
         }}>{t('common.show_more')}</button>
       )}
@@ -357,46 +367,49 @@ const ShopDashboard = () => {
       {editLot && (
         <div className="modal-overlay" onClick={() => setEditLot(null)}>
           <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <h3>Редактировать лот</h3>
+            <h3>{t('shop.edit_lot')}</h3>
             <form onSubmit={handleSaveEdit} className="admin-form">
               <div className="form-group">
-                <label>Описание</label>
+                <label>{t('common.description')}</label>
                 <input value={editLot.description || ''} onChange={e => setEditLot({...editLot, description: e.target.value})} required />
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label>Кол-во (кг/шт)</label>
+                  <label>{t('shop.weight')}</label>
                   <input type="number" value={editLot.quantity || ''} onChange={e => setEditLot({...editLot, quantity: e.target.value})} required />
                 </div>
                 <div className="form-group">
-                  <label>Категория</label>
+                  <label>{t('shop.category')}</label>
                   <select value={editLot.category || 'Выпечка'} onChange={e => setEditLot({...editLot, category: e.target.value})}>
-                    <option>Выпечка</option><option>Овощи/Фрукты</option><option>Готовая еда</option><option>Молочные продукты</option>
+                    <option value="Выпечка">{t('categories.bakery')}</option>
+                    <option value="Овощи/Фрукты">{t('categories.vegetables')}</option>
+                    <option value="Готовая еда">{t('categories.prepared')}</option>
+                    <option value="Молочные продукты">{t('categories.dairy')}</option>
                   </select>
                 </div>
               </div>
               <div className="form-group">
-                <label>Срок годности</label>
+                <label>{t('shop.expiry')}</label>
                 <input type="date" value={editLot.expiry_date || ''} onChange={e => setEditLot({...editLot, expiry_date: e.target.value})} />
               </div>
               <div className="form-group">
-                <label>Адрес</label>
+                <label>{t('common.address')}</label>
                 <input value={editLot.address || ''} onChange={e => setEditLot({...editLot, address: e.target.value})} />
               </div>
               <div className="form-group">
-                <label>Комментарий</label>
+                <label>{t('shop.comment')}</label>
                 <input value={editLot.comment || ''} onChange={e => setEditLot({...editLot, comment: e.target.value})} />
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-                <button type="submit" className="btn btn-primary">Сохранить</button>
-                <button type="button" className="btn btn-secondary" onClick={() => setEditLot(null)}>Отмена</button>
+                <button type="submit" className="btn btn-primary">{t('common.save')}</button>
+                <button type="button" className="btn btn-secondary" onClick={() => setEditLot(null)}>{t('common.cancel')}</button>
               </div>
             </form>
           </div>
         </div>
       )}
       <aside className="sidebar">
-        <h2>{shopInfo.name}</h2>
+        <h2>{shopInfo.name || t('common.loading')}</h2>
         <nav>
           <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>{t('shop.overview')}</button>
           <button className={activeTab === 'create' ? 'active' : ''} onClick={() => setActiveTab('create')}>{t('shop.add_lot')}</button>

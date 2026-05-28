@@ -12,6 +12,15 @@ const YMAPS_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
 
 const PAGE = 20;
 
+const CAT_KEYS = {
+  'Выпечка': 'bakery',
+  'Овощи/Фрукты': 'vegetables',
+  'Готовая еда': 'prepared',
+  'Молочные продукты': 'dairy',
+};
+
+const CATEGORIES = ['Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
+
 const NeedyDashboard = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -88,11 +97,12 @@ const NeedyDashboard = () => {
 
   // WebSocket: live notification stream
   useEffect(() => {
-    if (!needyId) return;
+    if (!needyId || !user?.token) return;
     const apiBase = process.env.REACT_APP_API_URL ?? '';
-    const wsUrl = apiBase
+    const base = apiBase
       ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/needy/${needyId}`;
+    const wsUrl = `${base}?token=${encodeURIComponent(user.token)}`;
     let ws;
     let reconnectTimer;
     const connect = () => {
@@ -110,7 +120,7 @@ const NeedyDashboard = () => {
     };
     connect();
     return () => { clearTimeout(reconnectTimer); ws?.close(); };
-  }, [needyId]);
+  }, [needyId, user?.token]);
 
   useEffect(() => {
     if (locationPollRef.current) clearInterval(locationPollRef.current);
@@ -118,7 +128,7 @@ const NeedyDashboard = () => {
     const ticketFulfilled = activeOrder?.ticketStatus === 'fulfilled';
     if (!assignedVolunteerId || ticketFulfilled) { setVolunteerLocation(null); return; }
     const poll = () => {
-      fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`)
+      fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`, { headers: { Authorization: `Bearer ${user?.token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data && data.lat && data.lon) setVolunteerLocation(data); })
         .catch(() => {});
@@ -139,12 +149,12 @@ const NeedyDashboard = () => {
         .then(r => r.ok ? r.json() : null)
         .then(list => {
           if (!Array.isArray(list)) return;
-          const t = list.find(x => x.id === ticketId);
-          if (!t) return;
+          const ticket = list.find(x => x.id === ticketId);
+          if (!ticket) return;
           setActiveOrder(prev => {
             if (!prev || prev.ticketId !== ticketId) return prev;
-            if (prev.assigned_volunteer_id === t.assigned_volunteer_id && prev.ticketStatus === t.status) return prev;
-            return { ...prev, assigned_volunteer_id: t.assigned_volunteer_id, ticketStatus: t.status };
+            if (prev.assigned_volunteer_id === ticket.assigned_volunteer_id && prev.ticketStatus === ticket.status) return prev;
+            return { ...prev, assigned_volunteer_id: ticket.assigned_volunteer_id, ticketStatus: ticket.status };
           });
         })
         .catch(() => {});
@@ -155,7 +165,7 @@ const NeedyDashboard = () => {
   }, [activeOrder?.ticketId, activeOrder?.selfPickup, activeOrder?.ticketStatus, needyId]);
 
   const handleBook = async (lot, selfPickup = false) => {
-    if (!needyId) { alert('Необходима авторизация'); return; }
+    if (!needyId) { alert(t('common.auth_required')); return; }
     try {
       const res = await fetch(`${API_URL}/needy/${needyId}/ticket`, {
         method: 'POST',
@@ -175,7 +185,7 @@ const NeedyDashboard = () => {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.detail || 'Ошибка бронирования');
+        alert(err.detail || t('needy.error_book'));
         return;
       }
       const ticket = await res.json();
@@ -183,19 +193,19 @@ const NeedyDashboard = () => {
         ...lot,
         ticketId: ticket.id,
         selfPickup,
-        shopName: lot.shop_name || 'Магазин',
+        shopName: lot.shop_name || t('needy.shop_name_default'),
         status: selfPickup ? 'self_pickup' : 'picking',
-        eta: selfPickup ? null : 'Ожидайте волонтера',
+        eta: selfPickup ? null : t('needy.awaiting_volunteer'),
       });
       setActiveTab('order');
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
   const handleCancelTicket = async () => {
     if (!activeOrder?.ticketId || !needyId) return;
-    if (!window.confirm('Отменить заявку?')) return;
+    if (!window.confirm(t('needy.confirm_cancel'))) return;
     try {
       const res = await fetch(`${API_URL}/needy/${needyId}/ticket/${activeOrder.ticketId}`, {
         method: 'DELETE',
@@ -203,13 +213,13 @@ const NeedyDashboard = () => {
       });
       if (!res.ok) {
         const err = await res.json();
-        alert(err.detail || 'Не удалось отменить заявку');
+        alert(err.detail || t('needy.error_cancel'));
         return;
       }
       setActiveOrder(null);
       setActiveTab('map');
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
@@ -226,8 +236,8 @@ const NeedyDashboard = () => {
         { method: 'POST', headers: { Authorization: `Bearer ${user?.token}` } }
       );
       if (res.ok) setRatings(prev => ({ ...prev, [ticketId]: rating }));
-      else alert('Не удалось сохранить оценку');
-    } catch { alert('Ошибка подключения'); }
+      else alert(t('needy.error_rate'));
+    } catch { alert(t('common.connection_error')); }
   };
 
   const handleConnectTelegram = async () => {
@@ -236,11 +246,11 @@ const NeedyDashboard = () => {
       const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
         headers: { Authorization: `Bearer ${user?.token}` },
       });
-      if (!res.ok) { alert('Ошибка генерации ссылки'); return; }
+      if (!res.ok) { alert(t('needy.error_tg')); return; }
       const data = await res.json();
       setTgLink(data);
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     } finally {
       setTgLoading(false);
     }
@@ -248,7 +258,7 @@ const NeedyDashboard = () => {
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    if (!needyId) { alert('Необходима авторизация'); return; }
+    if (!needyId) { alert(t('common.auth_required')); return; }
     try {
       const res = await fetch(`${API_URL}/needy/${needyId}/profile`, {
         method: 'PATCH',
@@ -267,60 +277,60 @@ const NeedyDashboard = () => {
           lon: profile.lon ?? null,
         }),
       });
-      if (!res.ok) { alert('Ошибка сохранения'); return; }
-      alert('Изменения сохранены!');
+      if (!res.ok) { alert(t('needy.error_save_profile')); return; }
+      alert(t('needy.profile_saved'));
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
   const renderProfile = () => (
     <div className="tab-content">
       <form className="admin-form" onSubmit={handleSaveProfile}>
-        <h2>Анкета получателя</h2>
+        <h2>{t('needy.profile_title')}</h2>
         <AddressInput
-          label="Адрес проживания"
+          label={t('needy.home_address_label')}
           value={profile.address}
           onChange={(addr) => setProfile({ ...profile, address: addr.address, lat: addr.lat ?? profile.lat, lon: addr.lon ?? profile.lon, city: addr.city ?? profile.city, apartment: addr.apartment || profile.apartment, floor_num: addr.floor_num || profile.floor_num, entrance: addr.entrance || profile.entrance })}
         />
         <div className="form-row">
           <div className="form-group">
-            <label>Состав семьи (чел)</label>
+            <label>{t('needy.family_label')}</label>
             <input type="number" value={profile.family_size} onChange={(e) => setProfile({ ...profile, family_size: e.target.value })} />
           </div>
           <div className="form-group">
-            <label>Уровень срочности</label>
+            <label>{t('needy.urgency')}</label>
             <select value={profile.urgency} onChange={(e) => setProfile({ ...profile, urgency: e.target.value })}>
-              <option value="normal">Обычный</option>
-              <option value="high">Высокий</option>
-              <option value="critical">Критический</option>
+              <option value="normal">{t('needy.urgency_normal')}</option>
+              <option value="high">{t('needy.urgency_high')}</option>
+              <option value="critical">{t('needy.urgency_critical')}</option>
             </select>
           </div>
         </div>
         <div className="form-group">
-          <label>Удобное время получения (например: 14:00-18:00)</label>
-          <input type="text" placeholder="14:00-18:00" value={profile.available_time} onChange={(e) => setProfile({ ...profile, available_time: e.target.value })} />
+          <label>{t('needy.available_time')}</label>
+          <input type="text" placeholder={t('needy.time_hint')} value={profile.available_time} onChange={(e) => setProfile({ ...profile, available_time: e.target.value })} />
         </div>
         <div className="form-group">
-          <label>Пищевые ограничения</label>
-          <textarea placeholder="Например: аллергия на лактозу" value={profile.preferences} onChange={(e) => setProfile({ ...profile, preferences: e.target.value })} />
+          <label>{t('needy.dietary_label')}</label>
+          <textarea placeholder={t('needy.dietary_placeholder')} value={profile.preferences} onChange={(e) => setProfile({ ...profile, preferences: e.target.value })} />
         </div>
-        <button type="submit" className="btn btn-primary">Сохранить изменения</button>
+        <button type="submit" className="btn btn-primary">{t('needy.save_profile')}</button>
       </form>
 
       <div className="tg-connect-section">
-        <h3>Уведомления в Telegram</h3>
+        <h3>{t('needy.tg_title')}</h3>
         {tgLink ? (
           <div className="tg-link-box">
-            <p>Ссылка действует 10 минут. Нажмите кнопку ниже, чтобы открыть бота:</p>
+            <p>{t('needy.tg_link_label')}</p>
             <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
-              Открыть @{tgLink.bot_name} в Telegram
+              {t('needy.tg_open', { name: tgLink.bot_name })}
             </a>
-            {tgLink.already_linked && <p className="tg-hint">У вас уже подключён Telegram — ссылка обновит привязку.</p>}
+            {tgLink.already_linked && <p className="tg-hint">{t('needy.tg_already_linked')}</p>}
           </div>
         ) : (
           <button className="btn btn-secondary" onClick={handleConnectTelegram} disabled={tgLoading}>
-            {tgLoading ? 'Загрузка...' : 'Подключить Telegram'}
+            {tgLoading ? t('common.loading') : t('needy.telegram_connect')}
           </button>
         )}
       </div>
@@ -336,26 +346,25 @@ const NeedyDashboard = () => {
     const groups = {};
     lots.forEach(lot => {
       const sid = lot.shop_id;
-      if (!groups[sid]) groups[sid] = { shopId: sid, shopName: lot.shop_name || 'Магазин', lots: [] };
+      if (!groups[sid]) groups[sid] = { shopId: sid, shopName: lot.shop_name || t('needy.shop_name_default'), lots: [] };
       groups[sid].lots.push(lot);
     });
     return Object.values(groups);
-  }, [lots]);
+  }, [lots, t]);
 
   const renderMap = () => (
     <>
       <div className="tab-content">
         <div className="lot-filters">
           <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-            <option value="">Все категории</option>
-            <option value="Выпечка">Выпечка</option>
-            <option value="Овощи/Фрукты">Овощи/Фрукты</option>
-            <option value="Готовая еда">Готовая еда</option>
-            <option value="Молочные продукты">Молочные продукты</option>
+            <option value="">{t('needy.filter_all_categories')}</option>
+            {CATEGORIES.map(cat => (
+              <option key={cat} value={cat}>{t(`categories.${CAT_KEYS[cat]}`, { defaultValue: cat })}</option>
+            ))}
           </select>
           <input
             type="text"
-            placeholder="Поиск по описанию или адресу..."
+            placeholder={t('needy.filter_search')}
             value={filterSearch}
             onChange={e => setFilterSearch(e.target.value)}
           />
@@ -376,8 +385,8 @@ const NeedyDashboard = () => {
                 geometry={[lot.shop_lat, lot.shop_lon]}
                 properties={{
                   balloonContentHeader: lot.shop_name || lot.description,
-                  balloonContentBody: `${lot.description} · ${lot.quantity} кг/шт`,
-                  balloonContentFooter: lot.time_slot ? `Выдача: ${lot.time_slot}` : '',
+                  balloonContentBody: `${lot.description} · ${lot.quantity} ${t('needy.qty_unit')}`,
+                  balloonContentFooter: lot.time_slot ? `${t('needy.pickup_time_prefix')}${lot.time_slot}` : '',
                   hintContent: lot.shop_name || lot.description,
                 }}
                 options={{ preset: 'islands#greenFoodIcon', iconColor: '#2ecc71' }}
@@ -386,11 +395,11 @@ const NeedyDashboard = () => {
           </Map>
         </YMaps>
         {lotsWithCoords.length === 0 && (
-          <div className="map-no-coords">Нет магазинов с координатами</div>
+          <div className="map-no-coords">{t('needy.no_coords')}</div>
         )}
       </div>
       <div className="tab-content">
-        {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description="Нет доступных лотов" />}
+        {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description={t('empty.lots_city_desc')} />}
         {lotsByShop.map(group => (
           <div key={group.shopId} className="shop-group">
             <div className="shop-group-header">
@@ -408,14 +417,14 @@ const NeedyDashboard = () => {
                       onError={(e) => { e.target.style.display = 'none'; }}
                     />
                   )}
-                  {lot.category && <span className="category-badge">{lot.category}</span>}
+                  {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
                   <h4>{lot.description}</h4>
-                  <p>{lot.address || 'Адрес уточняется'}</p>
-                  <span className="distance">{lot.quantity} кг/шт</span>
-                  {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>Выдача: {lot.time_slot}</p>}
+                  <p>{lot.address || t('needy.address_tbd')}</p>
+                  <span className="distance">{lot.quantity} {t('needy.qty_unit')}</span>
+                  {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>{t('needy.pickup_time_prefix')}{lot.time_slot}</p>}
                   <div className="lot-actions">
-                    <button className="btn-small" onClick={() => handleBook(lot, false)}>🚚 Жду волонтёра</button>
-                    <button className="btn-small btn-outline" onClick={() => handleBook(lot, true)}>🚶 Заберу сам</button>
+                    <button className="btn-small" onClick={() => handleBook(lot, false)}>🚚 {t('needy.await_volunteer_btn')}</button>
+                    <button className="btn-small btn-outline" onClick={() => handleBook(lot, true)}>🚶 {t('needy.self_pickup_btn')}</button>
                   </div>
                 </div>
               ))}
@@ -424,11 +433,11 @@ const NeedyDashboard = () => {
         ))}
         {lotsHasMore && (
           <button className="btn btn-secondary" style={{ margin: '16px auto', display: 'block' }} onClick={() => loadLots(lotsOffset, true)}>
-            Показать ещё
+            {t('common.show_more')}
           </button>
         )}
         <div className="limit-notice" style={{marginTop: '20px'}}>
-          <p>Вы можете оформить заявку не чаще 1 раза в неделю.</p>
+          <p>{t('needy.limit_notice')}</p>
         </div>
       </div>
     </>
@@ -445,17 +454,17 @@ const NeedyDashboard = () => {
               <div className="self-pickup-banner">
                 <span style={{ fontSize: '2rem' }}>🚶</span>
                 <div>
-                  <p style={{ fontWeight: 'bold', margin: '0 0 4px' }}>Самовывоз из магазина</p>
+                  <p style={{ fontWeight: 'bold', margin: '0 0 4px' }}>{t('needy.self_pickup_title')}</p>
                   <p style={{ color: '#aaa', fontSize: '0.85em', margin: 0 }}>{activeOrder.shopName}</p>
                 </div>
               </div>
               <div className="order-details">
-                <p><strong>Продукты:</strong> {activeOrder.description}</p>
-                <p><strong>Адрес магазина:</strong> {activeOrder.address || 'Уточните у магазина'}</p>
-                {activeOrder.time_slot && <p><strong>Время выдачи:</strong> {activeOrder.time_slot}</p>}
+                <p><strong>{t('needy.items_label')}</strong> {activeOrder.description}</p>
+                <p><strong>{t('needy.shop_address_label')}</strong> {activeOrder.address || t('needy.address_tbd')}</p>
+                {activeOrder.time_slot && <p><strong>{t('needy.pickup_time_label')}</strong> {activeOrder.time_slot}</p>}
               </div>
               <div className="qr-section">
-                <p>Покажите этот QR-код в магазине:</p>
+                <p>{t('needy.show_qr_shop')}</p>
                 {activeOrder.ticketId && (
                   <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
                 )}
@@ -465,8 +474,8 @@ const NeedyDashboard = () => {
           ) : (
             <>
               <div className="status-stepper">
-                <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>Сборка</div>
-                <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>Доставка</div>
+                <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>{t('needy.step_collecting')}</div>
+                <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>{t('needy.step_delivering')}</div>
               </div>
 
               {volunteerLocation?.lat && (
@@ -483,7 +492,7 @@ const NeedyDashboard = () => {
                     >
                       <Placemark
                         geometry={[volunteerLocation.lat, volunteerLocation.lon]}
-                        properties={{ hintContent: 'Волонтёр' }}
+                        properties={{ hintContent: t('volunteer.shop_label') }}
                         options={{ preset: 'islands#bluePersonIcon' }}
                       />
                     </Map>
@@ -492,11 +501,11 @@ const NeedyDashboard = () => {
               )}
 
               <div className="order-details">
-                <p><strong>Продукты:</strong> {activeOrder.description}</p>
-                <p><strong>Статус:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : 'Волонтёр ищется'}</p>
+                <p><strong>{t('needy.items_label')}</strong> {activeOrder.description}</p>
+                <p><strong>{t('common.status')}:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
               </div>
               <div className="qr-section">
-                <p>Покажите этот код волонтеру при получении:</p>
+                <p>{t('needy.show_qr_volunteer')}</p>
                 {activeOrder.ticketId && (
                   <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
                 )}
@@ -519,9 +528,9 @@ const NeedyDashboard = () => {
 
   const renderNotifications = () => (
     <div className="tab-content">
-      <h3>Уведомления</h3>
+      <h3>{t('common.notifications')}</h3>
       {notifications.length === 0 ? (
-        <p className="empty-msg">Нет новых уведомлений</p>
+        <p className="empty-msg">{t('needy.no_notifications')}</p>
       ) : (
         <div className="notification-list">
           {notifications.map(n => (
@@ -565,29 +574,29 @@ const NeedyDashboard = () => {
         {activeTab === 'profile' && renderProfile()}
         {activeTab === 'history' && (
           <div className="tab-content">
-            <h3>История заявок</h3>
-            {history.length === 0 ? <p className="empty-msg">История пуста</p> : (
-              history.map(t => (
-                <div key={t.id} className="history-item">
-                  <p><strong>{t.items || 'Продукты'}</strong></p>
-                  <p>Статус: {t.status === 'fulfilled' ? 'Получено' : 'В процессе'}</p>
-                  <p>{new Date(t.created_at).toLocaleDateString()}</p>
-                  {t.delivery_photo && (
-                    <a href={`${API_URL}${t.delivery_photo}`} target="_blank" rel="noreferrer">
-                      <img src={`${API_URL}${t.delivery_photo}`} alt="Фото доставки" className="delivery-photo-thumb" />
+            <h3>{t('needy.history_page_title')}</h3>
+            {history.length === 0 ? <p className="empty-msg">{t('needy.history_empty')}</p> : (
+              history.map(item => (
+                <div key={item.id} className="history-item">
+                  <p><strong>{item.items || t('needy.items_default')}</strong></p>
+                  <p>{t('common.status')}: {item.status === 'fulfilled' ? t('needy.status_fulfilled') : t('needy.status_processing')}</p>
+                  <p>{new Date(item.created_at).toLocaleDateString()}</p>
+                  {item.delivery_photo && (
+                    <a href={`${API_URL}${item.delivery_photo}`} target="_blank" rel="noreferrer">
+                      <img src={`${API_URL}${item.delivery_photo}`} alt={t('needy.delivery_photo_alt')} className="delivery-photo-thumb" />
                     </a>
                   )}
-                  {t.status === 'fulfilled' && (
+                  {item.status === 'fulfilled' && (
                     <div className="rating-row">
-                      <span style={{ color: '#aaa', fontSize: '0.85em' }}>Оценить: </span>
+                      <span style={{ color: '#aaa', fontSize: '0.85em' }}>{t('needy.rate_label')} </span>
                       {[1,2,3,4,5].map(star => (
                         <button
                           key={star}
-                          className={`star-btn ${(ratings[t.id] || t.rating) >= star ? 'active' : ''}`}
-                          onClick={() => handleRateDelivery(t.id, star)}
+                          className={`star-btn ${(ratings[item.id] || item.rating) >= star ? 'active' : ''}`}
+                          onClick={() => handleRateDelivery(item.id, star)}
                         >★</button>
                       ))}
-                      {(ratings[t.id] || t.rating) && <span style={{ color: '#aaa', fontSize: '0.8em', marginLeft: 6 }}>{ratings[t.id] || t.rating}/5</span>}
+                      {(ratings[item.id] || item.rating) && <span style={{ color: '#aaa', fontSize: '0.8em', marginLeft: 6 }}>{ratings[item.id] || item.rating}/5</span>}
                     </div>
                   )}
                 </div>
@@ -595,7 +604,7 @@ const NeedyDashboard = () => {
             )}
             {historyHasMore && (
               <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => loadHistory(historyOffset, true)}>
-                Показать ещё
+                {t('common.show_more')}
               </button>
             )}
           </div>

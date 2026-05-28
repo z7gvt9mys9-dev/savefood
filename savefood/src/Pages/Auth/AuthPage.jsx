@@ -47,7 +47,7 @@ const AuthPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isLogin && !agreed) {
-      alert("Необходимо согласие на обработку персональных данных");
+      alert(t('auth.agree_required'));
       return;
     }
 
@@ -57,7 +57,7 @@ const AuthPage = () => {
         fd.append('username', (role === 'shop' || role === 'admin') ? formData.email : formData.phone);
         fd.append('password', formData.password);
         const res = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('Неверный логин или пароль');
+        if (!res.ok) throw new Error(t('auth.invalid_credentials'));
         const data = await res.json();
         login(data.access_token, data.role, data.related_id);
         navigate(`/${data.role}`);
@@ -81,18 +81,13 @@ const AuthPage = () => {
         const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         if (!res.ok) {
           const err = await res.json();
-          throw new Error(err.detail || 'Ошибка регистрации');
+          throw new Error(err.detail || t('auth.register_error'));
         }
         const data = await res.json();
-        if (role === 'needy' && formData.document && data.id) {
-          const fd = new FormData();
-          fd.append('file', formData.document);
-          await fetch(`${API_URL}/needy/${data.id}/profile/upload`, {
-            method: 'POST',
-            body: fd,
-          }).catch(() => {});
-        }
-        // Auto-login to get token for TG linking
+
+        // Auto-login first so profile/document uploads carry a valid token
+        // (those endpoints are owner-protected).
+        let token = null;
         try {
           const loginUsername = (role === 'shop') ? formData.email : formData.phone;
           const fd = new FormData();
@@ -101,9 +96,38 @@ const AuthPage = () => {
           const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
           if (loginRes.ok) {
             const loginData = await loginRes.json();
-            setRegToken(loginData.access_token);
+            token = loginData.access_token;
+            setRegToken(token);
           }
         } catch {}
+
+        if (role === 'needy' && data.id && token) {
+          const authHeader = { Authorization: `Bearer ${token}` };
+          if (formData.document) {
+            const fd = new FormData();
+            fd.append('file', formData.document);
+            await fetch(`${API_URL}/needy/${data.id}/profile/upload`, {
+              method: 'POST',
+              headers: authHeader,
+              body: fd,
+            }).catch(() => {});
+          }
+          // Persist the step-3 profile (address/coords/family/urgency) so delivery
+          // tickets carry the recipient's coordinates without re-entering everything.
+          await fetch(`${API_URL}/needy/${data.id}/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeader },
+            body: JSON.stringify({
+              address: formData.address || null,
+              family_size: formData.familySize ? Number(formData.familySize) : null,
+              preferences: formData.preferences || null,
+              urgency: formData.urgency || 'normal',
+              city: formData.city || null,
+              lat: formData.lat ?? null,
+              lon: formData.lon ?? null,
+            }),
+          }).catch(() => {});
+        }
         setTgStep(true);
       } catch (err) {
         alert(err.message);
@@ -181,7 +205,7 @@ const AuthPage = () => {
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-          <span>{t('auth.agree')} (<a href="#" onClick={(e) => { e.preventDefault(); alert('Политика конфиденциальности: Мы удаляем ваши документы сразу после проверки и не передаем данные третьим лицам.'); }}>{t('auth.privacy')}</a>)</span>
+          <span>{t('auth.agree')} (<a href="#" onClick={(e) => { e.preventDefault(); alert(t('auth.privacy_text')); }}>{t('auth.privacy')}</a>)</span>
         </label>
       </div>
 
@@ -219,65 +243,65 @@ const AuthPage = () => {
     if (step === 1) {
       return (
         <div className="auth-form">
-          <h2>Регистрация (Шаг 1 из 3)</h2>
-          <p className="subtitle">Первичная регистрация и подача документов</p>
-          <input type="text" name="name" placeholder="ФИО" onChange={handleInputChange} required />
-          <input type="tel" name="phone" placeholder="Номер телефона" onChange={handleInputChange} required />
-          <input type="password" name="password" placeholder="Придумайте пароль" onChange={handleInputChange} required />
+          <h2>{t('auth.needy_step1_title')}</h2>
+          <p className="subtitle">{t('auth.needy_step1_subtitle')}</p>
+          <input type="text" name="name" placeholder={t('auth.full_name')} onChange={handleInputChange} required />
+          <input type="tel" name="phone" placeholder={t('auth.phone_number')} onChange={handleInputChange} required />
+          <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} required />
 
           <div className="file-upload">
-            <label>Документ, подтверждающий статус (Многодетность/Малоимущность)</label>
+            <label>{t('auth.document_status')}</label>
             <input type="file" onChange={(e) => setFormData({...formData, document: e.target.files[0]})} required />
           </div>
 
           <div className="consent-box">
             <label className="checkbox-label">
               <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-              <span>Я согласен на обработку моих документов. Они будут удалены сразу после проверки.</span>
+              <span>{t('auth.consent_docs')}</span>
             </label>
           </div>
 
-          <button onClick={() => setStep(2)} className="btn btn-primary">Далее</button>
-          <p onClick={() => setIsLogin(true)} className="toggle-auth">Уже есть аккаунт? Войти</p>
+          <button onClick={() => setStep(2)} className="btn btn-primary">{t('auth.next')}</button>
+          <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
         </div>
       );
     }
     if (step === 2) {
       return (
         <div className="auth-form">
-          <h2>Модерация (Шаг 2 из 3)</h2>
+          <h2>{t('auth.needy_step2_title')}</h2>
           <div className="moderation-box">
             <div className="spinner"></div>
-            <p>Ваши документы отправлены на проверку.</p>
-            <p className="hint">Обычно это занимает не более 24 часов.</p>
+            <p>{t('auth.docs_sent')}</p>
+            <p className="hint">{t('auth.docs_time')}</p>
           </div>
-          <button onClick={() => setStep(3)} className="btn btn-secondary">Имитировать одобрение</button>
+          <button onClick={() => setStep(3)} className="btn btn-secondary">{t('auth.simulate_approve')}</button>
         </div>
       );
     }
     return (
       <form onSubmit={handleSubmit} className="auth-form">
-        <h2>Анкета (Шаг 3 из 3)</h2>
-        <AddressInput 
-          label="Точный адрес проживания" 
-          onChange={handleAddressChange} 
+        <h2>{t('auth.needy_step3_title')}</h2>
+        <AddressInput
+          label={t('auth.home_address')}
+          onChange={handleAddressChange}
           value={formData.address}
         />
-        <input type="number" name="familySize" placeholder="Количество членов семьи" onChange={handleInputChange} required />
-        <textarea name="preferences" placeholder="Пищевые ограничения или предпочтения" onChange={handleInputChange}></textarea>
-        
-        <label>Срочность заявки</label>
+        <input type="number" name="familySize" placeholder={t('auth.family_members')} onChange={handleInputChange} required />
+        <textarea name="preferences" placeholder={t('auth.dietary_prefs')} onChange={handleInputChange}></textarea>
+
+        <label>{t('auth.urgency_label')}</label>
         <select name="urgency" onChange={handleInputChange}>
-          <option value="normal">Обычная</option>
-          <option value="high">Высокая</option>
-          <option value="critical">Критическая</option>
+          <option value="normal">{t('auth.urgency_normal')}</option>
+          <option value="high">{t('auth.urgency_high')}</option>
+          <option value="critical">{t('auth.urgency_critical')}</option>
         </select>
 
         <div className="limit-notice">
-          <p>ℹ️ Помощь можно получать <strong>не чаще одного раза в неделю</strong>.</p>
+          <p>ℹ️ {t('auth.limit_notice')}</p>
         </div>
 
-        <button type="submit" className="btn btn-primary">Завершить регистрацию</button>
+        <button type="submit" className="btn btn-primary">{t('auth.finish_register')}</button>
       </form>
     );
   };
@@ -295,10 +319,10 @@ const AuthPage = () => {
               const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
                 headers: { Authorization: `Bearer ${regToken}` },
               });
-              if (!res.ok) { alert('Ошибка генерации ссылки'); return; }
+              if (!res.ok) { alert(t('auth.error_tg')); return; }
               const data = await res.json();
               window.open(data.link, '_blank');
-            } catch { alert('Ошибка подключения'); }
+            } catch { alert(t('common.connection_error')); }
           }}
         >
           {t('auth.telegram_open')}

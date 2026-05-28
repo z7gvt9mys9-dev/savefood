@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const inputStyle = {
   width: '100%',
@@ -56,6 +57,7 @@ const geocode = async (item) => {
 };
 
 const AddressInput = ({ value, onChange, placeholder, label }) => {
+  const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState([]);
   const [query, setQuery] = useState(value || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -135,7 +137,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
           type="text"
           value={query}
           onChange={(e) => { setQuery(e.target.value); emit({ address: e.target.value }); }}
-          placeholder={placeholder || 'Улица, дом...'}
+          placeholder={placeholder || t('address.street_placeholder')}
           className="form-input"
           autoComplete="off"
           style={inputStyle}
@@ -180,22 +182,22 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
       {/* Квартира + Этаж + Подъезд */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
         <div>
-          <label style={labelStyle}>Квартира</label>
+          <label style={labelStyle}>{t('address.apartment')}</label>
           <input
             type="text"
             value={apartment}
             onChange={(e) => handleApartment(e.target.value)}
-            placeholder="№ кв."
+            placeholder={t('address.apartment_placeholder')}
             style={inputStyle}
           />
         </div>
         <div>
-          <label style={labelStyle}>Этаж</label>
+          <label style={labelStyle}>{t('address.floor')}</label>
           <input
             type="number"
             value={floorNum}
             onChange={(e) => handleFloor(e.target.value)}
-            placeholder="Этаж"
+            placeholder={t('address.floor')}
             min="1"
             max="100"
             style={inputStyle}
@@ -203,14 +205,14 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
         </div>
         <div>
           <label style={labelStyle}>
-            Подъезд
-            <span style={{ color: '#555', fontWeight: 'normal', marginLeft: 4 }}>(если &gt;1)</span>
+            {t('address.entrance')}
+            <span style={{ color: '#555', fontWeight: 'normal', marginLeft: 4 }}>{t('address.entrance_hint')}</span>
           </label>
           <input
             type="text"
             value={entrance}
             onChange={(e) => handleEntrance(e.target.value)}
-            placeholder="№ подъезда"
+            placeholder={t('address.entrance_placeholder')}
             style={inputStyle}
           />
         </div>

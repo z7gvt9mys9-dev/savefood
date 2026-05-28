@@ -3,22 +3,22 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import './Style/AboutPage.css';
 
-const steps = [
-  { num: '01', title: 'Магазин создаёт лот', text: 'Партнёр добавляет продукты с истекающим сроком — хлеб, овощи, готовая еда. Указывает адрес и окно выдачи.' },
-  { num: '02', title: 'Волонтёр берёт маршрут', text: 'Волонтёр видит ближайшие лоты на карте, берёт маршрут и едет к магазину для сборки продуктов.' },
-  { num: '03', title: 'Доставка получателю', text: 'Волонтёр привозит продукты нуждающейся семье. Передача подтверждается QR-кодом.' },
-];
-
-const stats = [
-  { value: '0', label: 'кг спасённой еды' },
-  { value: '0', label: 'доставок завершено' },
-  { value: '0', label: 'активных волонтёров' },
-  { value: '0', label: 'семей получили помощь' },
-];
-
 const AboutPage = () => {
   const { hash } = useLocation();
   const { t } = useTranslation();
+
+  const steps = [
+    { num: t('about.step1_num'), title: t('about.step1_title'), text: t('about.step1_text') },
+    { num: t('about.step2_num'), title: t('about.step2_title'), text: t('about.step2_text') },
+    { num: t('about.step3_num'), title: t('about.step3_title'), text: t('about.step3_text') },
+  ];
+
+  const stats = [
+    { value: '0', label: t('about.stat1_label') },
+    { value: '0', label: t('about.stat2_label') },
+    { value: '0', label: t('about.stat3_label') },
+    { value: '0', label: t('about.stat4_label') },
+  ];
 
   useEffect(() => {
     if (!hash) return;
@@ -46,29 +46,22 @@ const AboutPage = () => {
       <section className="about-section">
         <div className="about-grid-2">
           <div>
-            <h2>Наша миссия</h2>
-            <p>
-              В России ежегодно выбрасывается около <strong>17 млн тонн</strong> пригодной еды.
-              SaveFood — платформа, которая сокращает эти потери, направляя продукты тем,
-              кто в них нуждается, прежде чем они окажутся в мусоре.
-            </p>
-            <p>
-              Мы работаем в связке магазин → волонтёр → получатель. Каждая доставка —
-              это реальная помощь и реальное сокращение пищевых отходов.
-            </p>
+            <h2>{t('about.mission_title')}</h2>
+            <p>{t('about.mission_text1')}</p>
+            <p>{t('about.mission_text2')}</p>
           </div>
           <div className="about-values">
-            <div className="value-item"><b>Без отходов</b></div>
-            <div className="value-item"><b>Адресная помощь</b></div>
-            <div className="value-item"><b>Конфиденциально</b></div>
-            <div className="value-item"><b>Быстро и просто</b></div>
+            <div className="value-item"><b>{t('about.val_zero_waste')}</b></div>
+            <div className="value-item"><b>{t('about.val_targeted')}</b></div>
+            <div className="value-item"><b>{t('about.val_private')}</b></div>
+            <div className="value-item"><b>{t('about.val_simple')}</b></div>
           </div>
         </div>
       </section>
 
       {/* Как работает */}
       <section className="about-section about-section--dark">
-        <h2>Как это работает</h2>
+        <h2>{t('about.how_title')}</h2>
         <div className="steps-row">
           {steps.map((s, i) => (
             <div key={i} className="step-card">
@@ -82,7 +75,7 @@ const AboutPage = () => {
 
       {/* Статистика */}
       <section className="about-section">
-        <h2>Платформа в цифрах</h2>
+        <h2>{t('about.stats_platform')}</h2>
         <div className="about-stats">
           {stats.map((s, i) => (
             <div key={i} className="about-stat">
@@ -95,62 +88,58 @@ const AboutPage = () => {
 
       {/* Кто участвует */}
       <section className="about-section about-section--dark">
-        <h2>Кто может участвовать</h2>
+        <h2>{t('about.who_title')}</h2>
         <div className="roles-grid">
           <div id="role-shop" className="role-card">
-            <h3>Магазины и кафе</h3>
-            <p>Регистрируйтесь как партнёр, добавляйте лоты с продуктами и получайте уведомления о доставке.</p>
-            <Link to="/auth" className="role-cta">Стать партнёром</Link>
+            <h3>{t('about.shop_title')}</h3>
+            <p>{t('about.shop_desc')}</p>
+            <Link to="/auth" className="role-cta">{t('about.shop_cta')}</Link>
           </div>
           <div id="role-volunteer" className="role-card">
-            <h3>Волонтёры</h3>
-            <p>Принимайте маршруты, собирайте продукты и доставляйте их тем, кто нуждается в помощи.</p>
-            <Link to="/auth" className="role-cta">Стать волонтёром</Link>
+            <h3>{t('about.volunteer_title')}</h3>
+            <p>{t('about.volunteer_desc')}</p>
+            <Link to="/auth" className="role-cta">{t('about.volunteer_cta')}</Link>
           </div>
           <div id="role-needy" className="role-card">
-            <h3>Получатели</h3>
-            <p>Многодетные семьи и малоимущие граждане могут получать продукты после прохождения верификации.</p>
-            <Link to="/auth" className="role-cta">Подать заявку</Link>
+            <h3>{t('about.needy_title')}</h3>
+            <p>{t('about.needy_desc')}</p>
+            <Link to="/auth" className="role-cta">{t('about.needy_cta')}</Link>
           </div>
         </div>
       </section>
 
       {/* Конфиденциальность */}
       <section className="about-section">
-        <h2>Защита данных</h2>
-        <p className="about-privacy">
-          Документы, подтверждающие статус получателя, удаляются сразу после модерации.
-          Мы не передаём личные данные третьим лицам. Местоположение используется
-          исключительно для маршрутизации волонтёра и нигде не хранится.
-        </p>
+        <h2>{t('about.privacy_title')}</h2>
+        <p className="about-privacy">{t('about.privacy_text')}</p>
       </section>
 
       {/* FAQ */}
       <section id="faq" className="about-section">
-        <h2>Часто задаваемые вопросы</h2>
+        <h2>{t('about.faq_title')}</h2>
         <div className="faq-list">
           <div className="faq-item">
-            <h4>Кто может стать волонтером?</h4>
-            <p>Любой желающий от 18 лет с возможностью передвигаться по городу. Регистрация занимает пару минут.</p>
+            <h4>{t('about.faq_q1')}</h4>
+            <p>{t('about.faq_a1')}</p>
           </div>
           <div className="faq-item">
-            <h4>Как магазин добавляет продукты?</h4>
-            <p>После регистрации магазин создает лоты с описанием, фото и сроком хранения. Волонтер получает уведомление и забирает заказ.</p>
+            <h4>{t('about.faq_q2')}</h4>
+            <p>{t('about.faq_a2')}</p>
           </div>
           <div className="faq-item">
-            <h4>Нужно ли подтверждать статус нуждающегося?</h4>
-            <p>Да, при первой заявке потребуется загрузить подтверждающий документ. После проверки администратором он сразу удаляется.</p>
+            <h4>{t('about.faq_q3')}</h4>
+            <p>{t('about.faq_a3')}</p>
           </div>
           <div className="faq-item">
-            <h4>Платформа бесплатна?</h4>
-            <p>Полностью бесплатна для всех участников. Мы некоммерческий проект.</p>
+            <h4>{t('about.faq_q4')}</h4>
+            <p>{t('about.faq_a4')}</p>
           </div>
         </div>
       </section>
 
       {/* Контакты */}
       <section id="contacts" className="about-section about-section--dark">
-        <h2>Контакты</h2>
+        <h2>{t('about.contacts_title')}</h2>
         <div className="contacts-grid">
           <div className="contact-item">
             <span className="contact-label">Telegram</span>
@@ -161,17 +150,17 @@ const AboutPage = () => {
             <a href="mailto:igel2020i@gmail.com">igel2020i@gmail.com</a>
           </div>
           <div className="contact-item">
-            <span className="contact-label">Для магазинов</span>
-            <p>Отправьте заявку через форму регистрации, мы свяжемся в течение суток.</p>
+            <span className="contact-label">{t('about.contacts_for_shops')}</span>
+            <p>{t('about.contacts_for_shops_desc')}</p>
           </div>
         </div>
       </section>
 
       {/* CTA */}
       <section className="about-cta-section">
-        <h2>Присоединяйтесь</h2>
-        <p>Каждый может сделать что-то полезное. Начните сейчас.</p>
-        <Link to="/auth" className="btn btn-primary about-cta-btn">Зарегистрироваться</Link>
+        <h2>{t('about.join_title')}</h2>
+        <p>{t('about.join_text')}</p>
+        <Link to="/auth" className="btn btn-primary about-cta-btn">{t('about.join_btn')}</Link>
       </section>
 
     </div>

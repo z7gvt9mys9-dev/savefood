@@ -160,7 +160,7 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
 def get_history(shop_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('taken', 'expired', 'removed') ORDER BY COALESCE(taken_at, created_at) DESC LIMIT %s OFFSET %s",
+            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('taken', 'confirmed', 'expired', 'removed') ORDER BY COALESCE(taken_at, created_at) DESC LIMIT %s OFFSET %s",
             (shop_id, limit, offset)
         )
         rows = cur.fetchall()
@@ -175,6 +175,18 @@ def get_notifications(shop_id: int) -> List[Dict[str, Any]]:
 def mark_notification_read(notification_id: int):
     with get_db_cursor() as cur:
         cur.execute("UPDATE notifications SET read = 1 WHERE id = %s", (notification_id,))
+
+def get_notification_by_id(notification_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM notifications WHERE id = %s", (notification_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def get_lot_by_id(lot_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
 
 def get_shop_by_id(shop_id: int) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:

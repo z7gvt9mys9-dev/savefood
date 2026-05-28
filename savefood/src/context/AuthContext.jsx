@@ -31,6 +31,7 @@ export const AuthProvider = ({ children }) => {
       if (msLeft > 2 * 3600 * 1000) return;
       try {
         const res = await fetch(`${API_URL}/auth/refresh`, {
+          method: 'POST',
           headers: { Authorization: `Bearer ${user.token}` },
         });
         if (res.ok) {

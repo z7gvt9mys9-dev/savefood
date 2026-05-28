@@ -4,10 +4,12 @@ Revision ID: 0001
 Revises:
 Create Date: 2026-05-26 00:00:00.000000
 
+This migration mirrors the schema the application builds at startup via the
+`init_*_db()` helpers (CREATE TABLE + ALTER ADD COLUMN). Keep the two in sync:
+if you add a column in an `init_*_db()`, add it here too.
 """
 from typing import Sequence, Union
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = "0001"
 down_revision: Union[str, None] = None
@@ -34,29 +36,30 @@ def upgrade() -> None:
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             contact TEXT,
-            address TEXT,
-            lat DOUBLE PRECISION,
-            lon DOUBLE PRECISION,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            lat REAL,
+            lon REAL,
+            city TEXT,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS lots (
             id SERIAL PRIMARY KEY,
-            shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-            description TEXT NOT NULL,
-            quantity DOUBLE PRECISION DEFAULT 1,
-            category TEXT,
+            shop_id INTEGER NOT NULL REFERENCES shops(id),
+            description TEXT,
+            quantity INTEGER,
             expiry_date DATE,
-            time_slot TEXT,
             photo TEXT,
             address TEXT,
+            time_slot TEXT,
+            category TEXT,
             comment TEXT,
+            city TEXT,
             status TEXT NOT NULL DEFAULT 'active',
             taken_at TIMESTAMP WITH TIME ZONE,
             taken_by TEXT,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -65,41 +68,51 @@ def upgrade() -> None:
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             contact TEXT,
-            document TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            document TEXT,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS needy_profile (
-            id SERIAL PRIMARY KEY,
-            needy_id INTEGER NOT NULL UNIQUE REFERENCES needy(id) ON DELETE CASCADE,
+            needy_id INTEGER PRIMARY KEY REFERENCES needy(id),
             address TEXT,
-            lat DOUBLE PRECISION,
-            lon DOUBLE PRECISION,
-            family_size INTEGER DEFAULT 1,
+            family_size INTEGER,
             preferences TEXT,
-            urgency TEXT DEFAULT 'normal',
+            urgency TEXT,
             available_time TEXT,
-            last_received_at TIMESTAMP WITH TIME ZONE
+            last_received_at TIMESTAMP WITH TIME ZONE,
+            document TEXT,
+            apartment TEXT,
+            floor_num TEXT,
+            entrance TEXT,
+            city TEXT,
+            lat REAL,
+            lon REAL
         )
     """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS tickets (
             id SERIAL PRIMARY KEY,
-            needy_id INTEGER NOT NULL REFERENCES needy(id) ON DELETE CASCADE,
-            lot_id INTEGER REFERENCES lots(id) ON DELETE SET NULL,
+            needy_id INTEGER NOT NULL REFERENCES needy(id),
             items TEXT,
-            address TEXT,
-            lat DOUBLE PRECISION,
-            lon DOUBLE PRECISION,
             available_time TEXT,
+            address TEXT,
+            lat REAL,
+            lon REAL,
+            lot_id INTEGER,
             status TEXT NOT NULL DEFAULT 'open',
             assigned_volunteer TEXT,
+            assigned_volunteer_id INTEGER,
             fulfilled_at TIMESTAMP WITH TIME ZONE,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            apartment TEXT,
+            floor_num TEXT,
+            entrance TEXT,
+            self_pickup BOOLEAN DEFAULT FALSE,
+            delivery_photo TEXT,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -108,55 +121,39 @@ def upgrade() -> None:
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
             contact TEXT,
-            lat DOUBLE PRECISION,
-            lon DOUBLE PRECISION,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            lat REAL,
+            lon REAL,
+            city TEXT,
+            updated_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS volunteer_routes (
             id SERIAL PRIMARY KEY,
-            volunteer_id INTEGER NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
-            lot_id INTEGER REFERENCES lots(id) ON DELETE SET NULL,
-            points TEXT NOT NULL DEFAULT '[]',
+            volunteer_id INTEGER NOT NULL,
+            points TEXT,
             status TEXT NOT NULL DEFAULT 'in_progress',
-            started_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            finished_at TIMESTAMP WITH TIME ZONE,
-            volunteer_name TEXT
+            lot_id INTEGER,
+            started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            finished_at TIMESTAMP WITH TIME ZONE
         )
     """)
 
+    # Single shared notifications table (filtered per role by needy_id / shop_id /
+    # volunteer_id). No FKs: a row carries only the id relevant to its recipient.
     op.execute("""
         CREATE TABLE IF NOT EXISTS notifications (
             id SERIAL PRIMARY KEY,
-            needy_id INTEGER REFERENCES needy(id) ON DELETE CASCADE,
-            type TEXT NOT NULL,
+            shop_id INTEGER,
+            needy_id INTEGER,
+            volunteer_id INTEGER,
+            lot_id INTEGER,
+            type TEXT,
             payload TEXT,
             read INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS shop_notifications (
-            id SERIAL PRIMARY KEY,
-            shop_id INTEGER REFERENCES shops(id) ON DELETE CASCADE,
-            type TEXT NOT NULL,
-            payload TEXT,
-            read INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS volunteer_notifications (
-            id SERIAL PRIMARY KEY,
-            volunteer_id INTEGER REFERENCES volunteers(id) ON DELETE CASCADE,
-            type TEXT NOT NULL,
-            payload TEXT,
-            read INTEGER NOT NULL DEFAULT 0,
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -169,11 +166,33 @@ def upgrade() -> None:
         )
     """)
 
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id SERIAL PRIMARY KEY,
+            actor_username TEXT,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id INTEGER,
+            details TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS delivery_ratings (
+            ticket_id INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
+            volunteer_id INTEGER,
+            rating SMALLINT NOT NULL,
+            comment TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
 
 def downgrade() -> None:
+    op.execute("DROP TABLE IF EXISTS delivery_ratings CASCADE")
+    op.execute("DROP TABLE IF EXISTS audit_log CASCADE")
     op.execute("DROP TABLE IF EXISTS telegram_link_tokens CASCADE")
-    op.execute("DROP TABLE IF EXISTS volunteer_notifications CASCADE")
-    op.execute("DROP TABLE IF EXISTS shop_notifications CASCADE")
     op.execute("DROP TABLE IF EXISTS notifications CASCADE")
     op.execute("DROP TABLE IF EXISTS volunteer_routes CASCADE")
     op.execute("DROP TABLE IF EXISTS volunteers CASCADE")

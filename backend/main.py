@@ -123,7 +123,7 @@ app.include_router(telegram_routes.router)
 @app.get("/stats")
 def stats():
     with get_db_cursor() as cur:
-        cur.execute("SELECT COALESCE(SUM(quantity),0) as kg_saved FROM lots WHERE status = 'taken'")
+        cur.execute("SELECT COALESCE(SUM(quantity),0) as kg_saved FROM lots WHERE status IN ('taken','confirmed')")
         kg_saved = cur.fetchone()['kg_saved']
 
         cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'fulfilled'")

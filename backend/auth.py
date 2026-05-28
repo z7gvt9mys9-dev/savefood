@@ -6,6 +6,8 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
+from backend.database import get_db_cursor
+
 SECRET_KEY = os.getenv("SECRET_KEY", "SUPER_SECRET_SAVEFOOD_KEY_CHANGE_IN_PROD")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
@@ -36,6 +38,16 @@ def decode_access_token(token: str):
     except JWTError:
         return None
 
+def ensure_owner_or_admin(current_user: dict, role: str, owner_id):
+    """Allow the request only for an admin, or for a user of `role` whose token is
+    bound (via related_id) to `owner_id`. Raises 403 otherwise."""
+    if current_user.get("role") == "admin":
+        return
+    if current_user.get("role") == role and current_user.get("related_id") == owner_id:
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+
 def get_current_user(token: str = Depends(oauth2_scheme)):
     payload = decode_access_token(token)
     if payload is None:
@@ -44,4 +56,13 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    # Reject blocked users immediately — otherwise an already-issued token would
+    # keep working until it expires (login alone can't revoke an active session).
+    username = payload.get("sub")
+    if username:
+        with get_db_cursor() as cur:
+            cur.execute("SELECT is_blocked FROM users WHERE username = %s", (username,))
+            row = cur.fetchone()
+        if row and row["is_blocked"]:
+            raise HTTPException(status_code=403, detail="Аккаунт заблокирован администратором")
     return payload

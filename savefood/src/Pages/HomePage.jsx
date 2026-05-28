@@ -30,60 +30,60 @@ const HomePage = () => {
   }, []);
 
   const metrics = stats ? [
-    { 
-      label: 'Спасенные продукты', 
-      value: `${stats.kg_food_saved.toLocaleString()} кг`, 
-      sub: 'еды не было выброшено' 
+    {
+      label: t('home.metric_food_label'),
+      value: `${stats.kg_food_saved.toLocaleString()} ${t('home.metric_food_kg')}`,
+      sub: t('home.metric_food_sub')
     },
-    { 
-      label: 'Выполнено доставок', 
-      value: stats.deliveries_completed.toLocaleString(), 
-      sub: 'семей получили помощь' 
+    {
+      label: t('home.metric_deliveries_label'),
+      value: stats.deliveries_completed.toLocaleString(),
+      sub: t('home.metric_deliveries_sub')
     },
-    { 
-      label: 'Наше сообщество', 
-      value: stats.active_volunteers.toLocaleString(), 
-      sub: 'активных волонтеров' 
+    {
+      label: t('home.metric_community_label'),
+      value: stats.active_volunteers.toLocaleString(),
+      sub: t('home.metric_community_sub')
     },
-    { 
-      label: 'Экологический след', 
-      value: `~${Math.round(stats.kg_food_saved * 0.0012)} тонн`, 
-      sub: 'предотвращенных выбросов CO₂' 
+    {
+      label: t('home.metric_eco_label'),
+      value: `~${Math.round(stats.kg_food_saved * 0.0012)} ${t('home.metric_eco_tons')}`,
+      sub: t('home.metric_eco_sub')
     },
   ] : [
-    { label: 'Спасенные продукты', value: '...', sub: 'загрузка...' },
-    { label: 'Выполнено доставок', value: '...', sub: 'загрузка...' },
-    { label: 'Наше сообщество', value: '...', sub: 'загрузка...' },
-    { label: 'Экологический след', value: '...', sub: 'загрузка...' },
+    { label: t('home.metric_food_label'), value: '...', sub: t('home.loading_dots') },
+    { label: t('home.metric_deliveries_label'), value: '...', sub: t('home.loading_dots') },
+    { label: t('home.metric_community_label'), value: '...', sub: t('home.loading_dots') },
+    { label: t('home.metric_eco_label'), value: '...', sub: t('home.loading_dots') },
   ];
 
   const roles = [
     {
-      title: 'Магазинам и кафе',
+      title: t('home.shop_title'),
       benefits: [
-        'Публикуйте лоты за 2 минуты',
-        'Авто-снятие просрочки за 24ч',
-        'Получайте отчеты о списании'
+        t('home.shop_benefit1'),
+        t('home.shop_benefit2'),
+        t('home.shop_benefit3')
       ],
-      cta: 'Выдать лот'
+      cta: t('home.shop_cta')
     },
     {
-      title: 'Волонтерам',
+      title: t('home.volunteer_title'),
       benefits: [
-        'Удобная карта и навигация',
-        'Выбирайте маршруты в своем районе',
-        'Помогайте в свободное время'
+        t('home.volunteer_benefit1'),
+        t('home.volunteer_benefit2'),
+        t('home.volunteer_benefit3')
       ],
-      cta: 'Стать волонтером'
+      cta: t('home.volunteer_cta')
     },
     {
-      title: 'Нуждающимся',
+      title: t('home.needy_title'),
       benefits: [
-        'Прозрачный учет (раз в неделю)',
-        'Быстрая модерация анкеты (24ч)',
-        'Доставка прямо до двери'
+        t('home.needy_benefit1'),
+        t('home.needy_benefit2'),
+        t('home.needy_benefit3')
       ],
-      cta: 'Подать заявку'
+      cta: t('home.needy_cta')
     }
   ];
 
@@ -132,7 +132,7 @@ const HomePage = () => {
       {/* 3. Roles Block */}
       <section className="roles">
         <div className="container">
-          <h2>С чего начать?</h2>
+          <h2>{t('home.start_title')}</h2>
           <div className="roles-grid">
             {roles.map((role, idx) => (
               <div key={idx} className="role-card">
@@ -174,7 +174,7 @@ const HomePage = () => {
                 <div key={idx} className={`faq-item${isOpen ? ' open' : ''}`}>
                   <div className="faq-question" onClick={() => setOpenFaq(isOpen ? null : idx)}>
                     <h4>{faq.q}</h4>
-                    <button className="faq-toggle" aria-label={isOpen ? 'Закрыть' : 'Открыть'}>
+                    <button className="faq-toggle" aria-label={isOpen ? t('home.faq_close') : t('home.faq_open')}>
                       {isOpen ? '−' : '+'}
                     </button>
                   </div>

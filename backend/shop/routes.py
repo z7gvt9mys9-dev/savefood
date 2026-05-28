@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from typing import List, Optional
 import os
 import uuid
@@ -6,11 +6,20 @@ import shutil
 
 from backend.shop import db, schemas
 from backend.database import create_user
-from backend.auth import get_password_hash
+from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 
 router = APIRouter()
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+
+
+def _require_lot_owner(lot_id: int, current_user: dict):
+    """Return the lot if the caller owns its shop (or is admin), else 404/403."""
+    lot = db.get_lot_by_id(lot_id)
+    if not lot:
+        raise HTTPException(status_code=404, detail="Lot not found")
+    ensure_owner_or_admin(current_user, "shop", lot["shop_id"])
+    return lot
 
 
 @router.post("/shops/register")
@@ -26,7 +35,8 @@ def register_shop(payload: schemas.ShopCreate):
 
 
 @router.post("/shops/{shop_id}/lots")
-def create_lot(shop_id: int, payload: schemas.LotCreate):
+def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -47,7 +57,9 @@ def create_lot_upload(
     category: Optional[str] = Form(None),
     comment: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
+    current_user: dict = Depends(get_current_user),
 ):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -66,7 +78,8 @@ def create_lot_upload(
 
 
 @router.get("/shops/{shop_id}/lots", response_model=List[schemas.LotOut])
-def list_active_lots(shop_id: int):
+def list_active_lots(shop_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -75,7 +88,8 @@ def list_active_lots(shop_id: int):
 
 
 @router.delete("/lots/{lot_id}")
-def delete_lot(lot_id: int):
+def delete_lot(lot_id: int, current_user: dict = Depends(get_current_user)):
+    _require_lot_owner(lot_id, current_user)
     ok = db.delete_lot(lot_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Lot not found or cannot be deleted")
@@ -83,7 +97,8 @@ def delete_lot(lot_id: int):
 
 
 @router.patch("/lots/{lot_id}", response_model=schemas.LotOut)
-def patch_lot(lot_id: int, payload: schemas.LotUpdate):
+def patch_lot(lot_id: int, payload: schemas.LotUpdate, current_user: dict = Depends(get_current_user)):
+    _require_lot_owner(lot_id, current_user)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
     updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address, payload.category, payload.comment)
     if not updated:
@@ -92,7 +107,8 @@ def patch_lot(lot_id: int, payload: schemas.LotUpdate):
 
 
 @router.post("/lots/{lot_id}/confirm_transfer")
-def confirm_transfer(lot_id: int):
+def confirm_transfer(lot_id: int, current_user: dict = Depends(get_current_user)):
+    _require_lot_owner(lot_id, current_user)
     ok = db.confirm_lot_transfer(lot_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Lot not found or not in taken status")
@@ -100,7 +116,9 @@ def confirm_transfer(lot_id: int):
 
 
 @router.post("/lots/{lot_id}/take", response_model=schemas.LotOut)
-def take_lot(lot_id: int, payload: schemas.TakeLotRequest):
+def take_lot(lot_id: int, payload: schemas.TakeLotRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("volunteer", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     updated = db.take_lot(lot_id, payload.volunteer_name)
     if not updated:
         raise HTTPException(status_code=404, detail="Lot not found or already taken")
@@ -108,7 +126,8 @@ def take_lot(lot_id: int, payload: schemas.TakeLotRequest):
 
 
 @router.get("/shops/{shop_id}/history", response_model=List[schemas.LotOut])
-def get_history(shop_id: int, limit: int = 20, offset: int = 0):
+def get_history(shop_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -117,7 +136,8 @@ def get_history(shop_id: int, limit: int = 20, offset: int = 0):
 
 
 @router.get("/shops/{shop_id}", response_model=schemas.ShopOut)
-def get_shop(shop_id: int):
+def get_shop(shop_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -125,7 +145,8 @@ def get_shop(shop_id: int):
 
 
 @router.patch("/shops/{shop_id}", response_model=schemas.ShopOut)
-def patch_shop(shop_id: int, payload: schemas.ShopUpdate):
+def patch_shop(shop_id: int, payload: schemas.ShopUpdate, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     updated = db.update_shop(shop_id, payload.name, payload.contact, payload.lat, payload.lon)
     if not updated:
         raise HTTPException(status_code=404, detail="Shop not found or cannot be updated")
@@ -133,7 +154,8 @@ def patch_shop(shop_id: int, payload: schemas.ShopUpdate):
 
 
 @router.get("/shops/{shop_id}/notifications", response_model=List[schemas.NotificationOut])
-def notifications(shop_id: int):
+def notifications(shop_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -142,6 +164,10 @@ def notifications(shop_id: int):
 
 
 @router.patch("/shops/notifications/{notification_id}/read")
-def mark_notification_read(notification_id: int):
+def mark_notification_read(notification_id: int, current_user: dict = Depends(get_current_user)):
+    note = db.get_notification_by_id(notification_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    ensure_owner_or_admin(current_user, "shop", note.get("shop_id"))
     db.mark_notification_read(notification_id)
     return {"ok": True}

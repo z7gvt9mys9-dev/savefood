@@ -10,7 +10,7 @@ from backend.volunteer import db as vdb, schemas as vschemas
 from backend.shop import db as shopdb
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
-from backend.auth import get_password_hash, get_current_user
+from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend import telegram_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
@@ -19,6 +19,15 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 router = APIRouter()
+
+
+def _require_route_owner(route_id: int, current_user: dict):
+    """Return the route if the authenticated volunteer owns it (or admin), else 404/403."""
+    route = vdb.get_route_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+    ensure_owner_or_admin(current_user, "volunteer", route["volunteer_id"])
+    return route
 
 
 @router.post("/volunteers/register")
@@ -35,6 +44,8 @@ def register(vol: vschemas.VolunteerCreate):
 
 @router.get("/volunteers/map")
 def get_map_points(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") not in ("volunteer", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     shops_map = {}
     with get_db_cursor() as cur:
         cur.execute("""
@@ -81,7 +92,8 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
     return {'shops': shops, 'tickets': tickets}
 
 @router.get("/volunteers/{volunteer_id}", response_model=vschemas.VolunteerOut)
-def get_volunteer(volunteer_id: int):
+def get_volunteer(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     v = vdb.get_volunteer_by_id(volunteer_id)
     if not v:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -89,8 +101,9 @@ def get_volunteer(volunteer_id: int):
 
 
 @router.patch("/volunteers/{volunteer_id}")
-def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerUpdate):
-    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon)
+def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerUpdate, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city)
     if not updated:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     return updated
@@ -132,7 +145,8 @@ def is_available_now(available_time: str) -> bool:
 
 
 @router.post("/volunteers/{volunteer_id}/start_route")
-def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
+def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -298,13 +312,9 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest):
 
 
 @router.post("/volunteers/route/{route_id}/complete_point")
-def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
-    # verify route and volunteer
-    route = vdb.get_route_by_id(route_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
-    if route['volunteer_id'] != payload.volunteer_id:
-        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+def complete_point(route_id: int, payload: vschemas.CompletePointRequest, current_user: dict = Depends(get_current_user)):
+    # verify route ownership against the authenticated user (not client-supplied id)
+    route = _require_route_owner(route_id, current_user)
 
     # parse points and find target point
     try:
@@ -392,7 +402,8 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest):
 
 
 @router.get("/volunteers/{volunteer_id}/history")
-def history(volunteer_id: int, limit: int = 20, offset: int = 0):
+def history(volunteer_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     routes = vdb.get_routes_by_volunteer(volunteer_id, limit=limit, offset=offset)
     for r in routes:
         try:
@@ -403,7 +414,8 @@ def history(volunteer_id: int, limit: int = 20, offset: int = 0):
 
 
 @router.get("/volunteers/{volunteer_id}/active_route")
-def active_route(volunteer_id: int):
+def active_route(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     # return the in-progress route for volunteer if any
     route = vdb.get_active_route(volunteer_id)
     if not route:
@@ -416,7 +428,8 @@ def active_route(volunteer_id: int):
 
 
 @router.get("/volunteers/{volunteer_id}/notifications")
-def volunteer_notifications(volunteer_id: int):
+def volunteer_notifications(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     v = vdb.get_volunteer_by_id(volunteer_id)
     if not v:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -425,13 +438,17 @@ def volunteer_notifications(volunteer_id: int):
 
 
 @router.patch("/volunteers/notifications/{notification_id}/read")
-def volunteer_mark_notification_read(notification_id: int):
+def volunteer_mark_notification_read(notification_id: int, current_user: dict = Depends(get_current_user)):
+    note = vdb.get_notification_by_id(notification_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    ensure_owner_or_admin(current_user, "volunteer", note.get("volunteer_id"))
     vdb.mark_notification_read(notification_id)
     return {"ok": True}
 
 
 @router.get("/volunteers/{volunteer_id}/rating")
-def get_volunteer_rating(volunteer_id: int):
+def get_volunteer_rating(volunteer_id: int, current_user: dict = Depends(get_current_user)):
     with get_db_cursor() as cur:
         cur.execute(
             """
@@ -449,13 +466,8 @@ def get_volunteer_rating(volunteer_id: int):
 
 
 @router.post("/volunteers/route/{route_id}/finish")
-def finish_route(route_id: int, payload: vschemas.FinishRouteRequest):
-    # verify route exists and volunteer owns it
-    route = vdb.get_route_by_id(route_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
-    if route['volunteer_id'] != payload.volunteer_id:
-        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+def finish_route(route_id: int, payload: vschemas.FinishRouteRequest, current_user: dict = Depends(get_current_user)):
+    route = _require_route_owner(route_id, current_user)
 
     # release any assigned but uncompleted tickets back to open
     try:
@@ -475,12 +487,8 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest):
 
 
 @router.post("/volunteers/route/{route_id}/attempt_delivery")
-def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest):
-    route = vdb.get_route_by_id(route_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
-    if route['volunteer_id'] != payload.volunteer_id:
-        raise HTTPException(status_code=403, detail="Volunteer does not own this route")
+def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest, current_user: dict = Depends(get_current_user)):
+    route = _require_route_owner(route_id, current_user)
 
     try:
         points = json.loads(route['points'])
@@ -522,7 +530,8 @@ def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest):
 
 
 @router.get("/volunteers/{volunteer_id}/stats")
-def volunteer_stats(volunteer_id: int):
+def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     with get_db_cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) as total_routes FROM volunteer_routes WHERE volunteer_id = %s",
@@ -531,12 +540,7 @@ def volunteer_stats(volunteer_id: int):
         total_routes = cur.fetchone()['total_routes']
 
         cur.execute(
-            """
-            SELECT COUNT(*) as total_deliveries
-            FROM volunteer_routes vr
-            JOIN tickets t ON t.assigned_volunteer_id = vr.volunteer_id
-            WHERE vr.volunteer_id = %s AND t.status = 'fulfilled'
-            """,
+            "SELECT COUNT(*) as total_deliveries FROM tickets WHERE assigned_volunteer_id = %s AND status = 'fulfilled'",
             (volunteer_id,),
         )
         total_deliveries = cur.fetchone()['total_deliveries']
@@ -572,13 +576,24 @@ def volunteer_stats(volunteer_id: int):
 
 
 @router.patch("/volunteers/{volunteer_id}/location")
-def update_location(volunteer_id: int, payload: vschemas.LocationUpdate):
+def update_location(volunteer_id: int, payload: vschemas.LocationUpdate, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     vdb.update_volunteer_location(volunteer_id, payload.lat, payload.lon)
     return {'ok': True}
 
 
 @router.get("/volunteers/{volunteer_id}/location")
-def get_location(volunteer_id: int):
+def get_location(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    # The volunteer themselves, an admin, or a recipient whose ticket is assigned
+    # to this volunteer may read the live location (needed for delivery tracking).
+    role = current_user.get("role")
+    allowed = (
+        role == "admin"
+        or (role == "volunteer" and current_user.get("related_id") == volunteer_id)
+        or (role == "needy" and vdb.needy_has_volunteer(current_user.get("related_id"), volunteer_id))
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Forbidden")
     loc = vdb.get_volunteer_location(volunteer_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Volunteer not found")
@@ -586,10 +601,11 @@ def get_location(volunteer_id: int):
 
 
 @router.post("/volunteers/route/{route_id}/point/{ticket_id}/photo")
-async def upload_delivery_photo(route_id: int, ticket_id: int, file: UploadFile = File(...)):
+async def upload_delivery_photo(route_id: int, ticket_id: int, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     route = vdb.get_route_by_id(route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
+    ensure_owner_or_admin(current_user, "volunteer", route["volunteer_id"])
 
     ext = os.path.splitext(file.filename or '')[-1] or '.jpg'
     filename = f"route{route_id}_ticket{ticket_id}_{uuid.uuid4().hex}{ext}"

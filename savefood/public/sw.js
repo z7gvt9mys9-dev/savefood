@@ -33,6 +33,7 @@ self.addEventListener('fetch', event => {
     url.pathname.startsWith('/stats') ||
     url.pathname.startsWith('/uploads') ||
     url.pathname.startsWith('/needy_uploads') ||
+    url.pathname.startsWith('/volunteer_uploads') ||
     url.pathname.startsWith('/telegram') ||
     url.pathname.startsWith('/ws') ||
     url.origin !== self.location.origin

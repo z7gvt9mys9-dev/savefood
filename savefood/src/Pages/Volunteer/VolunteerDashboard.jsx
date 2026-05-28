@@ -7,6 +7,13 @@ import { API_URL } from '../../api';
 import EmptyState from '../../components/EmptyState';
 import './Volunteer.css';
 
+const CAT_KEYS = {
+  'Выпечка': 'bakery',
+  'Овощи/Фрукты': 'vegetables',
+  'Готовая еда': 'prepared',
+  'Молочные продукты': 'dairy',
+};
+
 const haversineMeters = (lat1, lon1, lat2, lon2) => {
   const R = 6371000;
   const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
@@ -138,7 +145,7 @@ const VolunteerDashboard = () => {
           await handleCompletePoint(nextTicket.ticket_id);
           setScanning(false);
         } else {
-          alert('Неверный QR-код. Ожидается: SF-' + (nextTicket?.ticket_id ?? '?'));
+          alert(t('volunteer.error_qr', { id: nextTicket?.ticket_id ?? '?' }));
           setScanning(false);
         }
       },
@@ -172,7 +179,7 @@ const VolunteerDashboard = () => {
         pos => {
           fetch(`${API_URL}/volunteers/${volunteerId}/location`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeader },
             body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
           }).catch(() => {});
         },
@@ -200,10 +207,10 @@ const VolunteerDashboard = () => {
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
       });
-      if (!res.ok) { const e = await res.json(); alert(e.detail || 'Ошибка'); return; }
+      if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return; }
       const data = await res.json();
-      setAttemptMsgs(prev => ({ ...prev, [ticketId]: `Попытка #${data.attempt_count} зарегистрирована` }));
-    } catch { alert('Ошибка подключения'); }
+      setAttemptMsgs(prev => ({ ...prev, [ticketId]: t('volunteer.attempt_registered', { count: data.attempt_count }) }));
+    } catch { alert(t('common.connection_error')); }
   };
 
   const handlePhotoUpload = async (routeId, ticketId, file) => {
@@ -213,11 +220,12 @@ const VolunteerDashboard = () => {
       fd.append('file', file);
       const res = await fetch(`${API_URL}/volunteers/route/${routeId}/point/${ticketId}/photo`, {
         method: 'POST',
+        headers: authHeader,
         body: fd,
       });
-      if (!res.ok) { alert('Ошибка загрузки фото'); return; }
-      alert('Фото загружено!');
-    } catch { alert('Ошибка подключения'); }
+      if (!res.ok) { alert(t('volunteer.error_photo_upload')); return; }
+      alert(t('volunteer.photo_uploaded'));
+    } catch { alert(t('common.connection_error')); }
     finally { setPhotoUploading(prev => ({ ...prev, [ticketId]: false })); }
   };
 
@@ -238,7 +246,7 @@ const VolunteerDashboard = () => {
   };
 
   const handleTakeTask = async (lotId) => {
-    if (!volunteerId) { alert('Необходима авторизация'); return; }
+    if (!volunteerId) { alert(t('volunteer.error_auth')); return; }
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/volunteers/${volunteerId}/start_route`, {
@@ -246,11 +254,11 @@ const VolunteerDashboard = () => {
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ lot_id: lotId }),
       });
-      if (!res.ok) { const e = await res.json(); alert(e.detail || 'Не удалось начать маршрут'); return; }
+      if (!res.ok) { const e = await res.json(); alert(e.detail || t('volunteer.error_start_route')); return; }
       await fetchActiveRoute();
       setActiveTab('route');
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     } finally {
       setLoading(false);
     }
@@ -264,10 +272,10 @@ const VolunteerDashboard = () => {
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
       });
-      if (!res.ok) { const e = await res.json(); alert(e.detail || 'Ошибка'); return; }
+      if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return; }
       await fetchActiveRoute();
     } catch {
-      alert('Ошибка подключения к серверу');
+      alert(t('common.connection_error'));
     }
   };
 
@@ -310,6 +318,8 @@ const VolunteerDashboard = () => {
     });
   };
 
+  const CATEGORIES = ['', 'Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
+
   const renderMap = () => (
     <div className="volunteer-tab">
       <div className="map-container-mobile">
@@ -322,11 +332,11 @@ const VolunteerDashboard = () => {
                 properties={{ balloonContent: `<strong>${s.name}</strong><br/>${s.lots.map(l => l.description).join(', ')}` }}
               />
             ))}
-            {mapData.tickets.map(t => t.lat && t.lon && (
+            {mapData.tickets.map(tick => tick.lat && tick.lon && (
               <Placemark
-                key={`ticket-${t.ticket_id}`}
-                geometry={[t.lat, t.lon]}
-                properties={{ balloonContent: t.items || 'Заявка' }}
+                key={`ticket-${tick.ticket_id}`}
+                geometry={[tick.lat, tick.lon]}
+                properties={{ balloonContent: tick.items || t('common.description') }}
                 options={{ preset: 'islands#greenCircleDotIcon' }}
               />
             ))}
@@ -335,7 +345,7 @@ const VolunteerDashboard = () => {
       </div>
       <div className="task-list-mobile">
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-          {['', 'Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'].map(cat => (
+          {CATEGORIES.map(cat => (
             <button
               key={cat}
               onClick={() => setFilterCategory(cat)}
@@ -347,7 +357,7 @@ const VolunteerDashboard = () => {
                 color: filterCategory === cat ? '#4CAF50' : '#888',
               }}
             >
-              {cat || t('needy.filter_all')}
+              {cat ? t(`categories.${CAT_KEYS[cat]}`, { defaultValue: cat }) : t('needy.filter_all')}
             </button>
           ))}
         </div>
@@ -368,9 +378,9 @@ const VolunteerDashboard = () => {
                   />
                 )}
                 <div className="task-info">
-                  {lot.category && <span className="category-badge">{lot.category}</span>}
+                  {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
                   <h4>{s.name}</h4>
-                  <p>{lot.description} — {lot.quantity} шт.</p>
+                  <p>{lot.description} — {lot.quantity} {t('volunteer.qty_pcs')}</p>
                 </div>
                 <button
                   className="btn btn-primary"
@@ -405,8 +415,8 @@ const VolunteerDashboard = () => {
           </div>
           <div className="navigator-card">
             <div className="route-header">
-              <h2>{!isShopDone ? 'Заберите из магазина' : nextTicket ? 'Доставьте получателю' : 'Маршрут выполнен'}</h2>
-              <span className="badge">В пути</span>
+              <h2>{!isShopDone ? t('volunteer.pickup_at_shop') : nextTicket ? t('volunteer.deliver_to_recipient') : t('volunteer.route_complete_msg')}</h2>
+              <span className="badge">{t('volunteer.in_transit')}</span>
             </div>
 
             {(() => {
@@ -418,7 +428,7 @@ const VolunteerDashboard = () => {
                   style={{ marginBottom: 12 }}
                   onClick={() => openInNavigator(dest.lat, dest.lon)}
                 >
-                  🧭 Открыть в навигаторе
+                  🧭 {t('volunteer.open_navigator')}
                 </button>
               );
             })()}
@@ -430,18 +440,18 @@ const VolunteerDashboard = () => {
                   <div key={i} className={`point ${!p.done && p === (isShopDone ? (nextTicket || null) : shopPoint) ? 'current' : p.done ? 'done' : ''}`}>
                     <div className="point-icon">{letter}</div>
                     <div className="point-text" style={{ flex: 1 }}>
-                      <p className="point-label">{p.kind === 'shop' ? 'Магазин' : 'Получатель'}</p>
+                      <p className="point-label">{p.kind === 'shop' ? t('volunteer.shop_label') : t('volunteer.recipient_label')}</p>
                       <p className="point-addr">{p.description}</p>
                       {p.kind === 'ticket' && p.addr_detail && (
                         <p style={{ fontSize: '0.78rem', color: '#aaa', margin: '2px 0 0' }}>{p.addr_detail}</p>
                       )}
                       {p.kind === 'ticket' && p.attempt_count > 0 && (
-                        <p style={{ color: '#f90', fontSize: '0.75rem', margin: '2px 0 0' }}>Попыток: {p.attempt_count}</p>
+                        <p style={{ color: '#f90', fontSize: '0.75rem', margin: '2px 0 0' }}>{t('volunteer.attempts_count', { count: p.attempt_count })}</p>
                       )}
                       {p.kind === 'ticket' && !p.done && isShopDone && (
                         <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button className="btn-small btn-warning" onClick={() => handleAttemptDelivery(p.ticket_id)}>
-                            Не открыли дверь
+                            {t('volunteer.no_answer')}
                           </button>
                           {attemptMsgs[p.ticket_id] && (
                             <span style={{ color: '#f90', fontSize: '0.75rem', alignSelf: 'center' }}>{attemptMsgs[p.ticket_id]}</span>
@@ -451,7 +461,7 @@ const VolunteerDashboard = () => {
                       {p.kind === 'ticket' && p.done && (
                         <div style={{ marginTop: 6 }}>
                           <label className="btn-small" style={{ cursor: 'pointer', opacity: photoUploading[p.ticket_id] ? 0.6 : 1 }}>
-                            {photoUploading[p.ticket_id] ? 'Загрузка...' : 'Добавить фото'}
+                            {photoUploading[p.ticket_id] ? t('common.loading') : t('volunteer.add_photo')}
                             <input type="file" accept="image/*" style={{ display: 'none' }}
                               onChange={e => e.target.files[0] && handlePhotoUpload(activeRoute.id, p.ticket_id, e.target.files[0])} />
                           </label>
@@ -467,20 +477,20 @@ const VolunteerDashboard = () => {
             <div className="navigation-actions">
               {!isShopDone ? (
                 <button className="btn btn-primary btn-full" onClick={() => handleCompletePoint(null)}>
-                  Я ЗАБРАЛ (Уведомить получателей)
+                  {t('volunteer.i_picked_up')}
                 </button>
               ) : nextTicket ? (
                 scanning ? (
                   <div className="scanner-container">
-                    <p style={{ textAlign: 'center', color: '#aaa', marginBottom: 8 }}>Наведите камеру на QR-код получателя</p>
+                    <p style={{ textAlign: 'center', color: '#aaa', marginBottom: 8 }}>{t('volunteer.scan_camera_hint')}</p>
                     <div id="qr-reader" style={{ width: '100%', borderRadius: 8, overflow: 'hidden' }}></div>
-                    <button className="btn-small" style={{ marginTop: 10, width: '100%' }} onClick={() => setScanning(false)}>Отмена</button>
+                    <button className="btn-small" style={{ marginTop: 10, width: '100%' }} onClick={() => setScanning(false)}>{t('common.cancel')}</button>
                   </div>
                 ) : (
                   <div>
-                    {gpsStatus === 'checking' && <p style={{ color: '#aaa', textAlign: 'center' }}>Определяем геолокацию…</p>}
-                    {gpsStatus === 'far' && <p style={{ color: '#f90', textAlign: 'center' }}>Вы слишком далеко от адреса доставки (&gt;100м)</p>}
-                    {gpsStatus === 'error' && <p style={{ color: '#fa0', textAlign: 'center' }}>Не удалось определить геолокацию. Продолжайте осторожно.</p>}
+                    {gpsStatus === 'checking' && <p style={{ color: '#aaa', textAlign: 'center' }}>{t('volunteer.gps_locating')}</p>}
+                    {gpsStatus === 'far' && <p style={{ color: '#f90', textAlign: 'center' }}>{t('volunteer.gps_far_detail')}</p>}
+                    {gpsStatus === 'error' && <p style={{ color: '#fa0', textAlign: 'center' }}>{t('volunteer.gps_no_location')}</p>}
                     <button
                       className="btn btn-primary btn-full"
                       disabled={gpsStatus === 'checking' || gpsStatus === 'far'}
@@ -489,13 +499,13 @@ const VolunteerDashboard = () => {
                         if (status === 'ok' || status === 'error') setScanning(true);
                       }}
                     >
-                      СКАНЕР QR-КОДА
+                      {t('volunteer.scan_qr')}
                     </button>
                   </div>
                 )
               ) : (
                 <button className="btn btn-primary btn-full" onClick={handleFinishRoute}>
-                  Завершить маршрут
+                  {t('volunteer.finish_route')}
                 </button>
               )}
             </div>
@@ -563,7 +573,7 @@ const VolunteerDashboard = () => {
                       if (res.ok) setTgLink(await res.json());
                     } finally { setTgLoading(false); }
                   }} disabled={tgLoading} style={{ fontSize: '0.75rem' }}>
-                    {tgLoading ? '...' : 'Telegram'}
+                    {tgLoading ? '...' : t('volunteer.telegram_connect')}
                   </button>
                 )}
                 <span style={{ fontSize: '0.78rem', color: '#555' }}>{t('common.notifications')}</span>

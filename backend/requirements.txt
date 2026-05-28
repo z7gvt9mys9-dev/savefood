@@ -5,7 +5,7 @@ python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 bcrypt==4.0.1
 python-multipart>=0.0.6
-httpx[socks]>=0.25.0
+httpx[socks]>=0.25.0,<0.28
 python-v2ray>=0.1.8
 aiogram>=3.0.0
 alembic>=1.12.0

@@ -69,22 +69,21 @@ const AdminPanel = () => {
   };
 
   const handleResetRoute = async (routeId) => {
-    if (!window.confirm(`Сбросить маршрут #${routeId}? Тикеты вернутся в очередь.`)) return;
+    if (!window.confirm(t('admin.confirm_reset_route', { id: routeId }))) return;
     try {
       const res = await fetch(`${API_URL}/admin/routes/${routeId}/reset`, { method: 'POST', headers: authHeader });
       if (res.ok) fetchData();
-      else alert('Ошибка сброса маршрута');
+      else alert(t('admin.error_reset'));
     } catch {}
   };
 
   const handleBlockUser = async (userId, isBlocked) => {
     const action = isBlocked ? 'unblock' : 'block';
-    const label = isBlocked ? 'разблокировать' : 'заблокировать';
-    if (!window.confirm(`${label.charAt(0).toUpperCase() + label.slice(1)} пользователя?`)) return;
+    if (!window.confirm(isBlocked ? t('admin.confirm_unblock') : t('admin.confirm_block'))) return;
     try {
       const res = await fetch(`${API_URL}/admin/users/${userId}/${action}`, { method: 'POST', headers: authHeader });
       if (res.ok) fetchUsers();
-      else alert('Ошибка');
+      else alert(t('common.error'));
     } catch {}
   };
 
@@ -132,7 +131,7 @@ const AdminPanel = () => {
           <div key={r.id} className="incident-card">
             <div style={{ flex: 1 }}>
               <p><strong>{t('admin.volunteer_label')}:</strong> {r.volunteer_name || `ID ${r.volunteer_id}`}</p>
-              <p><strong>{t('admin.route_label')} №{r.id}</strong> — лот #{r.lot_id}</p>
+              <p><strong>{t('admin.route_label')} №{r.id}</strong> — {t('shop.lots')} #{r.lot_id}</p>
               <p><strong>{t('admin.started')}:</strong> {new Date(r.started_at).toLocaleString()}</p>
             </div>
             <button className="btn-small btn-danger" onClick={() => handleResetRoute(r.id)}>
@@ -146,45 +145,45 @@ const AdminPanel = () => {
 
   const renderAnalytics = () => {
     const barData = [
-      { name: 'Еда (кг)', value: Number(stats.kg_food_saved) || 0, color: '#4CAF50' },
-      { name: 'Доставки', value: Number(stats.deliveries_completed) || 0, color: '#2196F3' },
-      { name: 'Волонтёры', value: Number(stats.active_volunteers) || 0, color: '#FF9800' },
-      { name: 'Ср. время (мин)', value: Math.round(Number(stats.avg_delivery_minutes)) || 0, color: '#9C27B0' },
+      { name: t('admin.analytics_food_label'), value: Number(stats.kg_food_saved) || 0, color: '#4CAF50' },
+      { name: t('admin.analytics_deliveries_label'), value: Number(stats.deliveries_completed) || 0, color: '#2196F3' },
+      { name: t('admin.analytics_volunteers_label'), value: Number(stats.active_volunteers) || 0, color: '#FF9800' },
+      { name: t('admin.analytics_time_label'), value: Math.round(Number(stats.avg_delivery_minutes)) || 0, color: '#9C27B0' },
     ];
     const expiredPct = Number(stats.percent_expired_lots) || 0;
     const pieData = [
-      { name: 'Выполнено', value: Math.max(0, 100 - expiredPct), fill: '#4CAF50' },
-      { name: 'Просрочено', value: expiredPct, fill: '#f44336' },
+      { name: t('admin.pie_completed'), value: Math.max(0, 100 - expiredPct), fill: '#4CAF50' },
+      { name: t('admin.pie_expired'), value: expiredPct, fill: '#f44336' },
     ];
     return (
       <div className="admin-tab">
-        <h2>Аналитика эффективности</h2>
+        <h2>{t('admin.analytics_title')}</h2>
         <div className="analytics-grid">
           <div className="analytic-card">
-            <h4>Еды спасено (кг)</h4>
+            <h4>{t('admin.food_saved')}</h4>
             <p className="big-value">{stats.kg_food_saved ?? '—'}</p>
           </div>
           <div className="analytic-card">
-            <h4>Доставок завершено</h4>
+            <h4>{t('admin.deliveries')}</h4>
             <p className="big-value">{stats.deliveries_completed ?? '—'}</p>
           </div>
           <div className="analytic-card">
-            <h4>Активных волонтеров (30д)</h4>
+            <h4>{t('admin.active_vols')}</h4>
             <p className="big-value">{stats.active_volunteers ?? '—'}</p>
           </div>
           <div className="analytic-card">
-            <h4>Среднее время доставки</h4>
-            <p className="big-value">{stats.avg_delivery_minutes != null ? `${Math.round(stats.avg_delivery_minutes)} мин` : '—'}</p>
+            <h4>{t('admin.avg_delivery')}</h4>
+            <p className="big-value">{stats.avg_delivery_minutes != null ? `${Math.round(stats.avg_delivery_minutes)} ${t('admin.min')}` : '—'}</p>
           </div>
           <div className="analytic-card">
-            <h4>Процент просрочки лотов</h4>
+            <h4>{t('admin.expired_pct')}</h4>
             <p className="big-value yellow-text">{stats.percent_expired_lots != null ? `${Number(stats.percent_expired_lots).toFixed(1)}%` : '—'}</p>
           </div>
         </div>
 
         <div className="charts-row">
           <div className="chart-box">
-            <h3>Ключевые показатели</h3>
+            <h3>{t('admin.chart_key_metrics')}</h3>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={barData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <XAxis dataKey="name" tick={{ fill: '#aaa', fontSize: 12 }} />
@@ -197,7 +196,7 @@ const AdminPanel = () => {
             </ResponsiveContainer>
           </div>
           <div className="chart-box">
-            <h3>Лоты: просрочка</h3>
+            <h3>{t('admin.chart_expired_lots')}</h3>
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, value }) => `${name} ${value.toFixed(1)}%`} labelLine={false}>
@@ -219,7 +218,7 @@ const AdminPanel = () => {
       <table className="admin-table">
         <thead>
           <tr>
-            <th>Логин</th>
+            <th>{t('admin.col_login')}</th>
             <th>{t('admin.col_role')}</th>
             <th>{t('admin.col_status')}</th>
             <th>{t('admin.col_created')}</th>

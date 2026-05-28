@@ -33,7 +33,7 @@ const Header = () => {
           <span className="logo-text">SaveFood</span>
         </Link>
 
-        <button className={`burger ${open ? 'active' : ''}`} onClick={() => setOpen(o => !o)} aria-label="Меню">
+        <button className={`burger ${open ? 'active' : ''}`} onClick={() => setOpen(o => !o)} aria-label={t('nav.menu')}>
           <span /><span /><span />
         </button>
 

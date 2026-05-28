@@ -57,13 +57,18 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: di
 
 
 @router.patch("/needy/notifications/{notification_id}/read")
-def mark_notification_read(notification_id: int):
+def mark_notification_read(notification_id: int, current_user: dict = Depends(auth.get_current_user)):
+    note = db.get_notification_by_id(notification_id)
+    if not note:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    auth.ensure_owner_or_admin(current_user, "needy", note.get("needy_id"))
     db.mark_notification_read(notification_id)
     return {"ok": True}
 
 
 @router.patch("/needy/{needy_id}")
-def update_needy(needy_id: int, payload: schemas.NeedyCreate):
+def update_needy(needy_id: int, payload: schemas.NeedyCreate, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     updated = db.update_needy(needy_id, payload.name, payload.contact)
     if not updated:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -71,7 +76,8 @@ def update_needy(needy_id: int, payload: schemas.NeedyCreate):
 
 
 @router.get("/needy/{needy_id}")
-def get_needy(needy_id: int):
+def get_needy(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -79,7 +85,8 @@ def get_needy(needy_id: int):
 
 
 @router.post("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
-def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
+def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time, apartment=payload.apartment, floor_num=payload.floor_num, entrance=payload.entrance, city=payload.city, lat=payload.lat, lon=payload.lon)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -87,7 +94,8 @@ def create_profile(needy_id: int, payload: schemas.NeedyProfileCreate):
 
 
 @router.patch("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
-def patch_profile(needy_id: int, payload: schemas.NeedyProfileUpdate):
+def patch_profile(needy_id: int, payload: schemas.NeedyProfileUpdate, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     prof = db.create_or_update_profile(needy_id, payload.address, payload.family_size, payload.preferences, payload.urgency, available_time=payload.available_time, apartment=payload.apartment, floor_num=payload.floor_num, entrance=payload.entrance, city=payload.city, lat=payload.lat, lon=payload.lon)
     if not prof:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -95,7 +103,8 @@ def patch_profile(needy_id: int, payload: schemas.NeedyProfileUpdate):
 
 
 @router.post("/needy/{needy_id}/profile/upload")
-def upload_profile_document(needy_id: int, file: UploadFile = None):
+def upload_profile_document(needy_id: int, file: UploadFile = None, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -114,7 +123,8 @@ def upload_profile_document(needy_id: int, file: UploadFile = None):
 
 
 @router.get("/needy/{needy_id}/profile", response_model=schemas.NeedyProfileOut)
-def get_profile(needy_id: int):
+def get_profile(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     p = db.get_profile(needy_id)
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -154,13 +164,15 @@ def all_active_lots(limit: int = 20, offset: int = 0, category: Optional[str] = 
 
 
 @router.get("/needy/{needy_id}/tickets", response_model=List[schemas.TicketOut])
-def get_tickets(needy_id: int):
+def get_tickets(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     tickets = db.get_tickets_by_needy_id(needy_id)
     return tickets
 
 
 @router.get("/needy/{needy_id}/notifications", response_model=List[schemas.NotificationOut])
-def get_notifications(needy_id: int):
+def get_notifications(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
@@ -169,7 +181,9 @@ def get_notifications(needy_id: int):
 
 
 @router.post("/tickets/{ticket_id}/assign", response_model=schemas.TicketOut)
-def assign_ticket(ticket_id: int, volunteer_name: str):
+def assign_ticket(ticket_id: int, volunteer_name: str, current_user: dict = Depends(auth.get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     updated = db.assign_ticket(ticket_id, volunteer_name)
     if not updated:
         raise HTTPException(status_code=404, detail="Ticket not found or not assignable")
@@ -177,7 +191,8 @@ def assign_ticket(ticket_id: int, volunteer_name: str):
 
 
 @router.get("/needy/{needy_id}/history", response_model=List[schemas.TicketOut])
-def history(needy_id: int, limit: int = 20, offset: int = 0):
+def history(needy_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(auth.get_current_user)):
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
     data = db.get_history(needy_id, limit=limit, offset=offset)
     return data
 
@@ -201,6 +216,14 @@ def cancel_ticket(needy_id: int, ticket_id: int, current_user: dict = Depends(au
 
 @router.websocket("/ws/needy/{needy_id}")
 async def ws_needy(websocket: WebSocket, needy_id: int):
+    # Browsers can't set headers on a WebSocket, so the token is passed as a query
+    # param. Only the owning needy (or an admin) may stream these notifications.
+    token = websocket.query_params.get("token")
+    payload = auth.decode_access_token(token) if token else None
+    role = payload.get("role") if payload else None
+    if not payload or (role != "admin" and not (role == "needy" and payload.get("related_id") == needy_id)):
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     last_id = 0
     try:

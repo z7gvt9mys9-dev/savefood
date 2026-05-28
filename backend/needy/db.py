@@ -160,6 +160,12 @@ def mark_notification_read(notification_id: int):
     with get_db_cursor() as cur:
         cur.execute("UPDATE notifications SET read = 1 WHERE id = %s", (notification_id,))
 
+def get_notification_by_id(notification_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM notifications WHERE id = %s", (notification_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
 def update_needy(needy_id: int, name: str, contact: Optional[str]) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))

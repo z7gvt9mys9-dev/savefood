@@ -71,6 +71,20 @@ def mark_notification_read(notification_id: int):
     with get_db_cursor() as cur:
         cur.execute("UPDATE notifications SET read = 1 WHERE id = %s", (notification_id,))
 
+def get_notification_by_id(notification_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM notifications WHERE id = %s", (notification_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+def needy_has_volunteer(needy_id: int, volunteer_id: int) -> bool:
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM tickets WHERE needy_id = %s AND assigned_volunteer_id = %s LIMIT 1",
+            (needy_id, volunteer_id),
+        )
+        return cur.fetchone() is not None
+
 def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
         cur.execute(
@@ -86,7 +100,7 @@ def get_volunteer_by_id(vol_id: int) -> Optional[Dict[str, Any]]:
         row = cur.fetchone()
         return dict(row) if row else None
 
-def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float]) -> Optional[Dict[str, Any]]:
+def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         v = cur.fetchone()
@@ -96,7 +110,8 @@ def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], l
         new_contact = contact if contact is not None else v['contact']
         new_lat = lat if lat is not None else v['lat']
         new_lon = lon if lon is not None else v['lon']
-        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, vol_id))
+        new_city = city if city is not None else v.get('city')
+        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s, city = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, new_city, vol_id))
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         updated = cur.fetchone()
         return dict(updated)
