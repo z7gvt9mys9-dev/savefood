@@ -1,12 +1,12 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
 from typing import List, Optional
 import os
-import uuid
-import shutil
 
 from backend.shop import db, schemas
 from backend.database import create_user
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
+from backend.limiter import limiter
+from backend.utils import validate_and_save_upload, UploadValidationError
 
 router = APIRouter()
 
@@ -23,7 +23,8 @@ def _require_lot_owner(lot_id: int, current_user: dict):
 
 
 @router.post("/shops/register")
-def register_shop(payload: schemas.ShopCreate):
+@limiter.limit("5/minute")
+def register_shop(request: Request, payload: schemas.ShopCreate):
     shop_id = db.create_shop(payload.name, payload.contact, payload.lat, payload.lon, payload.city)
     if payload.username and payload.password:
         hashed = get_password_hash(payload.password)
@@ -66,11 +67,10 @@ def create_lot_upload(
 
     photo_url = None
     if file and file.filename:
-        ext = os.path.splitext(file.filename)[1]
-        filename = f"{uuid.uuid4().hex}{ext}"
-        dest_path = os.path.join(UPLOAD_DIR, filename)
-        with open(dest_path, "wb") as out:
-            shutil.copyfileobj(file.file, out)
+        try:
+            filename = validate_and_save_upload(file, UPLOAD_DIR)
+        except UploadValidationError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         photo_url = f"/uploads/{filename}"
 
     lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment)
@@ -115,16 +115,6 @@ def confirm_transfer(lot_id: int, current_user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
-@router.post("/lots/{lot_id}/take", response_model=schemas.LotOut)
-def take_lot(lot_id: int, payload: schemas.TakeLotRequest, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in ("volunteer", "admin"):
-        raise HTTPException(status_code=403, detail="Forbidden")
-    updated = db.take_lot(lot_id, payload.volunteer_name)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Lot not found or already taken")
-    return updated
-
-
 @router.get("/shops/{shop_id}/history", response_model=List[schemas.LotOut])
 def get_history(shop_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "shop", shop_id)
@@ -147,7 +137,7 @@ def get_shop(shop_id: int, current_user: dict = Depends(get_current_user)):
 @router.patch("/shops/{shop_id}", response_model=schemas.ShopOut)
 def patch_shop(shop_id: int, payload: schemas.ShopUpdate, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "shop", shop_id)
-    updated = db.update_shop(shop_id, payload.name, payload.contact, payload.lat, payload.lon)
+    updated = db.update_shop(shop_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city)
     if not updated:
         raise HTTPException(status_code=404, detail="Shop not found or cannot be updated")
     return updated

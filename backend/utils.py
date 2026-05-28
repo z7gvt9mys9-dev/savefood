@@ -1,5 +1,50 @@
 import math
+import os
+import uuid
 from datetime import datetime, timezone
+
+# Allowed MIME types and file extensions for uploaded files.
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+ALLOWED_DOC_TYPES = ALLOWED_IMAGE_TYPES | {"application/pdf"}
+ALLOWED_DOC_EXTS = ALLOWED_IMAGE_EXTS | {".pdf"}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+class UploadValidationError(Exception):
+    def __init__(self, status_code: int, detail: str):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def validate_and_save_upload(file, dest_dir: str, *, allow_pdf: bool = False) -> str:
+    """Validate MIME type, extension and size, then save under a random filename.
+    Returns the new filename (without dir). Raises UploadValidationError on failure.
+    """
+    if file is None or not getattr(file, "filename", None):
+        raise UploadValidationError(400, "No file uploaded")
+
+    allowed_types = ALLOWED_DOC_TYPES if allow_pdf else ALLOWED_IMAGE_TYPES
+    allowed_exts = ALLOWED_DOC_EXTS if allow_pdf else ALLOWED_IMAGE_EXTS
+
+    content_type = (file.content_type or "").lower()
+    if content_type and content_type not in allowed_types:
+        raise UploadValidationError(415, f"Unsupported file type: {content_type}")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in allowed_exts:
+        raise UploadValidationError(415, f"Unsupported file extension: {ext or '<none>'}")
+
+    content = file.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise UploadValidationError(413, f"File too large (limit {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)")
+
+    os.makedirs(dest_dir, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex}{ext}"
+    with open(os.path.join(dest_dir, safe_name), "wb") as out:
+        out.write(content)
+    return safe_name
 
 def ensure_aware_utc(dt):
     if dt is None:

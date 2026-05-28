@@ -68,7 +68,7 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
             for p in points:
                 if p.get('kind') == 'ticket' and p.get('ticket_id'):
                     cur.execute(
-                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
+                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
                         (p['ticket_id'],)
                     )
         except Exception:

@@ -10,7 +10,7 @@ class ShopCreate(BaseModel):
     lon: Optional[float] = None
     city: Optional[str] = None
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
 
 
 class ShopOut(BaseModel):

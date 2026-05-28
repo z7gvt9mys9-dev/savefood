@@ -23,13 +23,18 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-_cors_origin = os.getenv("CORS_ORIGIN", "*")
+allowed_origins = [o.strip() for o in os.getenv("CORS_ORIGIN", "").split(",") if o.strip()]
+if not allowed_origins:
+    raise RuntimeError(
+        "CORS_ORIGIN must be set to a comma-separated list of allowed origins "
+        "(e.g. https://savefood.example.com). Wildcards are not allowed with credentials."
+    )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if _cors_origin == "*" else [_cors_origin],
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 # ensure upload directories exist before mounting static files
 os.makedirs(shop_routes.UPLOAD_DIR, exist_ok=True)
@@ -76,7 +81,7 @@ async def startup():
                             for p in points:
                                 if p.get('kind') == 'ticket' and p.get('ticket_id'):
                                     cur.execute(
-                                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
+                                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
                                         (p['ticket_id'],)
                                     )
                         except Exception:
@@ -110,7 +115,9 @@ async def shutdown():
     await telegram_routes.stop_polling()
 
 app.mount("/uploads", StaticFiles(directory=shop_routes.UPLOAD_DIR), name="uploads")
-app.mount("/needy_uploads", StaticFiles(directory=needy_routes.UPLOAD_DIR), name="needy_uploads")
+# /needy_uploads is intentionally NOT mounted publicly — it contains personal
+# documents (passports/social-status proofs). Downloads go through the
+# auth-checked /needy/{needy_id}/document endpoint instead.
 app.mount("/volunteer_uploads", StaticFiles(directory=vol_routes.UPLOAD_DIR), name="volunteer_uploads")
 app.include_router(auth_routes.router)
 app.include_router(shop_routes.router)

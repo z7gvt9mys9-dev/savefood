@@ -14,6 +14,12 @@ const CAT_KEYS = {
   'Молочные продукты': 'dairy',
 };
 
+// Yandex Maps' balloonContent renders raw HTML, so any string interpolated
+// here must be escaped to prevent stored XSS via shop name / lot description.
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[ch]));
+
 const haversineMeters = (lat1, lon1, lat2, lon2) => {
   const R = 6371000;
   const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
@@ -91,7 +97,7 @@ const RouteMapView = ({ points }) => {
         <Placemark
           key={i}
           geometry={[p.lat, p.lon]}
-          properties={{ balloonContent: p.description || '' }}
+          properties={{ balloonContent: escapeHtml(p.description || '') }}
           options={{ preset: p.kind === 'shop' ? 'islands#redShoppingIcon' : 'islands#greenHomeIcon' }}
         />
       ))}
@@ -142,7 +148,7 @@ const VolunteerDashboard = () => {
         stopScanner();
         const match = decodedText.match(/^SF-(\d+)$/);
         if (match && nextTicket && parseInt(match[1]) === nextTicket.ticket_id) {
-          await handleCompletePoint(nextTicket.ticket_id);
+          await handleCompletePoint(nextTicket.ticket_id, { qrCode: decodedText });
           setScanning(false);
         } else {
           alert(t('volunteer.error_qr', { id: nextTicket?.ticket_id ?? '?' }));
@@ -264,13 +270,35 @@ const VolunteerDashboard = () => {
     }
   };
 
-  const handleCompletePoint = async (ticketId = null) => {
+  const getCurrentPosition = () => new Promise((resolve) => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout: 8000, enableHighAccuracy: true }
+    );
+  });
+
+  const handleCompletePoint = async (ticketId = null, { qrCode = null } = {}) => {
     if (!activeRoute) return;
+    const body = { volunteer_id: volunteerId, ticket_id: ticketId };
+    // Ticket points require server-side GPS+QR verification (§13). Shop point
+    // completion needs neither — it's just a hand-off confirmation by the volunteer.
+    if (ticketId != null) {
+      body.qr_code = qrCode;
+      const pos = await getCurrentPosition();
+      if (!pos) {
+        alert(t('volunteer.gps_no_location'));
+        return;
+      }
+      body.lat = pos.lat;
+      body.lon = pos.lon;
+    }
     try {
       const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
-        body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return; }
       await fetchActiveRoute();
@@ -329,14 +357,14 @@ const VolunteerDashboard = () => {
               <Placemark
                 key={`shop-${s.shop_id}`}
                 geometry={[s.lat, s.lon]}
-                properties={{ balloonContent: `<strong>${s.name}</strong><br/>${s.lots.map(l => l.description).join(', ')}` }}
+                properties={{ balloonContent: `<strong>${escapeHtml(s.name)}</strong><br/>${s.lots.map(l => escapeHtml(l.description)).join(', ')}` }}
               />
             ))}
             {mapData.tickets.map(tick => tick.lat && tick.lon && (
               <Placemark
                 key={`ticket-${tick.ticket_id}`}
                 geometry={[tick.lat, tick.lon]}
-                properties={{ balloonContent: tick.items || t('common.description') }}
+                properties={{ balloonContent: escapeHtml(tick.items || t('common.description')) }}
                 options={{ preset: 'islands#greenCircleDotIcon' }}
               />
             ))}

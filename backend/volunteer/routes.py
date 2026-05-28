@@ -1,22 +1,33 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
+import html
 import json
 import math
 import logging
 import os
-import uuid
 
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
-from backend.shop import db as shopdb
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
+from backend.limiter import limiter
+from backend.utils import validate_and_save_upload, UploadValidationError
 from backend import telegram_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # py < 3.9 fallback
+    ZoneInfo = None
+
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+# Server-side delivery verification thresholds (§13)
+GPS_RADIUS_METERS = 100
+MAX_DELIVERY_ATTEMPTS = 3  # §8: after 3 attempts the ticket is released
+LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
 
 router = APIRouter()
 
@@ -31,7 +42,8 @@ def _require_route_owner(route_id: int, current_user: dict):
 
 
 @router.post("/volunteers/register")
-def register(vol: vschemas.VolunteerCreate):
+@limiter.limit("5/minute")
+def register(request: Request, vol: vschemas.VolunteerCreate):
     vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon, vol.city)
     if vol.username and vol.password:
         hashed = get_password_hash(vol.password)
@@ -122,7 +134,7 @@ def haversine(a, b):
 def is_available_now(available_time: str) -> bool:
     if not available_time:
         return True
-    # expected format: "HH:MM-HH:MM"
+    # expected format: "HH:MM-HH:MM" — user entered times are local (LOCAL_TZ)
     try:
         parts = available_time.split('-')
         if len(parts) != 2:
@@ -131,8 +143,13 @@ def is_available_now(available_time: str) -> bool:
         end = parts[1].strip()
         sh, sm = [int(x) for x in start.split(':')]
         eh, em = [int(x) for x in end.split(':')]
-        # use UTC for comparison; available_time is expected to be in UTC
-        now = datetime.now(timezone.utc).time()
+        if ZoneInfo is not None:
+            try:
+                now = datetime.now(ZoneInfo(LOCAL_TZ_NAME)).time()
+            except Exception:
+                now = datetime.now().time()
+        else:
+            now = datetime.now().time()
         start_t = dtime(sh, sm)
         end_t = dtime(eh, em)
         if start_t <= end_t:
@@ -169,13 +186,9 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 
     if shop['lat'] is None or shop['lon'] is None:
         raise HTTPException(status_code=400, detail="Shop has no coordinates")
-    
-    # try to take the lot so other volunteers cannot take it
-    taken = shopdb.take_lot(payload.lot_id, vol.get('name') or f"volunteer_{volunteer_id}")
-    if not taken:
-        raise HTTPException(status_code=400, detail="Lot is not available")
 
-    # collect open tickets with coords, excluding self-pickup tickets
+    # collect open tickets with coords, excluding self-pickup tickets.
+    # Read-only here; the actual claim happens later inside the transactional block.
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL AND (self_pickup IS NULL OR self_pickup = FALSE)")
         tickets = [dict(r) for r in cur.fetchall()]
@@ -195,12 +208,30 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     }
     _RESTRICTION_WORDS = ['аллергия', 'нельзя', 'не ем', 'без ', 'непереносимость', 'не могу', 'запрет']
 
-    # greedy selection using priority scoring + distance tie-breaker
-    def compute_score(t):
+    relevant_kws_for_lot = next(
+        (kws for cat_key, kws in _CAT_KEYWORDS.items() if cat_key in lot_category),
+        []
+    )
+
+    # Pre-load every profile once instead of re-querying inside the O(n²) greedy loop.
+    profiles_cache = {}
+    for t in tickets:
+        nid = t['needy_id']
+        if nid in profiles_cache:
+            continue
         try:
-            profile = needydb.get_profile(t['needy_id']) or {}
+            profiles_cache[nid] = needydb.get_profile(nid) or {}
         except Exception:
-            profile = {}
+            profiles_cache[nid] = {}
+
+    # Per-ticket score is invariant during the greedy loop — compute it once.
+    score_cache = {}
+
+    def compute_score(t):
+        cached = score_cache.get(t['id'])
+        if cached is not None:
+            return cached
+        profile = profiles_cache.get(t['needy_id'], {})
         try:
             age_days = 0
             created_at = t.get('created_at')
@@ -222,22 +253,27 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             days_no_help = 0
         score = age_days * 1.0 + family * 2.0 + urg * 4.0 + days_no_help * 1.5
 
-        # §6: match lot category against needy food preferences/restrictions
-        if lot_category:
+        # §6: match lot category against needy food preferences/restrictions.
+        # Check restriction words only in the same clause as the category keyword
+        # — splitting on commas/semicolons/dots — so "люблю молоко, нет аллергий"
+        # is not mistaken for a restriction on dairy.
+        if relevant_kws_for_lot:
             prefs = (profile.get('preferences') or '').lower()
             if prefs:
-                relevant_kws = next(
-                    (kws for cat_key, kws in _CAT_KEYWORDS.items() if cat_key in lot_category),
-                    []
-                )
-                if relevant_kws:
-                    cat_mentioned = any(kw in prefs for kw in relevant_kws)
-                    has_restriction = any(rw in prefs for rw in _RESTRICTION_WORDS)
-                    if cat_mentioned and has_restriction:
-                        score -= 8.0  # conflict: needy has restriction on this food type
-                    elif cat_mentioned and not has_restriction:
-                        score += 2.0  # preference match: needy likes this food type
+                import re as _re
+                clauses = [c.strip() for c in _re.split(r'[.,;\n]+', prefs) if c.strip()]
+                clauses_with_cat = [c for c in clauses if any(kw in c for kw in relevant_kws_for_lot)]
+                if clauses_with_cat:
+                    conflict = any(
+                        any(rw in c for rw in _RESTRICTION_WORDS)
+                        for c in clauses_with_cat
+                    )
+                    if conflict:
+                        score -= 8.0
+                    else:
+                        score += 2.0
 
+        score_cache[t['id']] = score
         return score
 
     order = []
@@ -277,34 +313,56 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             'addr_detail': ', '.join(addr_parts) if addr_parts else None,
         })
 
-    # attempt to assign tickets, skip those that are no longer open
-    assigned_ids = set()
-    if order:
-        with get_db_cursor() as cur:
-            for t in order:
-                cur.execute(
-                    "UPDATE tickets SET status = 'assigned', assigned_volunteer = %s, assigned_volunteer_id = %s WHERE id = %s AND status = 'open'",
-                    (vol_name, volunteer_id, t['id']),
-                )
-                if cur.rowcount > 0:
-                    assigned_ids.add(t['id'])
+    # ── Single transaction: claim the lot, assign tickets, create the route.
+    # On any failure the cursor rolls back, so we cannot end up with a 'taken'
+    # lot dangling without a route or with half-assigned tickets.
+    now = datetime.now(timezone.utc)
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE lots SET status = 'taken', taken_at = %s, taken_by = %s WHERE id = %s AND status = 'active'",
+            (now, vol_name, payload.lot_id),
+        )
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=400, detail="Lot is not available")
 
-    # remove points for tickets that were not assigned
-    filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
+        cur.execute(
+            "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
+            (lot["shop_id"], payload.lot_id, 'lot_taken',
+             f'Волонтёр {vol_name} забрал лот #{payload.lot_id}', now),
+        )
 
-    points_json = json.dumps(filtered_points, ensure_ascii=False)
-    route_id = vdb.create_route(volunteer_id, points_json, payload.lot_id)
+        assigned_ids = set()
+        for t in order:
+            cur.execute(
+                "UPDATE tickets SET status = 'assigned', assigned_volunteer_id = %s WHERE id = %s AND status = 'open'",
+                (volunteer_id, t['id']),
+            )
+            if cur.rowcount > 0:
+                assigned_ids.add(t['id'])
 
-    # persist notification for volunteer that route was created
-    try:
-        vdb.create_notification(volunteer_id, 'route_created', f'Route {route_id} created')
-    except Exception:
-        logging.warning("Failed to create route notification for volunteer %s", volunteer_id, exc_info=True)
+        filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
+        points_json = json.dumps(filtered_points, ensure_ascii=False)
 
-    # Telegram: notify shop that lot was taken
+        cur.execute(
+            "INSERT INTO volunteer_routes (volunteer_id, points, status, started_at, lot_id) VALUES (%s, %s, 'in_progress', %s, %s) RETURNING id",
+            (volunteer_id, points_json, now, payload.lot_id),
+        )
+        route_id = cur.fetchone()['id']
+
+        cur.execute(
+            "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+            (volunteer_id, 'route_created',
+             f'Маршрут #{route_id} построен — посмотрите вкладку «Маршрут»', now),
+        )
+
+    # Telegram is best-effort and lives outside the transaction.
+    # Names and lot descriptions originate from user input, so escape them
+    # before embedding into an HTML-parsed Telegram message.
     try:
         lot_desc = lot.get('description', f'лот #{payload.lot_id}')
-        telegram_service.notify_shop(lot['shop_id'], f"🛒 Волонтёр <b>{vol_name}</b> взял ваш лот «{lot_desc}». Маршрут #{route_id} в пути.")
+        safe_vol_name = html.escape(vol_name or "")
+        safe_lot_desc = html.escape(lot_desc or "")
+        telegram_service.notify_shop(lot['shop_id'], f"🛒 Волонтёр <b>{safe_vol_name}</b> взял ваш лот «{safe_lot_desc}». Маршрут #{route_id} в пути.")
     except Exception:
         pass
 
@@ -315,6 +373,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 def complete_point(route_id: int, payload: vschemas.CompletePointRequest, current_user: dict = Depends(get_current_user)):
     # verify route ownership against the authenticated user (not client-supplied id)
     route = _require_route_owner(route_id, current_user)
+    route_volunteer_id = route["volunteer_id"]
 
     # parse points and find target point
     try:
@@ -344,8 +403,20 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
 
     point = points[target_idx]
 
-    # if ticket point — mark ticket fulfilled
+    # if ticket point — verify QR + GPS server-side (§13), then mark ticket fulfilled
     if point.get('kind') == 'ticket' and point.get('ticket_id'):
+        expected_qr = f"SF-{point['ticket_id']}"
+        if (payload.qr_code or "").strip() != expected_qr:
+            raise HTTPException(status_code=400, detail="QR-код не совпадает с тикетом")
+        if payload.lat is None or payload.lon is None:
+            raise HTTPException(status_code=400, detail="Координаты волонтёра обязательны для подтверждения доставки")
+        if point.get('lat') is not None and point.get('lon') is not None:
+            dist_m = haversine((payload.lat, payload.lon), (point['lat'], point['lon'])) * 1000.0
+            if dist_m > GPS_RADIUS_METERS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Вы слишком далеко от точки доставки ({int(dist_m)} м, лимит {GPS_RADIUS_METERS} м)",
+                )
         with get_db_cursor() as cur:
             cur.execute("SELECT * FROM tickets WHERE id = %s", (point['ticket_id'],))
             t = cur.fetchone()
@@ -362,9 +433,9 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
     if point.get('kind') == 'shop':
         shop_lat = point.get('lat')
         shop_lon = point.get('lon')
-        # notify all remaining ticket points in route that are not done
-        vol = vdb.get_volunteer_by_id(payload.volunteer_id)
-        vol_name = vol.get('name') if vol else f"volunteer_{payload.volunteer_id}"
+        # use the route's volunteer id (verified above), not the client payload
+        vol = vdb.get_volunteer_by_id(route_volunteer_id)
+        vol_name = vol.get('name') if vol else f"volunteer_{route_volunteer_id}"
         with get_db_cursor() as cur:
             for p in points:
                 if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
@@ -390,7 +461,12 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
                         (needy_id, 'volunteer_en_route', payload_text, datetime.now(timezone.utc)),
                     )
                     try:
-                        telegram_service.notify_needy(needy_id, f"🚗 {payload_text}")
+                        # vol_name is user-supplied — escape before HTML parse_mode.
+                        safe_payload = (
+                            f"Волонтёр {html.escape(vol_name or '')} едет к вам "
+                            f"(тикет {p.get('ticket_id')}). Ожидаемое время прибытия{eta_text}."
+                        )
+                        telegram_service.notify_needy(needy_id, f"🚗 {safe_payload}")
                     except Exception:
                         pass
 
@@ -476,7 +552,7 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest, current_us
             for p in points:
                 if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
                     cur.execute(
-                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL WHERE id = %s AND status = 'assigned'",
+                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
                         (p['ticket_id'],)
                     )
     except Exception:
@@ -509,13 +585,29 @@ def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest, curr
 
     attempt_count = points[target_idx].get('attempt_count', 0) + 1
     points[target_idx]['attempt_count'] = attempt_count
+    released = False
 
     with get_db_cursor() as cur:
         cur.execute("SELECT needy_id FROM tickets WHERE id = %s", (payload.ticket_id,))
         row = cur.fetchone()
         if row:
             needy_id = row['needy_id']
-            msg = f"Волонтёр приходил, но вы не открыли дверь. Попытка #{attempt_count}. Ожидаем звонка в течение 10 минут."
+            if attempt_count >= MAX_DELIVERY_ATTEMPTS:
+                # §8: drop the ticket from the route, return it to open so the
+                # dispatcher (or another volunteer) can pick it up.
+                cur.execute(
+                    "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
+                    (payload.ticket_id,),
+                )
+                points[target_idx]['done'] = True
+                points[target_idx]['released'] = True
+                released = True
+                msg = (
+                    f"Волонтёр приходил {attempt_count} раза, доставка не состоялась. "
+                    "Тикет возвращён в очередь — свяжитесь со службой поддержки."
+                )
+            else:
+                msg = f"Волонтёр приходил, но вы не открыли дверь. Попытка #{attempt_count}. Ожидаем звонка в течение 10 минут."
             cur.execute(
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
                 (needy_id, 'delivery_attempted', msg, datetime.now(timezone.utc)),
@@ -526,7 +618,7 @@ def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest, curr
                 pass
 
     vdb.update_route_points(route_id, json.dumps(points, ensure_ascii=False))
-    return {'ok': True, 'attempt_count': attempt_count}
+    return {'ok': True, 'attempt_count': attempt_count, 'released': released}
 
 
 @router.get("/volunteers/{volunteer_id}/stats")
@@ -607,12 +699,23 @@ async def upload_delivery_photo(route_id: int, ticket_id: int, file: UploadFile 
         raise HTTPException(status_code=404, detail="Route not found")
     ensure_owner_or_admin(current_user, "volunteer", route["volunteer_id"])
 
-    ext = os.path.splitext(file.filename or '')[-1] or '.jpg'
-    filename = f"route{route_id}_ticket{ticket_id}_{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-    content = await file.read()
-    with open(filepath, 'wb') as f:
-        f.write(content)
+    # ticket_id must belong to this route — otherwise a volunteer with any
+    # active route could overwrite delivery_photo on arbitrary tickets.
+    try:
+        points = json.loads(route.get('points') or '[]')
+    except Exception:
+        points = []
+    allowed_ticket_ids = {
+        p['ticket_id'] for p in points
+        if p.get('kind') == 'ticket' and p.get('ticket_id')
+    }
+    if ticket_id not in allowed_ticket_ids:
+        raise HTTPException(status_code=403, detail="Ticket does not belong to this route")
+
+    try:
+        filename = validate_and_save_upload(file, UPLOAD_DIR)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     photo_url = f"/volunteer_uploads/{filename}"
     with get_db_cursor() as cur:

@@ -8,7 +8,12 @@ from fastapi.security import OAuth2PasswordBearer
 
 from backend.database import get_db_cursor
 
-SECRET_KEY = os.getenv("SECRET_KEY", "SUPER_SECRET_SAVEFOOD_KEY_CHANGE_IN_PROD")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY or len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "SECRET_KEY env var must be set to a random string of at least 32 characters. "
+        "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 # 1 day
 

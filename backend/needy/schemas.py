@@ -7,7 +7,7 @@ class NeedyCreate(BaseModel):
     name: str = Field(..., example="John Doe")
     contact: Optional[str] = Field(None, example="+7 900 000 00 00")
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
 
 
 class NeedyOut(BaseModel):
@@ -43,7 +43,6 @@ class TicketOut(BaseModel):
     lot_id: Optional[int]
     status: str
     created_at: datetime
-    assigned_volunteer: Optional[str]
     assigned_volunteer_id: Optional[int] = None
     fulfilled_at: Optional[datetime]
     apartment: Optional[str]

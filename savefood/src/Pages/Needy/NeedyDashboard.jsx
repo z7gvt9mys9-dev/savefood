@@ -10,6 +10,11 @@ import './Needy.css';
 
 const YMAPS_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
 
+// Yandex balloonContent* renders HTML; escape any interpolated user data.
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[ch]));
+
 const PAGE = 20;
 
 const CAT_KEYS = {
@@ -99,19 +104,30 @@ const NeedyDashboard = () => {
   useEffect(() => {
     if (!needyId || !user?.token) return;
     const apiBase = process.env.REACT_APP_API_URL ?? '';
-    const base = apiBase
+    const wsUrl = apiBase
       ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/needy/${needyId}`;
-    const wsUrl = `${base}?token=${encodeURIComponent(user.token)}`;
     let ws;
     let reconnectTimer;
+    // Track the highest notification id we've seen so a reconnect can replay
+    // anything that arrived while the socket was down.
+    let lastSeenId = null;
     const connect = () => {
       ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        // Token is sent in the first message instead of the query string so it
+        // never lands in nginx access logs or browser history.
+        const handshake = { type: 'auth', token: user.token };
+        if (lastSeenId != null) handshake.since_id = lastSeenId;
+        ws.send(JSON.stringify(handshake));
+      };
       ws.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
+          if (data.type === 'ready') return;
+          if (typeof data.id === 'number') lastSeenId = Math.max(lastSeenId ?? 0, data.id);
           setNotifications(prev => [{
-            id: Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
+            id: data.id ?? Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
           }, ...prev]);
         } catch {}
       };
@@ -384,10 +400,10 @@ const NeedyDashboard = () => {
                 key={lot.id}
                 geometry={[lot.shop_lat, lot.shop_lon]}
                 properties={{
-                  balloonContentHeader: lot.shop_name || lot.description,
-                  balloonContentBody: `${lot.description} · ${lot.quantity} ${t('needy.qty_unit')}`,
-                  balloonContentFooter: lot.time_slot ? `${t('needy.pickup_time_prefix')}${lot.time_slot}` : '',
-                  hintContent: lot.shop_name || lot.description,
+                  balloonContentHeader: escapeHtml(lot.shop_name || lot.description),
+                  balloonContentBody: `${escapeHtml(lot.description)} · ${escapeHtml(lot.quantity)} ${escapeHtml(t('needy.qty_unit'))}`,
+                  balloonContentFooter: lot.time_slot ? `${escapeHtml(t('needy.pickup_time_prefix'))}${escapeHtml(lot.time_slot)}` : '',
+                  hintContent: escapeHtml(lot.shop_name || lot.description),
                 }}
                 options={{ preset: 'islands#greenFoodIcon', iconColor: '#2ecc71' }}
               />

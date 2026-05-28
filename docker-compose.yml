@@ -24,8 +24,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    # Backend is reached only through nginx on the internal docker network.
+    # Exposing 8000 on the host would let attackers bypass nginx rate-limits.
+    expose:
+      - "8000"
     environment:
       DB_HOST: postgres
       DB_NAME: ${POSTGRES_DB:-savefood}
@@ -37,7 +39,8 @@ services:
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
       SITE_URL: ${SITE_URL:-http://localhost}
       VLESS_URL: ${VLESS_URL:-}
-      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be set (no wildcards in production)}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
     volumes:
       - shop_uploads:/app/backend/shop/uploads
       - needy_uploads:/app/backend/needy/uploads

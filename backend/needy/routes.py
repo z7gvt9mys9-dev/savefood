@@ -1,16 +1,24 @@
-from fastapi import APIRouter, HTTPException, UploadFile, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, UploadFile, Depends, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse
 from typing import List, Optional
 import os
-import shutil
-import uuid
 import json as json_mod
 import asyncio
+from collections import defaultdict
+
+# Per-needy WebSocket connection counter. A logged-in user can open at most
+# MAX_WS_PER_USER sockets; further attempts are rejected so one client cannot
+# DoS the polling loop or exhaust the connection pool.
+ws_connections: dict[int, int] = defaultdict(int)
+MAX_WS_PER_USER = 3
 
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
 from backend import auth
 from backend.database import create_user, get_db_cursor
+from backend.limiter import limiter
+from backend.utils import validate_and_save_upload, UploadValidationError
 
 router = APIRouter()
 
@@ -18,7 +26,8 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 
 
 @router.post("/needy/register")
-def register_needy(payload: schemas.NeedyCreate):
+@limiter.limit("5/minute")
+def register_needy(request: Request, payload: schemas.NeedyCreate):
     needy_id = db.create_needy(payload.name, payload.contact)
     if payload.username and payload.password:
         hashed = auth.get_password_hash(payload.password)
@@ -50,9 +59,14 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: di
         lat = lat if lat is not None else profile.get('lat')
         lon = lon if lon is not None else profile.get('lon')
 
-    ticket_id = db.create_ticket(needy_id, payload.items, payload.address, lat, lon, payload.available_time, payload.lot_id, payload.apartment, payload.floor_num, payload.entrance, payload.self_pickup)
-    if ticket_id is None:
-        raise HTTPException(status_code=400, detail="Ticket creation blocked: assistance is limited to once per 7 days")
+    try:
+        ticket_id = db.create_ticket(needy_id, payload.items, payload.address, lat, lon, payload.available_time, payload.lot_id, payload.apartment, payload.floor_num, payload.entrance, payload.self_pickup)
+    except db.TicketCreateError as exc:
+        if exc.reason == "weekly_limit":
+            raise HTTPException(status_code=400, detail="Помощь можно получать не чаще раза в неделю")
+        if exc.reason == "active_ticket_exists":
+            raise HTTPException(status_code=400, detail="У вас уже есть активная заявка — дождитесь её завершения")
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"id": ticket_id}
 
 
@@ -108,15 +122,10 @@ def upload_profile_document(needy_id: int, file: UploadFile = None, current_user
     needy = db.get_needy_by_id(needy_id)
     if not needy:
         raise HTTPException(status_code=404, detail="Needy not found")
-    if not file or not file.filename:
-        raise HTTPException(status_code=400, detail="No file uploaded")
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    original_name = os.path.basename(file.filename)
-    ext = os.path.splitext(original_name)[1]
-    filename = f"{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(UPLOAD_DIR, filename)
-    with open(dest, "wb") as out:
-        shutil.copyfileobj(file.file, out)
+    try:
+        filename = validate_and_save_upload(file, UPLOAD_DIR, allow_pdf=True)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     # save to profile
     prof = db.create_or_update_profile(needy_id, None, None, None, None, document=f"/needy_uploads/{filename}")
     return prof
@@ -129,6 +138,30 @@ def get_profile(needy_id: int, current_user: dict = Depends(auth.get_current_use
     if not p:
         raise HTTPException(status_code=404, detail="Profile not found")
     return p
+
+
+@router.get("/needy/{needy_id}/document")
+def download_needy_document(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    """Owner or admin-only download for a needy's uploaded ID document.
+
+    Replaces the public StaticFiles mount on /needy_uploads so personal
+    documents are not addressable by URL alone.
+    """
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
+    profile = db.get_profile(needy_id)
+    doc_path = profile.get("document") if profile else None
+    if not doc_path:
+        raise HTTPException(status_code=404, detail="Document not found")
+    # Stored as "/needy_uploads/<uuid>.<ext>" — collapse to a basename so a
+    # malicious profile value can't traverse out of UPLOAD_DIR.
+    filename = os.path.basename(doc_path)
+    abs_path = os.path.join(UPLOAD_DIR, filename)
+    real_path = os.path.realpath(abs_path)
+    if not real_path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not os.path.isfile(real_path):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(real_path)
 
 
 @router.patch("/needy/{needy_id}/moderation")
@@ -180,16 +213,6 @@ def get_notifications(needy_id: int, current_user: dict = Depends(auth.get_curre
     return notes
 
 
-@router.post("/tickets/{ticket_id}/assign", response_model=schemas.TicketOut)
-def assign_ticket(ticket_id: int, volunteer_name: str, current_user: dict = Depends(auth.get_current_user)):
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    updated = db.assign_ticket(ticket_id, volunteer_name)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Ticket not found or not assignable")
-    return updated
-
-
 @router.get("/needy/{needy_id}/history", response_model=List[schemas.TicketOut])
 def history(needy_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(auth.get_current_user)):
     auth.ensure_owner_or_admin(current_user, "needy", needy_id)
@@ -216,17 +239,56 @@ def cancel_ticket(needy_id: int, ticket_id: int, current_user: dict = Depends(au
 
 @router.websocket("/ws/needy/{needy_id}")
 async def ws_needy(websocket: WebSocket, needy_id: int):
-    # Browsers can't set headers on a WebSocket, so the token is passed as a query
-    # param. Only the owning needy (or an admin) may stream these notifications.
-    token = websocket.query_params.get("token")
-    payload = auth.decode_access_token(token) if token else None
-    role = payload.get("role") if payload else None
-    if not payload or (role != "admin" and not (role == "needy" and payload.get("related_id") == needy_id)):
-        await websocket.close(code=1008)
+    # Auth happens via a handshake message instead of a query-string token,
+    # so the JWT never appears in nginx access logs or browser history. The
+    # client must accept the connection and then immediately send
+    #     {"type": "auth", "token": "...", "since_id": <optional int>}
+    # within AUTH_TIMEOUT seconds, otherwise we drop the socket.
+    AUTH_TIMEOUT = 5.0
+
+    # Reject before accept() so we don't even spin up the loop when the
+    # per-user connection cap is already hit.
+    if ws_connections[needy_id] >= MAX_WS_PER_USER:
+        await websocket.close(code=1008, reason="Too many connections")
         return
+
     await websocket.accept()
-    last_id = 0
+    ws_connections[needy_id] += 1
     try:
+        try:
+            first = await asyncio.wait_for(websocket.receive_json(), timeout=AUTH_TIMEOUT)
+        except (asyncio.TimeoutError, ValueError):
+            await websocket.close(code=1008)
+            return
+
+        if not isinstance(first, dict) or first.get("type") != "auth":
+            await websocket.close(code=1008)
+            return
+
+        token = first.get("token")
+        payload = auth.decode_access_token(token) if token else None
+        role = payload.get("role") if payload else None
+        if not payload or (role != "admin" and not (role == "needy" and payload.get("related_id") == needy_id)):
+            await websocket.close(code=1008)
+            return
+
+        username = payload.get("sub")
+        if username:
+            def _check_blocked():
+                with get_db_cursor() as cur:
+                    cur.execute("SELECT is_blocked FROM users WHERE username = %s", (username,))
+                    row = cur.fetchone()
+                return bool(row and row["is_blocked"])
+
+            if await asyncio.to_thread(_check_blocked):
+                await websocket.close(code=1008)
+                return
+
+        # Optional resume cursor; otherwise start from MAX(id).
+        since_id = first.get("since_id")
+        if not isinstance(since_id, int) or since_id < 0:
+            since_id = None
+
         def get_last():
             with get_db_cursor() as cur:
                 cur.execute(
@@ -235,11 +297,10 @@ async def ws_needy(websocket: WebSocket, needy_id: int):
                 )
                 return cur.fetchone()["mid"]
 
-        last_id = await asyncio.to_thread(get_last)
+        last_id = since_id if since_id is not None else await asyncio.to_thread(get_last)
+        await websocket.send_json({"type": "ready", "last_id": last_id})
 
         while True:
-            await asyncio.sleep(3)
-
             def fetch_new(lid):
                 with get_db_cursor() as cur:
                     cur.execute(
@@ -251,11 +312,15 @@ async def ws_needy(websocket: WebSocket, needy_id: int):
             rows = await asyncio.to_thread(fetch_new, last_id)
             for row in rows:
                 last_id = row["id"]
-                await websocket.send_json({"type": row["type"], "payload": row["payload"]})
+                await websocket.send_json({"id": row["id"], "type": row["type"], "payload": row["payload"]})
+
+            await asyncio.sleep(3)
     except WebSocketDisconnect:
         pass
     except Exception:
         pass
+    finally:
+        ws_connections[needy_id] = max(0, ws_connections[needy_id] - 1)
 
 
 @router.post("/needy/{needy_id}/ticket/{ticket_id}/rate")

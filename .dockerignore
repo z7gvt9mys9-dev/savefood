@@ -2,7 +2,36 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+
+# VCS
+.git/
+.gitignore
+
+# Secrets — never bake into images.
 .env
+.env.*
+.env.local
+.env.prod
+.env.production
+*.pem
+*.key
+*.p12
+secrets/
+
+# Local artifacts
 .DS_Store
+*.log
+
+# Frontend build context
 savefood/node_modules/
 savefood/build/
+
+# User-uploaded files (mounted as volumes, not baked in)
+backend/**/uploads/
+uploads/
+
+# Test/cache dirs
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+migrations/versions/__pycache__/

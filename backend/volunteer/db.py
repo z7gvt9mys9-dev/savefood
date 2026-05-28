@@ -50,6 +50,10 @@ def init_db():
         # (which omits volunteer_id). Ensure the column exists.
         cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS volunteer_id INTEGER")
 
+        # Hot-path indexes — active-route lookup, history, and notification fanout.
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_volunteer_id ON notifications (volunteer_id) WHERE volunteer_id IS NOT NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_routes_volunteer_status ON volunteer_routes (volunteer_id, status)")
+
 def create_notification(volunteer_id: int, notification_type: str, payload: str, created_at: Optional[datetime] = None):
     with get_db_cursor() as cur:
         if created_at is None:

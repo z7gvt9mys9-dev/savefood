@@ -60,6 +60,12 @@ def init_db():
         # (which omits needy_id). Ensure the column exists.
         cur.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS needy_id INTEGER")
 
+        # Hot-path indexes — WS poll (notifications.needy_id), needy history view,
+        # and the open-ticket lookup used by the routing algorithm.
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_needy_id ON notifications (needy_id) WHERE needy_id IS NOT NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_needy_status ON tickets (needy_id, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets (status)")
+
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS needy_profile (
@@ -98,14 +104,30 @@ def get_needy_by_id(needy_id: int) -> Optional[Dict[str, Any]]:
         row = cur.fetchone()
         return dict(row) if row else None
 
+class TicketCreateError(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
 def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], lat: Optional[float], lon: Optional[float], available_time: Optional[str] = None, lot_id: Optional[int] = None, apartment: Optional[str] = None, floor_num: Optional[str] = None, entrance: Optional[str] = None, self_pickup: bool = False) -> Optional[int]:
     with get_db_cursor() as cur:
+        # §3.2: one assistance per 7 days (counted from the previous fulfilment).
         cur.execute("SELECT last_received_at FROM needy_profile WHERE needy_id = %s", (needy_id,))
         pr = cur.fetchone()
         if pr and pr['last_received_at']:
             last_dt = pr['last_received_at']
             if datetime.now(timezone.utc) - last_dt < timedelta(days=7):
-                return None
+                raise TicketCreateError("weekly_limit")
+
+        # Block parallel tickets: only one open or in-progress ticket at a time
+        # per needy, otherwise the weekly limit can be bypassed by spamming.
+        cur.execute(
+            "SELECT 1 FROM tickets WHERE needy_id = %s AND status IN ('open','assigned') LIMIT 1",
+            (needy_id,),
+        )
+        if cur.fetchone():
+            raise TicketCreateError("active_ticket_exists")
 
         cur.execute(
             "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
@@ -119,27 +141,6 @@ def get_tickets_by_needy_id(needy_id: int) -> List[Dict[str, Any]]:
         cur.execute("SELECT * FROM tickets WHERE needy_id = %s ORDER BY created_at DESC", (needy_id,))
         rows = cur.fetchall()
         return [dict(r) for r in rows]
-
-def assign_ticket(ticket_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
-    with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM tickets WHERE id = %s", (ticket_id,))
-        ticket = cur.fetchone()
-        if not ticket:
-            return None
-        if ticket["status"] != 'open':
-            return None
-
-        cur.execute(
-            "UPDATE tickets SET status = 'assigned', assigned_volunteer = %s WHERE id = %s",
-            (volunteer_name, ticket_id),
-        )
-        cur.execute(
-            "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
-            (ticket["needy_id"], 'volunteer_assigned', f'Volunteer {volunteer_name} assigned to ticket {ticket_id}', datetime.now(timezone.utc)),
-        )
-        cur.execute("SELECT * FROM tickets WHERE id = %s", (ticket_id,))
-        updated = cur.fetchone()
-        return dict(updated)
 
 def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:

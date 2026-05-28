@@ -1,5 +1,6 @@
 import os
 import asyncio
+import html
 import secrets
 import logging
 from datetime import datetime, timezone
@@ -8,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from backend.auth import get_current_user
 from backend.database import get_db_cursor
+from backend.limiter import limiter
 
 router = APIRouter()
 
 SITE_URL = os.getenv("SITE_URL", "http://localhost")
 BOT_NAME = os.getenv("TELEGRAM_BOT_NAME", "savefood_bot")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 
 # polling=true by default; set TELEGRAM_POLLING=false + configure webhook in prod
 USE_POLLING = os.getenv("TELEGRAM_POLLING", "true").lower() == "true"
@@ -138,8 +141,10 @@ def _build_bot_and_dp():
             if not needy_ids:
                 await message.answer("Нет активных получателей для пересылки.")
                 return
+            safe_sender = html.escape(sender_name or "")
+            safe_text = html.escape(text)
             for nid in set(needy_ids):
-                tgsvc.notify_needy(nid, f"💬 Волонтёр {sender_name}: {text}")
+                tgsvc.notify_needy(nid, f"💬 Волонтёр {safe_sender}: {safe_text}")
             await message.answer("✅ Сообщение отправлено")
 
         elif role == 'needy':
@@ -152,7 +157,9 @@ def _build_bot_and_dp():
             if not ticket or not ticket['assigned_volunteer_id']:
                 await message.answer("У вас нет активного назначенного волонтёра.")
                 return
-            tgsvc.notify_volunteer(ticket['assigned_volunteer_id'], f"💬 Получатель {sender_name}: {text}")
+            safe_sender = html.escape(sender_name or "")
+            safe_text = html.escape(text)
+            tgsvc.notify_volunteer(ticket['assigned_volunteer_id'], f"💬 Получатель {safe_sender}: {safe_text}")
             await message.answer("✅ Сообщение отправлено")
 
         else:
@@ -203,6 +210,13 @@ async def stop_polling():
 
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request):
+    # Verify the shared secret Telegram sends back in the header (configured
+    # via setWebhook's `secret_token`). Without this anyone who finds the URL
+    # can inject fake Updates and impersonate users.
+    if TELEGRAM_WEBHOOK_SECRET:
+        provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if provided != TELEGRAM_WEBHOOK_SECRET:
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
     if USE_POLLING:
         return {"ok": True}   # ignore — polling is active
     bot, dp = _build_bot_and_dp()
@@ -221,7 +235,8 @@ async def telegram_webhook(request: Request):
 # --- Init-link for authenticated users ---
 
 @router.get("/auth/telegram/init-link")
-def init_telegram_link(current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")
+def init_telegram_link(request: Request, current_user: dict = Depends(get_current_user)):
     username = current_user.get("sub")
     if not username:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -238,9 +253,17 @@ def init_telegram_link(current_user: dict = Depends(get_current_user)):
 
     token = secrets.token_urlsafe(24)
     with get_db_cursor() as cur:
-        cur.execute("DELETE FROM telegram_link_tokens WHERE user_id = %s", (user_id,))
+        # UPSERT keeps DELETE+INSERT atomic. Without the unique index two
+        # parallel /init-link calls could each delete the other's row and we'd
+        # end up with two tokens (or one stale token + one live), depending on
+        # interleaving. Now the latest call always wins, in a single statement.
         cur.execute(
-            "INSERT INTO telegram_link_tokens (token, user_id, created_at) VALUES (%s, %s, %s)",
+            """
+            INSERT INTO telegram_link_tokens (token, user_id, created_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE
+              SET token = EXCLUDED.token, created_at = EXCLUDED.created_at
+            """,
             (token, user_id, datetime.now(timezone.utc)),
         )
 

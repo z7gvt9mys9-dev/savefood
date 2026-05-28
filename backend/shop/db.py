@@ -63,6 +63,11 @@ def init_db():
         # rows (which leave shop_id NULL) can be inserted.
         cur.execute("ALTER TABLE notifications ALTER COLUMN shop_id DROP NOT NULL")
 
+        # Hot-path indexes — shop dashboard, lot listing, and the polling WS loop.
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_shop_id ON notifications (shop_id) WHERE shop_id IS NOT NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_lots_shop_status ON lots (shop_id, status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_lots_status ON lots (status)")
+
 def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, lon: Optional[float] = None, city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
         cur.execute(
@@ -86,8 +91,18 @@ def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, 
 
 def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
+        # 'taken' lots stay visible regardless of expiry so the shop can still
+        # confirm transfer even after the 24h cutoff would have hidden them.
         cur.execute(
-            "SELECT * FROM lots WHERE shop_id = %s AND status IN ('active','taken') AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day') ORDER BY created_at DESC",
+            """
+            SELECT * FROM lots
+            WHERE shop_id = %s
+              AND (
+                (status = 'active' AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day'))
+                OR status = 'taken'
+              )
+            ORDER BY created_at DESC
+            """,
             (shop_id,)
         )
         rows = cur.fetchall()
@@ -127,7 +142,7 @@ def release_lot(lot_id: int) -> bool:
         try:
             cur.execute(
                 "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
-                (lot['shop_id'], lot_id, 'lot_released', f'Lot {lot_id} released back to active', datetime.now(timezone.utc)),
+                (lot['shop_id'], lot_id, 'lot_released', f'Лот #{lot_id} снова доступен волонтёрам', datetime.now(timezone.utc)),
             )
         except Exception:
             pass
@@ -135,26 +150,24 @@ def release_lot(lot_id: int) -> bool:
 
 def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
-        lot = cur.fetchone()
-        if not lot:
-            return None
-        if lot["status"] != 'active':
-            return None
-
         taken_at = datetime.now(timezone.utc)
+        # Atomic claim — only one concurrent caller can flip 'active' → 'taken'.
         cur.execute(
-            "UPDATE lots SET status = 'taken', taken_at = %s, taken_by = %s WHERE id = %s",
+            "UPDATE lots SET status = 'taken', taken_at = %s, taken_by = %s WHERE id = %s AND status = 'active'",
             (taken_at, volunteer_name, lot_id),
         )
-
-        cur.execute(
-            "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
-            (lot["shop_id"], lot_id, 'lot_taken', f'Volunteer {volunteer_name} took lot {lot_id}', taken_at),
-        )
+        if cur.rowcount == 0:
+            return None
 
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         updated = cur.fetchone()
+        if not updated:
+            return None
+
+        cur.execute(
+            "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
+            (updated["shop_id"], lot_id, 'lot_taken', f'Волонтёр {volunteer_name} забрал лот #{lot_id}', taken_at),
+        )
         return dict(updated)
 
 def get_history(shop_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
@@ -194,7 +207,7 @@ def get_shop_by_id(shop_id: int) -> Optional[Dict[str, Any]]:
         row = cur.fetchone()
         return dict(row) if row else None
 
-def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float]) -> Optional[Dict[str, Any]]:
+def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM shops WHERE id = %s", (shop_id,))
         shop = cur.fetchone()
@@ -205,10 +218,11 @@ def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: 
         new_contact = contact if contact is not None else shop['contact']
         new_lat = lat if lat is not None else shop['lat']
         new_lon = lon if lon is not None else shop['lon']
+        new_city = city if city is not None else shop.get('city')
 
         cur.execute(
-            "UPDATE shops SET name = %s, contact = %s, lat = %s, lon = %s WHERE id = %s",
-            (new_name, new_contact, new_lat, new_lon, shop_id),
+            "UPDATE shops SET name = %s, contact = %s, lat = %s, lon = %s, city = %s WHERE id = %s",
+            (new_name, new_contact, new_lat, new_lon, new_city, shop_id),
         )
         cur.execute("SELECT * FROM shops WHERE id = %s", (shop_id,))
         updated = cur.fetchone()
@@ -263,7 +277,7 @@ def delete_lot(lot_id: int) -> bool:
         try:
             cur.execute(
                 "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
-                (lot['shop_id'], lot_id, 'lot_removed', f'Lot {lot_id} removed by shop', datetime.now(timezone.utc)),
+                (lot['shop_id'], lot_id, 'lot_removed', f'Лот #{lot_id} удалён магазином', datetime.now(timezone.utc)),
             )
         except Exception:
             pass
@@ -281,7 +295,7 @@ def expire_soon_lots() -> int:
                 cur.execute("UPDATE lots SET status = 'expired' WHERE id = %s", (r['id'],))
                 cur.execute(
                     "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
-                    (r['shop_id'], r['id'], 'lot_expired_soon', f'Lot {r["id"]} marked expired (within 24h)', datetime.now(timezone.utc)),
+                    (r['shop_id'], r['id'], 'lot_expired_soon', f'Лот #{r["id"]} снят: до истечения срока годности менее 24 часов', datetime.now(timezone.utc)),
                 )
             except Exception:
                 pass

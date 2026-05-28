@@ -44,6 +44,14 @@ def init_common_db():
         """)
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT")
+        # One (role, related_id) pair = one account. Admins use related_id IS NULL,
+        # which CREATE UNIQUE … WHERE excludes. Without this two shop accounts could
+        # both point at the same shop_id and receive each other's Telegram messages.
+        cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_users_role_related
+            ON users (role, related_id)
+            WHERE related_id IS NOT NULL
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS telegram_link_tokens (
                 id SERIAL PRIMARY KEY,
@@ -52,6 +60,9 @@ def init_common_db():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # At most one outstanding link token per user — backs the UPSERT in
+        # init_telegram_link so concurrent /init-link calls can't trample each other.
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_telegram_link_tokens_user ON telegram_link_tokens (user_id)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id SERIAL PRIMARY KEY,
@@ -80,6 +91,7 @@ def init_ticket_extensions():
     with get_db_cursor() as cur:
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_volunteer_id INTEGER")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo TEXT")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_assigned_volunteer_id ON tickets (assigned_volunteer_id) WHERE assigned_volunteer_id IS NOT NULL")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS delivery_ratings (
                 ticket_id INTEGER PRIMARY KEY REFERENCES tickets(id) ON DELETE CASCADE,
@@ -89,6 +101,7 @@ def init_ticket_extensions():
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_delivery_ratings_volunteer ON delivery_ratings (volunteer_id)")
 
 def create_user(username, hashed_password, role, related_id=None):
     with get_db_cursor() as cur:

@@ -1,5 +1,5 @@
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 
@@ -10,7 +10,7 @@ class VolunteerCreate(BaseModel):
     lon: Optional[float] = None
     city: Optional[str] = None
     username: Optional[str] = None
-    password: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=8, max_length=128)
 
 
 class VolunteerUpdate(BaseModel):
@@ -62,6 +62,9 @@ class RouteOut(BaseModel):
 class CompletePointRequest(BaseModel):
     volunteer_id: int
     ticket_id: Optional[int] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    qr_code: Optional[str] = None
 
 
 class LocationUpdate(BaseModel):
