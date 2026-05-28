@@ -266,7 +266,15 @@ def _build_bot_and_dp():
         else:
             await message.answer("Пересылка сообщений доступна только волонтёрам и получателям.")
 
-    _bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    import socket
+    from aiogram.client.session.aiohttp import AiohttpSession
+
+    # Force IPv4: Docker often resolves api.telegram.org to an IPv6 address
+    # that aiohttp's TCPConnector can't reach, while httpx falls back to IPv4.
+    session = AiohttpSession()
+    session._connector_init["family"] = socket.AF_INET
+
+    _bot = Bot(token=TELEGRAM_BOT_TOKEN, session=session)
     _dp  = Dispatcher()
     _dp.include_router(bot_router)
     return _bot, _dp
@@ -297,9 +305,8 @@ async def start_polling():
     if bot is None:
         return
 
-    await _register_commands(bot)
-
     async def _run():
+        await _register_commands(bot)
         try:
             logging.info("[telegram] Starting polling for @%s", BOT_NAME)
             await dp.start_polling(bot, handle_signals=False)
