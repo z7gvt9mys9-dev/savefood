@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Needy.css';
 
-const YMAPS_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
+const YMAPS_KEY = import.meta.env.VITE_YANDEX_MAPS_API_KEY || '';
 
 // Yandex balloonContent* renders HTML; escape any interpolated user data.
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -103,7 +103,7 @@ const NeedyDashboard = () => {
   // WebSocket: live notification stream
   useEffect(() => {
     if (!needyId || !user?.token) return;
-    const apiBase = process.env.REACT_APP_API_URL ?? '';
+    const apiBase = import.meta.env.VITE_API_URL ?? '';
     const wsUrl = apiBase
       ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/needy/${needyId}`;

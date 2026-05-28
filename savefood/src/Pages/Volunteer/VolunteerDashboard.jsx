@@ -351,7 +351,7 @@ const VolunteerDashboard = () => {
   const renderMap = () => (
     <div className="volunteer-tab">
       <div className="map-container-mobile">
-        <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY }}>
+        <YMaps query={{ apikey: import.meta.env.VITE_YANDEX_MAPS_API_KEY }}>
           <Map defaultState={{ center: [55.75, 37.62], zoom: 12 }} width="100%" height="100%">
             {mapData.shops.map(s => s.lat && s.lon && (
               <Placemark
@@ -437,7 +437,7 @@ const VolunteerDashboard = () => {
       ) : (
         <>
           <div className="map-container-mobile mini-map">
-            <YMaps query={{ apikey: process.env.REACT_APP_YANDEX_MAPS_API_KEY, load: 'package.full' }}>
+            <YMaps query={{ apikey: import.meta.env.VITE_YANDEX_MAPS_API_KEY, load: 'package.full' }}>
               <RouteMapView points={points} />
             </YMaps>
           </div>

@@ -50,9 +50,9 @@ services:
       context: ./savefood
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ""
-        REACT_APP_YANDEX_MAPS_API_KEY: ${REACT_APP_YANDEX_MAPS_API_KEY:-}
-        REACT_APP_YANDEX_SUGGEST_API_KEY: ${REACT_APP_YANDEX_SUGGEST_API_KEY:-}
+        VITE_API_URL: ""
+        VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
+        VITE_YANDEX_SUGGEST_API_KEY: ${VITE_YANDEX_SUGGEST_API_KEY:-}
     restart: unless-stopped
     ports:
       - "${APP_PORT:-80}:80"

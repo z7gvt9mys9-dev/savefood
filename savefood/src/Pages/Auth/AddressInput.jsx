@@ -19,8 +19,8 @@ const labelStyle = {
   color: '#ccc',
 };
 
-const SUGGEST_KEY = process.env.REACT_APP_YANDEX_SUGGEST_API_KEY || '';
-const GEOCODER_KEY = process.env.REACT_APP_YANDEX_MAPS_API_KEY || '';
+const SUGGEST_KEY = import.meta.env.VITE_YANDEX_SUGGEST_API_KEY || '';
+const GEOCODER_KEY = import.meta.env.VITE_YANDEX_MAPS_API_KEY || '';
 
 const EMPTY_COORDS = { lat: null, lon: null, city: null };
 
