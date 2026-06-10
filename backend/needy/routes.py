@@ -4,6 +4,8 @@ from typing import List, Optional
 import os
 import json as json_mod
 import asyncio
+import psycopg2.errors
+from datetime import datetime, timezone
 from collections import defaultdict
 
 # Per-needy WebSocket connection counter. A logged-in user can open at most
@@ -28,13 +30,25 @@ UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 @router.post("/needy/register")
 @limiter.limit("5/minute")
 def register_needy(request: Request, payload: schemas.NeedyCreate):
-    needy_id = db.create_needy(payload.name, payload.contact)
-    if payload.username and payload.password:
-        hashed = auth.get_password_hash(payload.password)
-        try:
-            create_user(payload.username, hashed, "needy", needy_id)
-        except Exception:
-            raise HTTPException(status_code=409, detail="Username already taken")
+    # An account is mandatory: a needy row without credentials can never log in
+    # or create tickets, so silently creating one just strands the person.
+    if not payload.username or not payload.password:
+        raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    hashed = auth.get_password_hash(payload.password)
+    # Single transaction: if the username is taken, the needy row rolls back too.
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO needy (name, contact, created_at) VALUES (%s, %s, %s) RETURNING id",
+                (payload.name, payload.contact, datetime.now(timezone.utc)),
+            )
+            needy_id = cur.fetchone()['id']
+            cur.execute(
+                "INSERT INTO users (username, hashed_password, role, related_id) VALUES (%s, %s, %s, %s)",
+                (payload.username, hashed, "needy", needy_id),
+            )
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": needy_id}
 
 
@@ -314,7 +328,14 @@ async def ws_needy(websocket: WebSocket, needy_id: int):
                 last_id = row["id"]
                 await websocket.send_json({"id": row["id"], "type": row["type"], "payload": row["payload"]})
 
-            await asyncio.sleep(3)
+            # Wait ~3s between polls *on the socket itself* instead of sleeping:
+            # receive() raises WebSocketDisconnect the moment the client goes
+            # away. A plain sleep never notices the disconnect (we only write),
+            # so dead loops would pile up and exhaust MAX_WS_PER_USER forever.
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=3)
+            except asyncio.TimeoutError:
+                pass
     except WebSocketDisconnect:
         pass
     except Exception:

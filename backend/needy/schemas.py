@@ -49,6 +49,8 @@ class TicketOut(BaseModel):
     floor_num: Optional[str]
     entrance: Optional[str]
     self_pickup: Optional[bool] = None
+    delivery_photo: Optional[str] = None
+    rating: Optional[int] = None  # joined from delivery_ratings in history
 
 
 class NotificationOut(BaseModel):

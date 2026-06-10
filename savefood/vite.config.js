@@ -4,7 +4,9 @@ import path from 'path';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  const backend = env.VITE_API_URL || 'http://localhost:8000';
+  // 127.0.0.1 (not localhost): Node 17+ may resolve localhost to ::1 first,
+  // while uvicorn binds IPv4 only — the proxy would 502 on every API call.
+  const backend = env.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const apiProxy = { target: backend, changeOrigin: true };
   const wsProxy = {
@@ -35,6 +37,7 @@ export default defineConfig(({ mode }) => {
         '^/stats$': apiProxy,
         '^/uploads/': apiProxy,
         '^/needy_uploads/': apiProxy,
+        '^/volunteer_uploads/': apiProxy,
         '^/telegram/': apiProxy,
         '^/ws/': wsProxy,
       },

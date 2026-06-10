@@ -37,13 +37,21 @@ services:
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
+      # true = long-polling (default), false = webhook via /telegram/webhook
+      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-true}
       SITE_URL: ${SITE_URL:-http://localhost}
       VLESS_URL: ${VLESS_URL:-}
       CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be set (no wildcards in production)}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      # Telegram chat id of the support team for route-timeout alerts (§22.3)
+      SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
+      # Timezone used to interpret recipients' available_time windows
+      LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
     volumes:
       - shop_uploads:/app/backend/shop/uploads
       - needy_uploads:/app/backend/needy/uploads
+      # without this volume delivery photos are lost on every container rebuild
+      - volunteer_uploads:/app/backend/volunteer/uploads
 
   frontend:
     build:
@@ -63,3 +71,4 @@ volumes:
   postgres_data:
   shop_uploads:
   needy_uploads:
+  volunteer_uploads:

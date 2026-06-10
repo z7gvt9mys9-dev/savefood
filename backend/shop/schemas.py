@@ -83,3 +83,7 @@ class ShopUpdate(BaseModel):
     lat: Optional[float] = None
     lon: Optional[float] = None
     city: Optional[str] = None
+
+
+class SelfPickupConfirm(BaseModel):
+    code: str  # the recipient's QR payload, e.g. "SF-42"

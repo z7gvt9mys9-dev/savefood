@@ -244,8 +244,10 @@ def _build_bot_and_dp():
                 return
             safe_sender = html.escape(sender_name or "")
             safe_text = html.escape(text)
+            # notify_* uses a blocking httpx client (timeout up to 10s) — run it
+            # off the event loop so the bot and FastAPI websockets don't stall.
             for nid in set(needy_ids):
-                tgsvc.notify_needy(nid, f"💬 Волонтёр {safe_sender}: {safe_text}")
+                await asyncio.to_thread(tgsvc.notify_needy, nid, f"💬 Волонтёр {safe_sender}: {safe_text}")
             await message.answer("✅ Сообщение отправлено")
 
         elif role == 'needy':
@@ -260,7 +262,7 @@ def _build_bot_and_dp():
                 return
             safe_sender = html.escape(sender_name or "")
             safe_text = html.escape(text)
-            tgsvc.notify_volunteer(ticket['assigned_volunteer_id'], f"💬 Получатель {safe_sender}: {safe_text}")
+            await asyncio.to_thread(tgsvc.notify_volunteer, ticket['assigned_volunteer_id'], f"💬 Получатель {safe_sender}: {safe_text}")
             await message.answer("✅ Сообщение отправлено")
 
         else:

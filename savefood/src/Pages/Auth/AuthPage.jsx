@@ -44,6 +44,29 @@ const AuthPage = () => {
 
   const [agreed, setAgreed] = useState(false);
 
+  // The «Далее» button on needy step 1 is not a form submit, so the browser's
+  // required-field validation never fires — check by hand, otherwise the final
+  // submit registers a needy with an empty username/password (no account).
+  const validateNeedyStep1 = () => {
+    if (!formData.name || !formData.phone || !formData.password) {
+      alert(t('auth.fill_required'));
+      return;
+    }
+    if (formData.password.length < 8) {
+      alert(t('auth.password_min'));
+      return;
+    }
+    if (!formData.document) {
+      alert(t('auth.document_required'));
+      return;
+    }
+    if (!agreed) {
+      alert(t('auth.agree_required'));
+      return;
+    }
+    setStep(2);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isLogin && !agreed) {
@@ -73,7 +96,7 @@ const AuthPage = () => {
           body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, city: formData.city, username: formData.email, password: formData.password };
         } else if (role === 'volunteer') {
           endpoint = `${API_URL}/volunteers/register`;
-          body = { name: formData.name, contact: formData.phone, city: formData.city, username: formData.phone, password: formData.password };
+          body = { name: formData.name, contact: formData.phone, city: formData.city, lat: formData.lat, lon: formData.lon, username: formData.phone, password: formData.password };
         } else {
           endpoint = `${API_URL}/needy/register`;
           body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
@@ -194,7 +217,7 @@ const AuthPage = () => {
       <input type="text" name="legalData" placeholder={t('auth.legal')} onChange={handleInputChange} required />
       <input type="text" name="contact" placeholder={t('auth.contact')} onChange={handleInputChange} required />
       <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
-      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
+      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} minLength={8} required />
 
       <AddressInput
         label={t('auth.address')}
@@ -219,7 +242,7 @@ const AuthPage = () => {
       <h2>{t('auth.register')}: {t('auth.role_volunteer')}</h2>
       <input type="text" name="name" placeholder={t('auth.name')} onChange={handleInputChange} required />
       <input type="tel" name="phone" placeholder={t('auth.phone')} onChange={handleInputChange} required />
-      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
+      <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} minLength={8} required />
 
       <AddressInput
         label={t('volunteer.your_city')}
@@ -247,7 +270,7 @@ const AuthPage = () => {
           <p className="subtitle">{t('auth.needy_step1_subtitle')}</p>
           <input type="text" name="name" placeholder={t('auth.full_name')} onChange={handleInputChange} required />
           <input type="tel" name="phone" placeholder={t('auth.phone_number')} onChange={handleInputChange} required />
-          <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} required />
+          <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} minLength={8} required />
 
           <div className="file-upload">
             <label>{t('auth.document_status')}</label>
@@ -261,7 +284,7 @@ const AuthPage = () => {
             </label>
           </div>
 
-          <button onClick={() => setStep(2)} className="btn btn-primary">{t('auth.next')}</button>
+          <button onClick={validateNeedyStep1} className="btn btn-primary">{t('auth.next')}</button>
           <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
         </div>
       );

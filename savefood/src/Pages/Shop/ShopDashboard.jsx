@@ -29,6 +29,8 @@ const ShopDashboard = () => {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [tgLink, setTgLink] = useState(null);
   const [tgLoading, setTgLoading] = useState(false);
+  const [pickupCode, setPickupCode] = useState('');
+  const [pickupBusy, setPickupBusy] = useState(false);
 
   const [newLot, setNewLot] = useState({
     description: '',
@@ -67,12 +69,28 @@ const ShopDashboard = () => {
     fetchShopData();
   }, [shopId]);
 
+  // Opening the notifications tab marks everything as read — otherwise the
+  // unread badge only ever grows (the read endpoint was never called).
+  useEffect(() => {
+    if (activeTab !== 'notifications' || !shopId) return;
+    const unread = notifications.filter(n => !n.read);
+    if (unread.length === 0) return;
+    unread.forEach(n => {
+      fetch(`${API_URL}/shops/notifications/${n.id}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      }).catch(() => {});
+    });
+    setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
+  }, [activeTab, shopId]);
+
   const handleCreateLot = async (e) => {
     e.preventDefault();
     if (!shopId) { alert(t('shop.error_no_shop')); return; }
     const fd = new FormData();
     fd.append('description', newLot.description);
     fd.append('quantity', String(newLot.quantity));
+    if (newLot.category) fd.append('category', newLot.category);
     if (newLot.expiry_date) fd.append('expiry_date', newLot.expiry_date.split('T')[0]);
     if (newLot.address) fd.append('address', newLot.address);
     if (newLot.time_slot) fd.append('time_slot', newLot.time_slot);
@@ -96,6 +114,32 @@ const ShopDashboard = () => {
       setActiveTab('active');
     } catch {
       alert(t('common.connection_error'));
+    }
+  };
+
+  // Close a self-pickup ticket by the recipient's QR/code (SF-<id>). Without
+  // this, self-pickup tickets stay open forever and block new requests.
+  const handleConfirmSelfPickup = async (e) => {
+    e.preventDefault();
+    if (!pickupCode.trim()) return;
+    setPickupBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/self_pickup/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify({ code: pickupCode.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.detail || t('common.error'));
+        return;
+      }
+      alert(t('shop.self_pickup_done'));
+      setPickupCode('');
+    } catch {
+      alert(t('common.connection_error'));
+    } finally {
+      setPickupBusy(false);
     }
   };
 
@@ -161,17 +205,33 @@ const ShopDashboard = () => {
           <span className="stat-label">{t('shop.active_lots')}</span>
         </div>
         <div className="stat-box">
-          <span className="stat-value">{history.reduce((acc, l) => acc + (l.quantity || 0), 0)} {t('shop.kg')}</span>
+          {/* only lots actually handed over count as "saved" — not expired/removed */}
+          <span className="stat-value">{history.filter(l => l.status === 'taken' || l.status === 'confirmed').reduce((acc, l) => acc + (l.quantity || 0), 0)} {t('shop.kg')}</span>
           <span className="stat-label">{t('shop.saved_food')}</span>
         </div>
         <div className="stat-box">
-          <span className="stat-value">{history.length}</span>
+          <span className="stat-value">{history.filter(l => l.status === 'taken' || l.status === 'confirmed').length}</span>
           <span className="stat-label">{t('shop.completed')}</span>
         </div>
       </div>
       <div className="info-section">
         <h3>{t('shop.your_status')}: {t('shop.status_active')}</h3>
-        <p>{t('common.address')}: {shopInfo.address || '—'}</p>
+        <p>{t('common.address')}: {shopInfo.city || shopInfo.contact || '—'}</p>
+      </div>
+      <div className="info-section">
+        <h3>{t('shop.self_pickup_title')}</h3>
+        <form onSubmit={handleConfirmSelfPickup} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            placeholder={t('shop.self_pickup_placeholder')}
+            value={pickupCode}
+            onChange={(e) => setPickupCode(e.target.value)}
+            style={{ flex: 1, minWidth: 160 }}
+          />
+          <button type="submit" className="btn btn-primary" disabled={pickupBusy || !pickupCode.trim()}>
+            {pickupBusy ? t('common.loading') : t('shop.self_pickup_confirm')}
+          </button>
+        </form>
       </div>
       <div className="tg-connect-section">
         <h3>{t('shop.telegram_title')}</h3>

@@ -77,6 +77,18 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  // Documents live behind the auth-checked /needy/{id}/document endpoint
+  // (the public /needy_uploads mount was removed on purpose), and a plain
+  // <a href> can't send the Authorization header — fetch as blob instead.
+  const handleViewDocument = async (needyId) => {
+    try {
+      const res = await fetch(`${API_URL}/needy/${needyId}/document`, { headers: authHeader });
+      if (!res.ok) { alert(t('common.error')); return; }
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch { alert(t('common.error')); }
+  };
+
   const handleBlockUser = async (userId, isBlocked) => {
     const action = isBlocked ? 'unblock' : 'block';
     if (!window.confirm(isBlocked ? t('admin.confirm_unblock') : t('admin.confirm_block'))) return;
@@ -107,7 +119,7 @@ const AdminPanel = () => {
             <tr key={item.id}>
               <td>{item.name}</td>
               <td>{item.contact || '—'}</td>
-              <td>{item.document ? <a href={`${API_URL}/needy_uploads/${item.document.split('/').pop()}`} target="_blank" rel="noreferrer">{t('admin.view_doc')}</a> : '—'}</td>
+              <td>{item.document ? <button className="btn-small" onClick={() => handleViewDocument(item.id)}>{t('admin.view_doc')}</button> : '—'}</td>
               <td>
                 <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>{t('admin.approve')}</button>
                 <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>{t('admin.reject')}</button>

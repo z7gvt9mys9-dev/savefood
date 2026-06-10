@@ -121,7 +121,10 @@
     "dietary_prefs": "Dietary restrictions or preferences",
     "urgency_label": "Request urgency",
     "limit_notice": "Assistance can be received no more than once a week.",
-    "finish_register": "Complete registration"
+    "finish_register": "Complete registration",
+    "fill_required": "Please fill in your name, phone and password",
+    "password_min": "Password must be at least 8 characters",
+    "document_required": "Please attach a document confirming your status"
   },
   "common": {
     "save": "Save",
@@ -218,7 +221,11 @@
     "error_delete": "Failed to delete lot",
     "confirm_delete": "Delete lot?",
     "error_tg": "Failed to generate link",
-    "comment": "Comment"
+    "comment": "Comment",
+    "self_pickup_title": "Self-pickup confirmation",
+    "self_pickup_placeholder": "Recipient code, e.g. SF-42",
+    "self_pickup_confirm": "Confirm hand-over",
+    "self_pickup_done": "Self-pickup confirmed — request closed"
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",

@@ -4,6 +4,7 @@ import json
 import math
 import logging
 import os
+import psycopg2.errors
 
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
@@ -32,25 +33,44 @@ LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
 router = APIRouter()
 
 
-def _require_route_owner(route_id: int, current_user: dict):
-    """Return the route if the authenticated volunteer owns it (or admin), else 404/403."""
+def _require_route_owner(route_id: int, current_user: dict, require_active: bool = False):
+    """Return the route if the authenticated volunteer owns it (or admin), else 404/403.
+
+    With require_active=True the route must still be 'in_progress' — a timed-out or
+    finished route must not be able to fulfil tickets that may already belong to
+    another volunteer's route."""
     route = vdb.get_route_by_id(route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Route not found")
     ensure_owner_or_admin(current_user, "volunteer", route["volunteer_id"])
+    if require_active and route.get("status") != "in_progress":
+        raise HTTPException(status_code=400, detail="Маршрут уже завершён или сброшен")
     return route
 
 
 @router.post("/volunteers/register")
 @limiter.limit("5/minute")
 def register(request: Request, vol: vschemas.VolunteerCreate):
-    vid = vdb.create_volunteer(vol.name, vol.contact, vol.lat, vol.lon, vol.city)
-    if vol.username and vol.password:
-        hashed = get_password_hash(vol.password)
-        try:
-            create_user(vol.username, hashed, "volunteer", vid)
-        except Exception:
-            raise HTTPException(status_code=409, detail="Username already taken")
+    # An account is mandatory: a volunteer row without credentials is unusable
+    # (every dashboard endpoint requires a login bound to related_id).
+    if not vol.username or not vol.password:
+        raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    hashed = get_password_hash(vol.password)
+    # Single transaction: if the username is taken, the volunteer row rolls back
+    # too — no orphaned volunteers on 409.
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                "INSERT INTO volunteers (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (vol.name, vol.contact, vol.lat, vol.lon, vol.city, datetime.now(timezone.utc)),
+            )
+            vid = cur.fetchone()['id']
+            cur.execute(
+                "INSERT INTO users (username, hashed_password, role, related_id) VALUES (%s, %s, %s, %s)",
+                (vol.username, hashed, "volunteer", vid),
+            )
+    except psycopg2.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": vid}
 
 
@@ -187,10 +207,21 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     if shop['lat'] is None or shop['lon'] is None:
         raise HTTPException(status_code=400, detail="Shop has no coordinates")
 
-    # collect open tickets with coords, excluding self-pickup tickets.
+    # collect open delivery tickets for THIS shop's lots only (§3.2: the recipient
+    # picked a concrete shop/lot, so the volunteer must go where the chosen goods are).
     # Read-only here; the actual claim happens later inside the transactional block.
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL AND (self_pickup IS NULL OR self_pickup = FALSE)")
+        cur.execute(
+            """
+            SELECT t.* FROM tickets t
+            JOIN lots l ON l.id = t.lot_id
+            WHERE t.status = 'open'
+              AND t.lat IS NOT NULL AND t.lon IS NOT NULL
+              AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)
+              AND l.shop_id = %s
+            """,
+            (lot['shop_id'],),
+        )
         tickets = [dict(r) for r in cur.fetchall()]
 
     # filter by available_time (only include tickets where needy is at home now or not specified)
@@ -372,7 +403,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 @router.post("/volunteers/route/{route_id}/complete_point")
 def complete_point(route_id: int, payload: vschemas.CompletePointRequest, current_user: dict = Depends(get_current_user)):
     # verify route ownership against the authenticated user (not client-supplied id)
-    route = _require_route_owner(route_id, current_user)
+    route = _require_route_owner(route_id, current_user, require_active=True)
     route_volunteer_id = route["volunteer_id"]
 
     # parse points and find target point
@@ -543,7 +574,7 @@ def get_volunteer_rating(volunteer_id: int, current_user: dict = Depends(get_cur
 
 @router.post("/volunteers/route/{route_id}/finish")
 def finish_route(route_id: int, payload: vschemas.FinishRouteRequest, current_user: dict = Depends(get_current_user)):
-    route = _require_route_owner(route_id, current_user)
+    route = _require_route_owner(route_id, current_user, require_active=True)
 
     # release any assigned but uncompleted tickets back to open
     try:
@@ -564,7 +595,7 @@ def finish_route(route_id: int, payload: vschemas.FinishRouteRequest, current_us
 
 @router.post("/volunteers/route/{route_id}/attempt_delivery")
 def attempt_delivery(route_id: int, payload: vschemas.CompletePointRequest, current_user: dict = Depends(get_current_user)):
-    route = _require_route_owner(route_id, current_user)
+    route = _require_route_owner(route_id, current_user, require_active=True)
 
     try:
         points = json.loads(route['points'])

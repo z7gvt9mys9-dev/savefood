@@ -1,4 +1,5 @@
 import os
+import psycopg2.errors
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from backend.database import get_db_cursor
@@ -89,6 +90,22 @@ def init_db():
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS lat REAL")
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS lon REAL")
 
+    # One active (open/assigned) ticket per needy, enforced by the DB so two
+    # parallel create_ticket calls can't both pass the SELECT-then-INSERT check.
+    # Separate cursor: if legacy data already violates the constraint, we log and
+    # keep the app booting instead of crashing on startup.
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_tickets_one_active_per_needy
+                ON tickets (needy_id)
+                WHERE status IN ('open', 'assigned')
+                """
+            )
+    except Exception as e:
+        print(f"Warning: could not create uq_tickets_one_active_per_needy (duplicate active tickets in DB?): {e}")
+
 def create_needy(name: str, contact: Optional[str]) -> int:
     with get_db_cursor() as cur:
         cur.execute(
@@ -129,10 +146,14 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
         if cur.fetchone():
             raise TicketCreateError("active_ticket_exists")
 
-        cur.execute(
-            "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
-            (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, datetime.now(timezone.utc)),
-        )
+        try:
+            cur.execute(
+                "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
+                (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, datetime.now(timezone.utc)),
+            )
+        except psycopg2.errors.UniqueViolation:
+            # uq_tickets_one_active_per_needy: a parallel request won the race
+            raise TicketCreateError("active_ticket_exists")
         tid = cur.fetchone()['id']
         return tid
 
@@ -144,8 +165,15 @@ def get_tickets_by_needy_id(needy_id: int) -> List[Dict[str, Any]]:
 
 def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
+        # rating joined in so a saved star rating survives page reloads
         cur.execute(
-            "SELECT * FROM tickets WHERE needy_id = %s AND status IN ('assigned','fulfilled') ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            """
+            SELECT t.*, dr.rating
+            FROM tickets t
+            LEFT JOIN delivery_ratings dr ON dr.ticket_id = t.id
+            WHERE t.needy_id = %s AND t.status IN ('assigned','fulfilled')
+            ORDER BY t.created_at DESC LIMIT %s OFFSET %s
+            """,
             (needy_id, limit, offset)
         )
         rows = cur.fetchall()

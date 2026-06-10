@@ -116,6 +116,14 @@ def upgrade() -> None:
         )
     """)
 
+    # One active (open/assigned) ticket per needy — closes the race where two
+    # parallel create_ticket calls both pass the SELECT-then-INSERT check.
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_tickets_one_active_per_needy
+        ON tickets (needy_id)
+        WHERE status IN ('open', 'assigned')
+    """)
+
     op.execute("""
         CREATE TABLE IF NOT EXISTS volunteers (
             id SERIAL PRIMARY KEY,
@@ -137,6 +145,7 @@ def upgrade() -> None:
             status TEXT NOT NULL DEFAULT 'in_progress',
             lot_id INTEGER,
             started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_activity_at TIMESTAMP WITH TIME ZONE,
             finished_at TIMESTAMP WITH TIME ZONE
         )
     """)

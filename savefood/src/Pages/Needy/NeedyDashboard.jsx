@@ -97,6 +97,30 @@ const NeedyDashboard = () => {
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
 
+    // Restore the active ticket after a page reload — otherwise the QR code is
+    // gone (delivery can't be confirmed) and the ticket can't be cancelled,
+    // while the weekly "one active ticket" rule blocks creating a new one.
+    fetch(`${API_URL}/needy/${needyId}/tickets`, {
+      headers: { Authorization: `Bearer ${user?.token}` },
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(list => {
+        if (!Array.isArray(list)) return;
+        const active = list.find(x => x.status === 'open' || x.status === 'assigned');
+        if (!active) return;
+        setActiveOrder(prev => prev || {
+          ticketId: active.id,
+          selfPickup: !!active.self_pickup,
+          description: active.items,
+          address: active.address,
+          shopName: t('needy.shop_name_default'),
+          status: 'picking',
+          assigned_volunteer_id: active.assigned_volunteer_id,
+          ticketStatus: active.status,
+        });
+      })
+      .catch(() => {});
+
     loadHistory(0);
   }, [needyId]);
 
@@ -126,9 +150,13 @@ const NeedyDashboard = () => {
           const data = JSON.parse(e.data);
           if (data.type === 'ready') return;
           if (typeof data.id === 'number') lastSeenId = Math.max(lastSeenId ?? 0, data.id);
-          setNotifications(prev => [{
-            id: data.id ?? Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
-          }, ...prev]);
+          setNotifications(prev => {
+            // dedupe against the initial REST fetch and replayed-on-reconnect rows
+            if (data.id != null && prev.some(x => x.id === data.id)) return prev;
+            return [{
+              id: data.id ?? Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
+            }, ...prev];
+          });
         } catch {}
       };
       ws.onclose = () => { reconnectTimer = setTimeout(connect, 5000); };
@@ -489,10 +517,20 @@ const NeedyDashboard = () => {
             </>
           ) : (
             <>
-              <div className="status-stepper">
-                <div className={`step ${activeOrder.status === 'picking' ? 'active' : ''}`}>{t('needy.step_collecting')}</div>
-                <div className={`step ${activeOrder.status === 'delivering' ? 'active' : ''}`}>{t('needy.step_delivering')}</div>
-              </div>
+              {(() => {
+                // 'delivering' once the volunteer pressed «Забрал» at the shop
+                // (volunteer_en_route notification) or live location is streaming;
+                // before that, with a volunteer assigned, they are still collecting.
+                const enRoute = !!volunteerLocation?.lat || notifications.some(n =>
+                  n.type === 'volunteer_en_route' && (n.payload || '').includes(`тикет ${activeOrder.ticketId}`));
+                const phase = enRoute ? 'delivering' : 'picking';
+                return (
+                  <div className="status-stepper">
+                    <div className={`step ${phase === 'picking' ? 'active' : ''}`}>{t('needy.step_collecting')}</div>
+                    <div className={`step ${phase === 'delivering' ? 'active' : ''}`}>{t('needy.step_delivering')}</div>
+                  </div>
+                );
+              })()}
 
               {volunteerLocation?.lat && (
                 <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
@@ -541,6 +579,21 @@ const NeedyDashboard = () => {
   );
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Opening the notifications tab marks everything as read — otherwise the
+  // unread badge only ever grows (the read endpoint was never called).
+  useEffect(() => {
+    if (activeTab !== 'notifications' || !needyId) return;
+    const unread = notifications.filter(n => !n.read);
+    if (unread.length === 0) return;
+    unread.forEach(n => {
+      fetch(`${API_URL}/needy/notifications/${n.id}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      }).catch(() => {});
+    });
+    setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
+  }, [activeTab, needyId]);
 
   const renderNotifications = () => (
     <div className="tab-content">

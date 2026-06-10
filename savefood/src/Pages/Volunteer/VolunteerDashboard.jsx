@@ -128,6 +128,9 @@ const VolunteerDashboard = () => {
   const locationWatchRef = useRef(null);
   const locationIntervalRef = useRef(null);
   const qrScannerRef = useRef(null);
+  // The scanner effect only depends on `scanning`, so its decode callback would
+  // capture a stale nextTicket if the route updates mid-scan — read via ref.
+  const nextTicketRef = useRef(null);
 
   const stopScanner = useCallback(() => {
     if (qrScannerRef.current) {
@@ -146,12 +149,13 @@ const VolunteerDashboard = () => {
       { fps: 10, qrbox: 250 },
       async (decodedText) => {
         stopScanner();
+        const current = nextTicketRef.current;
         const match = decodedText.match(/^SF-(\d+)$/);
-        if (match && nextTicket && parseInt(match[1]) === nextTicket.ticket_id) {
-          await handleCompletePoint(nextTicket.ticket_id, { qrCode: decodedText });
+        if (match && current && parseInt(match[1]) === current.ticket_id) {
+          await handleCompletePoint(current.ticket_id, { qrCode: decodedText });
           setScanning(false);
         } else {
-          alert(t('volunteer.error_qr', { id: nextTicket?.ticket_id ?? '?' }));
+          alert(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
           setScanning(false);
         }
       },
@@ -328,6 +332,7 @@ const VolunteerDashboard = () => {
   const isShopDone = shopPoint?.done ?? false;
   const pendingTickets = points.filter(p => p.kind === 'ticket' && !p.done);
   const nextTicket = pendingTickets[0] || null;
+  nextTicketRef.current = nextTicket;
 
   const checkGPS = async () => {
     if (!nextTicket?.lat || !nextTicket?.lon) { setGpsStatus('ok'); return 'ok'; }

@@ -33,6 +33,9 @@ def init_db():
             )
             """
         )
+        # Reassign-timeout is measured from the last completed point, not route
+        # start — a long multi-stop route must not be killed mid-delivery.
+        cur.execute("ALTER TABLE volunteer_routes ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP WITH TIME ZONE")
 
         cur.execute(
             """
@@ -82,9 +85,11 @@ def get_notification_by_id(notification_id: int) -> Optional[Dict[str, Any]]:
         return dict(row) if row else None
 
 def needy_has_volunteer(needy_id: int, volunteer_id: int) -> bool:
+    # Only an ACTIVE assignment grants access to the volunteer's live location;
+    # once the ticket is fulfilled/released, tracking must stop (privacy).
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT 1 FROM tickets WHERE needy_id = %s AND assigned_volunteer_id = %s LIMIT 1",
+            "SELECT 1 FROM tickets WHERE needy_id = %s AND assigned_volunteer_id = %s AND status = 'assigned' LIMIT 1",
             (needy_id, volunteer_id),
         )
         return cur.fetchone() is not None
@@ -156,7 +161,10 @@ def get_active_route(volunteer_id: int) -> Optional[Dict[str, Any]]:
 
 def update_route_points(route_id: int, points_json: str):
     with get_db_cursor() as cur:
-        cur.execute("UPDATE volunteer_routes SET points = %s WHERE id = %s", (points_json, route_id))
+        cur.execute(
+            "UPDATE volunteer_routes SET points = %s, last_activity_at = %s WHERE id = %s",
+            (points_json, datetime.now(timezone.utc), route_id),
+        )
 
 def update_volunteer_location(vol_id: int, lat: float, lon: float):
     with get_db_cursor() as cur:

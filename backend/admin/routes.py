@@ -73,10 +73,11 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
                     )
         except Exception:
             pass
-        # release lot
+        # release lot — but only if it is still 'taken'; a lot the shop already
+        # confirmed as handed over must not reappear on the map
         if route.get('lot_id'):
             cur.execute(
-                "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s",
+                "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s AND status = 'taken'",
                 (route['lot_id'],)
             )
         cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = %s", (route_id,))

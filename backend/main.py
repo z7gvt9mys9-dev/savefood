@@ -69,8 +69,11 @@ async def startup():
         while True:
             try:
                 with get_db_cursor() as cur:
+                    # Inactivity timeout: measured from the last completed point
+                    # (last_activity_at), not route start — long multi-stop routes
+                    # with an active volunteer must not be reset mid-delivery.
                     cur.execute(
-                        "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND started_at <= CURRENT_TIMESTAMP - INTERVAL '%s minutes'",
+                        "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP - INTERVAL '%s minutes'",
                         (timeout_minutes,)
                     )
                     rows = cur.fetchall()
@@ -90,7 +93,9 @@ async def startup():
                         try:
                             lot_id = row.get('lot_id')
                             if lot_id:
-                                cur.execute("UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s", (lot_id,))
+                                # Only revive lots still 'taken' — a lot the shop already
+                                # confirmed as handed over must not reappear on the map.
+                                cur.execute("UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s AND status = 'taken'", (lot_id,))
                         except Exception:
                             pass
 
