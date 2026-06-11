@@ -131,6 +131,12 @@ YANDEX_CLIENT_ID=...
 YANDEX_CLIENT_SECRET=...
 OAUTH_PUBLIC_URL=                        # база для redirect_uri (по умолчанию SITE_URL)
 
+# Фоновые задачи и кэш
+# embedded (default) = циклы в API-процессе; external = отдельный контейнер worker
+# (docker-compose уже настроен: backend=external + сервис worker); off = выключено
+BACKGROUND_TASKS=embedded
+REDIS_URL=                               # redis://host:6379/0; пусто = кэш выключен (no-op)
+
 # Прочее
 LOCAL_TZ=Asia/Almaty                     # часовой пояс окон available_time
 APP_PORT=80
