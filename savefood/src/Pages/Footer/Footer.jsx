@@ -71,8 +71,16 @@ const Footer = () => {
               <h4>{t('footer.company')}</h4>
               <ul>
                 <li><a href="/about"          onClick={handleHashLink('/about', '')}>{t('footer.about')}</a></li>
+                <li><Link to="/impact">{t('footer.impact')}</Link></li>
                 <li><a href="/about#contacts" onClick={handleHashLink('/about', 'contacts')}>{t('footer.contacts')}</a></li>
                 <li><a href="/about#faq"      onClick={handleHashLink('/about', 'faq')}>{t('footer.faq')}</a></li>
+              </ul>
+            </div>
+            <div className="link-group">
+              <h4>{t('footer.legal')}</h4>
+              <ul>
+                <li><Link to="/terms">{t('footer.terms')}</Link></li>
+                <li><Link to="/privacy">{t('footer.privacy')}</Link></li>
               </ul>
             </div>
           </div>

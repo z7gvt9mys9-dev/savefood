@@ -31,6 +31,7 @@ const ShopDashboard = () => {
   const [pickupCode, setPickupCode] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [forecast, setForecast] = useState(null);
   // OCR receipt flow: upload photo → review parsed lot drafts → confirm
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
@@ -75,6 +76,11 @@ const ShopDashboard = () => {
     fetch(`${API_URL}/shops/${shopId}/plan`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setPlan(data && data.plan ? data : null))
+      .catch(() => {});
+
+    fetch(`${API_URL}/shops/${shopId}/forecast`, { headers: authHeader })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => setForecast(data))
       .catch(() => {});
   };
 
@@ -305,6 +311,31 @@ const ShopDashboard = () => {
         <h3>{t('shop.your_status')}: {t('shop.status_active')}</h3>
         <p>{t('common.address')}: {shopInfo.city || shopInfo.contact || '—'}</p>
       </div>
+      {forecast && (forecast.today.items.length > 0 || forecast.tomorrow.items.length > 0) && (
+        <div className="info-section">
+          <h3>📈 {t('shop.forecast_title')}</h3>
+          <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>
+            {t('shop.forecast_hint', { weeks: forecast.basis_weeks })}
+          </p>
+          {[['today', forecast.today], ['tomorrow', forecast.tomorrow]].map(([key, day]) => (
+            day.items.length > 0 && (
+              <div key={key} style={{ marginTop: 8 }}>
+                <strong>{t(`shop.forecast_${key}`)} ({day.day_name}):</strong>
+                <ul style={{ margin: '4px 0 0 18px' }}>
+                  {day.items.map(item => (
+                    <li key={item.category}>
+                      {item.category} — ~{item.avg_kg} {t('shop.kg')}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          ))}
+          <button className="btn-small" style={{ marginTop: 10 }} onClick={() => setActiveTab('create')}>
+            {t('shop.forecast_cta')}
+          </button>
+        </div>
+      )}
       <div className="info-section">
         <h3>{t('shop.self_pickup_title')}</h3>
         <form onSubmit={handleConfirmSelfPickup} style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

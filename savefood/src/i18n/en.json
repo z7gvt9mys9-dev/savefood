@@ -251,7 +251,12 @@
     "esg_methodology": "Methodology",
     "plan_label": "Plan",
     "plan_current": "Current plan",
-    "plan_upgrade_hint": "This feature is available on the Pro plan and above. Contact us to upgrade."
+    "plan_upgrade_hint": "This feature is available on the Pro plan and above. Contact us to upgrade.",
+    "forecast_title": "Write-off forecast",
+    "forecast_hint": "Weekday averages over the last {{weeks}} weeks. Publish “future write-off” lots in advance so volunteers are ready.",
+    "forecast_today": "Today",
+    "forecast_tomorrow": "Tomorrow",
+    "forecast_cta": "Create a lot in advance"
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",
@@ -309,7 +314,16 @@
     "ach_first_delivery": "🥇 First delivery",
     "ach_kg_100": "💪 Saved 100 kg of food",
     "ach_night_courier": "🌙 Night courier",
-    "ach_sprinter": "⚡ Sprinter (< 20 min)"
+    "ach_sprinter": "⚡ Sprinter (< 20 min)",
+    "level_novice": "🌱 Novice",
+    "level_helper": "🤝 Helper",
+    "level_courier": "🚲 Kindness Courier",
+    "level_guardian": "🛡️ District Guardian",
+    "level_city_hero": "🏆 City Hero",
+    "level_points": "{{count}} points",
+    "level_next": "To “{{level}}”: {{points}} more points",
+    "leaderboard_cities": "City leaderboard",
+    "leaderboard_volunteers": "Top volunteers"
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -453,7 +467,8 @@
     "plan_pro": "Pro",
     "esg_title": "Platform ESG metrics (12 mo)",
     "esg_co2": "CO₂ prevented",
-    "esg_meals": "Meals provided"
+    "esg_meals": "Meals provided",
+    "kyc_recheck": "🔁 Re-run AI check"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",
@@ -465,7 +480,11 @@
     "about": "About",
     "contacts": "Contacts",
     "faq": "FAQ",
-    "rights": "All rights reserved"
+    "rights": "All rights reserved",
+    "impact": "Impact Dashboard",
+    "legal": "Legal",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy"
   },
   "about": {
     "title": "About SaveFood",
@@ -550,5 +569,29 @@
     "linked_success": "{{provider}} linked to your account",
     "open_telegram": "Open @{{name}}",
     "refresh_status": "Refresh"
+  },
+  "impact": {
+    "title": "Impact Dashboard",
+    "subtitle": "How much food was rescued, how many families were fed and how much CO₂ was prevented — in real time.",
+    "live": "updates in real time",
+    "kg_saved": "kg of food rescued",
+    "co2_prevented": "kg of CO₂ prevented",
+    "meals": "meals provided",
+    "deliveries": "deliveries completed",
+    "volunteers": "active volunteers",
+    "shops": "partner shops",
+    "monthly_title": "Rescued by month (kg)",
+    "cities_title": "City leaderboard",
+    "kg": "kg",
+    "feed_title": "Impact feed",
+    "feed_hint": "Anonymous photos of delivered packages — no names, no addresses.",
+    "feed_alt": "Delivery photo",
+    "methodology": "Methodology"
+  },
+  "legal": {
+    "terms_title": "Terms of Service (public offer)",
+    "privacy_title": "Privacy Policy",
+    "updated": "Updated",
+    "version": "version"
   }
 }

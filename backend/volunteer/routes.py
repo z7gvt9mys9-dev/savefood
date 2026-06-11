@@ -11,6 +11,7 @@ from backend.volunteer import db as vdb, schemas as vschemas
 from backend.needy import db as needydb
 from backend.utils import ensure_aware_utc
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
+from backend.gamification import compute_level
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
 from backend import telegram_service
@@ -802,6 +803,7 @@ def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_
         'avg_rating': float(rating_row['avg_rating']) if rating_row['avg_rating'] else None,
         'rating_count': int(rating_row['rating_count']),
         'achievements': achievements,
+        'level': compute_level(total_deliveries, float(total_kg)),
     }
 
 

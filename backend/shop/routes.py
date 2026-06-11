@@ -13,7 +13,7 @@ from backend.needy import db as needy_db
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
-from backend import billing, esg, receipt_service
+from backend import billing, esg, receipt_service, needs_match, forecast
 
 router = APIRouter()
 
@@ -66,6 +66,8 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
     billing.check_lot_quota(shop_id)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
     lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment)
+    # «Карта потребностей»: ping recipients whose preferences match the category.
+    needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 
 
@@ -97,6 +99,7 @@ def create_lot_upload(
         photo_url = f"/uploads/{filename}"
 
     lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment)
+    needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 
 
@@ -288,6 +291,8 @@ def confirm_receipt(
             f"Создано из чека #{receipt_id} (OCR)",
         ))
     db.confirm_receipt(receipt_id, lot_ids)
+    for lid in lot_ids:
+        needs_match.start_needs_match(lid)
     return {"ok": True, "lot_ids": lot_ids}
 
 
@@ -311,6 +316,16 @@ def get_receipt_image(shop_id: int, receipt_id: int, current_user: dict = Depend
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Файл не найден")
     return FileResponse(path)
+
+
+@router.get("/shops/{shop_id}/forecast")
+def get_forecast(shop_id: int, current_user: dict = Depends(get_current_user)):
+    """Прогноз списаний: average write-off kg per category for today/tomorrow,
+    so the shop can publish «future write-off» lots a few hours in advance."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    if not db.get_shop_by_id(shop_id):
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return forecast.shop_forecast(shop_id)
 
 
 @router.get("/shops/{shop_id}/plan")

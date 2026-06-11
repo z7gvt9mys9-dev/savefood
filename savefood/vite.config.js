@@ -46,6 +46,7 @@ export default defineConfig(({ mode }) => {
         '^/needy/.+': apiProxy,
         '^/admin/.+': apiProxy,
         '^/stats$': apiProxy,
+        '^/impact/': apiProxy,
         '^/uploads/': apiProxy,
         '^/needy_uploads/': apiProxy,
         '^/volunteer_uploads/': apiProxy,

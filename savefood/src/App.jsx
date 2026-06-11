@@ -11,6 +11,9 @@ import NeedyDashboard from './Pages/Needy/NeedyDashboard';
 import VolunteerDashboard from './Pages/Volunteer/VolunteerDashboard';
 import AdminPanel from './Pages/Admin/AdminPanel';
 import AboutPage from './Pages/AboutPage';
+import ImpactPage from './Pages/ImpactPage';
+import TermsPage from './Pages/TermsPage';
+import PrivacyPage from './Pages/PrivacyPage';
 
 function App() {
   return (
@@ -22,6 +25,9 @@ function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/about" element={<AboutPage />} />
+              <Route path="/impact" element={<ImpactPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/auth" element={<AuthPage />} />
               
               <Route path="/shop" element={

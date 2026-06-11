@@ -124,6 +124,7 @@ const VolunteerDashboard = () => {
   const [stats, setStats] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [photoUploading, setPhotoUploading] = useState({});
+  const [leaderboard, setLeaderboard] = useState(null);
   const locationWatchRef = useRef(null);
   const locationIntervalRef = useRef(null);
   const qrScannerRef = useRef(null);
@@ -205,6 +206,17 @@ const VolunteerDashboard = () => {
     try {
       const res = await fetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
       if (res.ok) setStats(await res.json());
+    } catch {}
+    // Leaderboards are public impact endpoints — no auth header needed.
+    try {
+      const [citiesRes, volsRes] = await Promise.all([
+        fetch(`${API_URL}/impact/cities`),
+        fetch(`${API_URL}/impact/volunteers`),
+      ]);
+      setLeaderboard({
+        cities: citiesRes.ok ? await citiesRes.json() : [],
+        volunteers: volsRes.ok ? await volsRes.json() : [],
+      });
     } catch {}
   };
 
@@ -559,6 +571,29 @@ const VolunteerDashboard = () => {
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (
               <>
+                {stats.level && (
+                  <div style={{ background: '#4CAF5012', border: '1px solid #4CAF5044', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
+                      <strong style={{ color: '#4CAF50' }}>
+                        {t(`volunteer.level_${stats.level.code}`)}
+                      </strong>
+                      <span style={{ fontSize: '0.8rem', color: '#aaa' }}>
+                        {t('volunteer.level_points', { count: Math.round(stats.level.points) })}
+                      </span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: '#333', marginTop: 8, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.round(stats.level.progress * 100)}%`, background: '#4CAF50', transition: 'width .4s' }} />
+                    </div>
+                    {stats.level.next_code && (
+                      <p style={{ fontSize: '0.78rem', color: '#aaa', margin: '6px 0 0' }}>
+                        {t('volunteer.level_next', {
+                          level: t(`volunteer.level_${stats.level.next_code}`),
+                          points: Math.ceil(stats.level.points_to_next),
+                        })}
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="stats-row" style={{ flexWrap: 'wrap' }}>
                   <div className="v-stat">
                     <span>{stats.total_routes}</span>
@@ -588,6 +623,31 @@ const VolunteerDashboard = () => {
                       </span>
                     ))}
                   </div>
+                )}
+                {leaderboard && leaderboard.cities.length > 0 && (
+                  <>
+                    <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.leaderboard_cities')}</h4>
+                    {leaderboard.cities.map((c, i) => (
+                      <div key={c.city} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 4px', borderBottom: '1px solid #2a2a3a', fontSize: '0.9rem' }}>
+                        <span>{i + 1}. {c.city}</span>
+                        <span style={{ color: '#4CAF50' }}>{Math.round(c.kg)} {t('volunteer.total_kg').toLowerCase()}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {leaderboard && leaderboard.volunteers.length > 0 && (
+                  <>
+                    <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.leaderboard_volunteers')}</h4>
+                    {leaderboard.volunteers.map((v, i) => (
+                      <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 4px', borderBottom: '1px solid #2a2a3a', fontSize: '0.9rem' }}>
+                        <span>
+                          {['🥇', '🥈', '🥉'][i] || `${i + 1}.`} {v.name}
+                          <span style={{ color: '#888', fontSize: '0.78rem' }}> · {t(`volunteer.level_${v.level}`)}</span>
+                        </span>
+                        <span style={{ color: '#aaa' }}>{v.deliveries} {t('volunteer.total_deliveries').toLowerCase()}</span>
+                      </div>
+                    ))}
+                  </>
                 )}
               </>
             )}

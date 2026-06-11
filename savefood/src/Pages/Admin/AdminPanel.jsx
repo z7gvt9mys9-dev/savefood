@@ -17,6 +17,7 @@ const AdminPanel = () => {
   const [auditLog, setAuditLog] = useState([]);
   const [shops, setShops] = useState([]);
   const [esgGlobal, setEsgGlobal] = useState(null);
+  const [kycRechecking, setKycRechecking] = useState({});
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -127,6 +128,22 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  // Second opinion on a disputed AI verdict: re-runs the Gemini check
+  // synchronously (a few seconds) and refreshes the queue row.
+  const handleKycRecheck = async (needyId) => {
+    setKycRechecking(prev => ({ ...prev, [needyId]: true }));
+    try {
+      const res = await fetch(`${API_URL}/admin/needy/${needyId}/kyc_recheck`, { method: 'POST', headers: authHeader });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.detail || t('common.error'));
+        return;
+      }
+      await fetchData();
+    } catch { alert(t('common.connection_error')); }
+    finally { setKycRechecking(prev => ({ ...prev, [needyId]: false })); }
+  };
+
   // Auto-KYC v1: AI pre-check verdict rendered as a colored hint; the
   // approve/reject decision stays with the human moderator.
   const kycBadge = (item) => {
@@ -170,6 +187,16 @@ const AdminPanel = () => {
               <td>
                 {kycBadge(item)}
                 {item.kyc_notes && <div style={{ fontSize: '0.78rem', opacity: 0.75, maxWidth: 260 }}>{item.kyc_notes}</div>}
+                {item.document && (
+                  <button
+                    className="btn-small"
+                    style={{ marginTop: 4 }}
+                    disabled={!!kycRechecking[item.id]}
+                    onClick={() => handleKycRecheck(item.id)}
+                  >
+                    {kycRechecking[item.id] ? t('common.loading') : t('admin.kyc_recheck')}
+                  </button>
+                )}
               </td>
               <td>
                 <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>{t('admin.approve')}</button>
