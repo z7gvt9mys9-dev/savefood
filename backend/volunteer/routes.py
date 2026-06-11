@@ -151,6 +151,48 @@ def haversine(a, b):
     h = math.sin(dlat/2)**2 + math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
     return 2*R*math.asin(math.sqrt(h))
 
+
+def _route_length_km(order, start):
+    total = 0.0
+    cur = start
+    for t in order:
+        total += haversine(cur, (t['lat'], t['lon']))
+        cur = (t['lat'], t['lon'])
+    return total
+
+
+def _optimize_stop_order(tickets, start):
+    """Order the chosen stops to minimise total travel distance (§14).
+
+    Nearest-neighbour seed + 2-opt segment reversal until no improvement.
+    The old greedy interleave of (-score, distance) produced zig-zag routes:
+    priority decides WHO gets food (selection), distance decides the ORDER —
+    everyone selected is served on the same trip anyway.
+    With max_stops ≤ 10 the O(n²) 2-opt passes are effectively instant.
+    """
+    if len(tickets) < 2:
+        return list(tickets)
+    remaining = list(tickets)
+    order = []
+    cur = start
+    while remaining:
+        best = min(remaining, key=lambda t: haversine(cur, (t['lat'], t['lon'])))
+        order.append(best)
+        remaining.remove(best)
+        cur = (best['lat'], best['lon'])
+
+    best_len = _route_length_km(order, start)
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(order) - 1):
+            for j in range(i + 1, len(order)):
+                cand = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
+                cand_len = _route_length_km(cand, start)
+                if cand_len < best_len - 1e-9:
+                    order, best_len, improved = cand, cand_len, True
+    return order
+
 def is_available_now(available_time: str) -> bool:
     if not available_time:
         return True
@@ -225,7 +267,21 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         tickets = [dict(r) for r in cur.fetchall()]
 
     # filter by available_time (only include tickets where needy is at home now or not specified)
+    had_any = bool(tickets)
     tickets = [t for t in tickets if is_available_now(t.get('available_time'))]
+
+    # A route with zero delivery points makes no sense: the volunteer would
+    # claim the lot, see only the shop pin and "finish" without a single QR
+    # scan, silently burying the lot. Refuse early with a human reason.
+    if not tickets:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Все получатели этого лота сейчас недоступны (вне их окна времени) — попробуйте позже"
+                if had_any else
+                "На этот лот пока нет заявок на доставку — маршрут не создан"
+            ),
+        )
 
     lot_category = (lot.get('category') or '').lower()
 
@@ -307,22 +363,11 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         score_cache[t['id']] = score
         return score
 
-    order = []
-    remaining = tickets.copy()
-    current = (shop['lat'], shop['lon'])
+    # §14: priority decides WHO is served (selection), distance decides the
+    # visiting ORDER (nearest-neighbour + 2-opt) — see _optimize_stop_order.
     max_stops = payload.max_stops or 10
-    while remaining and len(order) < max_stops:
-        def key_fn(t):
-            try:
-                dist = haversine(current, (t['lat'], t['lon']))
-            except Exception:
-                dist = 99999
-            return (-compute_score(t), dist)
-
-        best = min(remaining, key=key_fn)
-        order.append(best)
-        remaining.remove(best)
-        current = (best['lat'], best['lon'])
+    selected = sorted(tickets, key=lambda t: -compute_score(t))[:max_stops]
+    order = _optimize_stop_order(selected, (shop['lat'], shop['lon']))
 
     # build points: first shop, then tickets
     points = []
@@ -363,6 +408,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         )
 
         assigned_ids = set()
+        assigned_needy = []  # (needy_id, ticket_id) — Telegram pings after commit
         for t in order:
             cur.execute(
                 "UPDATE tickets SET status = 'assigned', assigned_volunteer_id = %s WHERE id = %s AND status = 'open'",
@@ -370,13 +416,32 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             )
             if cur.rowcount > 0:
                 assigned_ids.add(t['id'])
+                # §12 volunteer_assigned: the recipient must learn that someone
+                # took their request — previously this notification never existed.
+                cur.execute(
+                    "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                    (t['needy_id'], 'volunteer_assigned',
+                     f'Волонтёр {vol_name} принял вашу заявку #{t["id"]} и скоро поедет в магазин за продуктами', now),
+                )
+                assigned_needy.append((t['needy_id'], t['id']))
+
+        if not assigned_ids:
+            # Every selected ticket was claimed by a competing route between our
+            # SELECT and UPDATE. Raising rolls back the lot claim too.
+            raise HTTPException(status_code=409, detail="Заявки уже разобраны другими волонтёрами — попробуйте другой лот")
 
         filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
         points_json = json.dumps(filtered_points, ensure_ascii=False)
 
+        # Distance volunteer→shop at claim time: the anti-fraud monitor compares
+        # later pings against it to detect a volunteer driving away with the claim.
+        start_dist_m = None
+        if vol.get('lat') is not None and vol.get('lon') is not None:
+            start_dist_m = haversine((vol['lat'], vol['lon']), (shop['lat'], shop['lon'])) * 1000.0
+
         cur.execute(
-            "INSERT INTO volunteer_routes (volunteer_id, points, status, started_at, lot_id) VALUES (%s, %s, 'in_progress', %s, %s) RETURNING id",
-            (volunteer_id, points_json, now, payload.lot_id),
+            "INSERT INTO volunteer_routes (volunteer_id, points, status, started_at, lot_id, start_dist_m) VALUES (%s, %s, 'in_progress', %s, %s, %s) RETURNING id",
+            (volunteer_id, points_json, now, payload.lot_id, start_dist_m),
         )
         route_id = cur.fetchone()['id']
 
@@ -396,6 +461,14 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         telegram_service.notify_shop(lot['shop_id'], f"🛒 Волонтёр <b>{safe_vol_name}</b> взял ваш лот «{safe_lot_desc}». Маршрут #{route_id} в пути.")
     except Exception:
         pass
+    for needy_id, t_id in assigned_needy:
+        try:
+            telegram_service.notify_needy(
+                needy_id,
+                f"🚚 Волонтёр <b>{html.escape(vol_name or '')}</b> принял вашу заявку #{t_id} и скоро поедет в магазин.",
+            )
+        except Exception:
+            pass
 
     return {'route_id': route_id, 'points': filtered_points}
 
@@ -689,12 +762,46 @@ def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_
         )
         rating_row = cur.fetchone()
 
+        # §28 achievements: night courier = a delivery confirmed after 20:00
+        # local time; sprinter = avg route under 20 min across ≥3 routes.
+        cur.execute(
+            """
+            SELECT COUNT(*) as cnt FROM tickets
+            WHERE assigned_volunteer_id = %s AND status = 'fulfilled'
+              AND fulfilled_at IS NOT NULL
+              AND EXTRACT(HOUR FROM fulfilled_at AT TIME ZONE %s) >= 20
+            """,
+            (volunteer_id, LOCAL_TZ_NAME),
+        )
+        night_count = cur.fetchone()['cnt']
+
+        cur.execute(
+            """
+            SELECT AVG(EXTRACT(EPOCH FROM (finished_at - started_at)) / 60) as avg_min, COUNT(*) as cnt
+            FROM volunteer_routes
+            WHERE volunteer_id = %s AND status = 'finished' AND finished_at IS NOT NULL
+            """,
+            (volunteer_id,),
+        )
+        speed_row = cur.fetchone()
+
+    achievements = []
+    if total_deliveries >= 1:
+        achievements.append('first_delivery')
+    if float(total_kg) >= 100:
+        achievements.append('kg_100')
+    if night_count > 0:
+        achievements.append('night_courier')
+    if speed_row['cnt'] >= 3 and speed_row['avg_min'] is not None and float(speed_row['avg_min']) < 20:
+        achievements.append('sprinter')
+
     return {
         'total_routes': total_routes,
         'total_deliveries': total_deliveries,
         'total_kg': float(total_kg),
         'avg_rating': float(rating_row['avg_rating']) if rating_row['avg_rating'] else None,
         'rating_count': int(rating_row['rating_count']),
+        'achievements': achievements,
     }
 
 

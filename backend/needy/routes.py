@@ -17,7 +17,7 @@ MAX_WS_PER_USER = 3
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
-from backend import auth
+from backend import auth, kyc_service
 from backend.database import create_user, get_db_cursor
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
@@ -142,6 +142,9 @@ def upload_profile_document(needy_id: int, file: UploadFile = None, current_user
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     # save to profile
     prof = db.create_or_update_profile(needy_id, None, None, None, None, document=f"/needy_uploads/{filename}")
+    # Auto-KYC v1: fire-and-forget AI pre-check; the verdict appears in the
+    # admin moderation queue (the human still makes the final call).
+    kyc_service.start_kyc_check(needy_id, os.path.join(UPLOAD_DIR, filename), needy.get("name") or "")
     return prof
 
 

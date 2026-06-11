@@ -39,6 +39,13 @@ def init_db():
             )
             """
         )
+        # Auto-KYC v1: AI pre-check verdict for the admin moderation queue
+        # (likely_ok | review | likely_fraud | unchecked); final decision stays human.
+        cur.execute("ALTER TABLE needy ADD COLUMN IF NOT EXISTS kyc_score REAL")
+        cur.execute("ALTER TABLE needy ADD COLUMN IF NOT EXISTS kyc_verdict TEXT")
+        cur.execute("ALTER TABLE needy ADD COLUMN IF NOT EXISTS kyc_notes TEXT")
+        cur.execute("ALTER TABLE needy ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMP WITH TIME ZONE")
+
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS lot_id INTEGER")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS apartment TEXT")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS floor_num TEXT")

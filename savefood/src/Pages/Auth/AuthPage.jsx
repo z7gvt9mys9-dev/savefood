@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
@@ -43,6 +43,137 @@ const AuthPage = () => {
   const navigate = useNavigate();
 
   const [agreed, setAgreed] = useState(false);
+  const [providers, setProviders] = useState(null);
+  const [tgLogin, setTgLogin] = useState(null); // {token, link} while waiting for bot confirm
+  const tgPollRef = useRef(null);
+
+  // Which social providers are configured on the server (hide the rest)
+  useEffect(() => {
+    fetch(`${API_URL}/auth/oauth/providers`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setProviders(data); })
+      .catch(() => {});
+    return () => clearInterval(tgPollRef.current);
+  }, []);
+
+  // OAuth callback returns here with the JWT in the URL fragment
+  // (#oauth_token=...&role=...) — fragments never reach servers or logs.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.slice(1));
+    const oauthError = hash.get('oauth_error');
+    const oauthToken = hash.get('oauth_token');
+    if (oauthError) {
+      window.history.replaceState(null, '', window.location.pathname);
+      alert(decodeURIComponent(oauthError));
+      return;
+    }
+    if (oauthToken) {
+      const role = hash.get('role');
+      const relatedId = hash.get('related_id');
+      window.history.replaceState(null, '', window.location.pathname);
+      login(oauthToken, role, relatedId ? Number(relatedId) : null);
+      navigate(`/${role}`);
+    }
+  }, []);
+
+  const handleOAuthLogin = async (provider) => {
+    try {
+      const res = await fetch(`${API_URL}/auth/oauth/${provider}/start?mode=login`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || t('auth.invalid_credentials'));
+        return;
+      }
+      const data = await res.json();
+      window.location.href = data.url;
+    } catch {
+      alert(t('common.connection_error'));
+    }
+  };
+
+  const handleTelegramLogin = async () => {
+    try {
+      const res = await fetch(`${API_URL}/auth/telegram/login/start`, { method: 'POST' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || t('common.error'));
+        return;
+      }
+      const data = await res.json();
+      setTgLogin(data);
+      window.open(data.link, '_blank', 'noopener');
+      // poll until the bot confirms the session (or the token expires)
+      clearInterval(tgPollRef.current);
+      tgPollRef.current = setInterval(async () => {
+        try {
+          const poll = await fetch(`${API_URL}/auth/telegram/login/poll`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: data.token }),
+          });
+          if (poll.status === 404) {
+            clearInterval(tgPollRef.current);
+            setTgLogin(null);
+            return;
+          }
+          if (!poll.ok) return;
+          const result = await poll.json();
+          if (result.status === 'ok') {
+            clearInterval(tgPollRef.current);
+            setTgLogin(null);
+            login(result.access_token, result.role, result.related_id);
+            navigate(`/${result.role}`);
+          }
+        } catch {}
+      }, 2500);
+    } catch {
+      alert(t('common.connection_error'));
+    }
+  };
+
+  const cancelTelegramLogin = () => {
+    clearInterval(tgPollRef.current);
+    setTgLogin(null);
+  };
+
+  const renderSocialLogin = () => {
+    if (!providers || (!providers.google && !providers.yandex && !providers.telegram)) return null;
+    return (
+      <div style={{ marginTop: 16 }}>
+        <p style={{ textAlign: 'center', color: '#888', fontSize: '0.85em', margin: '0 0 10px' }}>
+          {t('auth.or_login_with')}
+        </p>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {providers.google && (
+            <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('google')}>
+              G&nbsp;Google
+            </button>
+          )}
+          {providers.yandex && (
+            <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('yandex')}>
+              Я&nbsp;Yandex
+            </button>
+          )}
+          {providers.telegram && (
+            <button type="button" className="btn btn-secondary" onClick={handleTelegramLogin}>
+              ✈️&nbsp;Telegram
+            </button>
+          )}
+        </div>
+        {tgLogin && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <p style={{ color: '#aaa', fontSize: '0.85em' }}>{t('auth.tg_login_waiting')}</p>
+            <a href={tgLogin.link} target="_blank" rel="noreferrer" style={{ color: '#5dade2' }}>
+              {t('auth.tg_login_open_again')}
+            </a>
+            <button type="button" className="btn-small" style={{ marginLeft: 10 }} onClick={cancelTelegramLogin}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // The «Далее» button on needy step 1 is not a form submit, so the browser's
   // required-field validation never fires — check by hand, otherwise the final
@@ -204,6 +335,7 @@ const AuthPage = () => {
       )}
 
       <button type="submit" className="btn btn-primary">{t('auth.submit_login')}</button>
+      {renderSocialLogin()}
       {role !== 'admin' && (
         <p onClick={() => setIsLogin(false)} className="toggle-auth">{t('auth.switch_to_register')}</p>
       )}

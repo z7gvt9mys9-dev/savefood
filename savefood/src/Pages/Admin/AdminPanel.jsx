@@ -15,6 +15,8 @@ const AdminPanel = () => {
   const [activeRoutes, setActiveRoutes] = useState([]);
   const [users, setUsers] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
+  const [shops, setShops] = useState([]);
+  const [esgGlobal, setEsgGlobal] = useState(null);
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -49,10 +51,36 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  const fetchShops = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/shops`, { headers: authHeader });
+      if (res.ok) setShops(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
+    if (activeTab === 'plans') fetchShops();
+    if (activeTab === 'analytics' && !esgGlobal) {
+      fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => data && setEsgGlobal(data))
+        .catch(() => {});
+    }
   }, [activeTab]);
+
+  const handleSetPlan = async (shopId, planValue) => {
+    try {
+      const res = await fetch(`${API_URL}/admin/shops/${shopId}/plan`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ plan: planValue }),
+      });
+      if (res.ok) fetchShops();
+      else alert(t('common.error'));
+    } catch {}
+  };
 
   const handleApprove = async (id) => {
     try {
@@ -99,6 +127,24 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  // Auto-KYC v1: AI pre-check verdict rendered as a colored hint; the
+  // approve/reject decision stays with the human moderator.
+  const kycBadge = (item) => {
+    if (!item.kyc_verdict || item.kyc_verdict === 'unchecked') return <span style={{ opacity: 0.6 }}>—</span>;
+    const colors = { likely_ok: '#5f5', review: '#fa0', likely_fraud: '#f55' };
+    const labels = {
+      likely_ok: t('admin.kyc_likely_ok'),
+      review: t('admin.kyc_review'),
+      likely_fraud: t('admin.kyc_likely_fraud'),
+    };
+    return (
+      <span title={item.kyc_notes || ''} style={{ color: colors[item.kyc_verdict] || '#aaa', cursor: 'help' }}>
+        {labels[item.kyc_verdict] || item.kyc_verdict}
+        {item.kyc_score != null && ` (${Math.round(item.kyc_score * 100)}%)`}
+      </span>
+    );
+  };
+
   const renderModeration = () => (
     <div className="admin-tab">
       <h2>{t('admin.moderation_queue')}</h2>
@@ -111,6 +157,7 @@ const AdminPanel = () => {
             <th>{t('admin.col_user')}</th>
             <th>{t('admin.col_contact')}</th>
             <th>{t('admin.col_document')}</th>
+            <th>{t('admin.col_kyc')}</th>
             <th>{t('admin.col_actions')}</th>
           </tr>
         </thead>
@@ -121,8 +168,47 @@ const AdminPanel = () => {
               <td>{item.contact || '—'}</td>
               <td>{item.document ? <button className="btn-small" onClick={() => handleViewDocument(item.id)}>{t('admin.view_doc')}</button> : '—'}</td>
               <td>
+                {kycBadge(item)}
+                {item.kyc_notes && <div style={{ fontSize: '0.78rem', opacity: 0.75, maxWidth: 260 }}>{item.kyc_notes}</div>}
+              </td>
+              <td>
                 <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>{t('admin.approve')}</button>
                 <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>{t('admin.reject')}</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      )}
+    </div>
+  );
+
+  const renderPlans = () => (
+    <div className="admin-tab">
+      <h2>{t('admin.plans_title')}</h2>
+      <p style={{ opacity: 0.75 }}>{t('admin.plans_hint')}</p>
+      {shops.length === 0 ? (
+        <EmptyState icon="🏪" title={t('common.no_data')} description="" />
+      ) : (
+      <table className="admin-table">
+        <thead>
+          <tr>
+            <th>{t('admin.col_shop')}</th>
+            <th>{t('admin.col_city')}</th>
+            <th>{t('admin.col_plan')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shops.map(s => (
+            <tr key={s.id}>
+              <td>{s.name}</td>
+              <td>{s.city || '—'}</td>
+              <td>
+                <select value={s.plan || 'basic'} onChange={e => handleSetPlan(s.id, e.target.value)}>
+                  <option value="basic">{t('admin.plan_basic')}</option>
+                  <option value="pro">{t('admin.plan_pro')}</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
               </td>
             </tr>
           ))}
@@ -192,6 +278,28 @@ const AdminPanel = () => {
             <p className="big-value yellow-text">{stats.percent_expired_lots != null ? `${Number(stats.percent_expired_lots).toFixed(1)}%` : '—'}</p>
           </div>
         </div>
+
+        {esgGlobal && (
+          <>
+            <h3 style={{ marginTop: 24 }}>{t('admin.esg_title')}</h3>
+            <div className="analytics-grid">
+              <div className="analytic-card">
+                <h4>{t('admin.esg_co2')}</h4>
+                <p className="big-value">{esgGlobal.totals.co2_kg} {t('shop.kg')}</p>
+              </div>
+              <div className="analytic-card">
+                <h4>{t('admin.esg_meals')}</h4>
+                <p className="big-value">{esgGlobal.totals.meals}</p>
+              </div>
+              {(esgGlobal.top_shops || []).slice(0, 3).map(s => (
+                <div className="analytic-card" key={s.id}>
+                  <h4>🏪 {s.name}</h4>
+                  <p className="big-value">{s.kg} {t('shop.kg')}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="charts-row">
           <div className="chart-box">
@@ -307,6 +415,7 @@ const AdminPanel = () => {
           <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.moderation')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
+          <button className={activeTab === 'plans' ? 'active' : ''} onClick={() => setActiveTab('plans')}>{t('admin.plans')}</button>
           <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>{t('admin.analytics')}</button>
           <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>{t('admin.logs')}</button>
         </nav>
@@ -316,6 +425,7 @@ const AdminPanel = () => {
         {activeTab === 'moderation' && renderModeration()}
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}
+        {activeTab === 'plans' && renderPlans()}
         {activeTab === 'analytics' && renderAnalytics()}
         {activeTab === 'audit' && renderAuditLog()}
       </main>

@@ -1,6 +1,7 @@
 import json as json_mod
 from fastapi import APIRouter, HTTPException, Depends
-from backend import auth
+from pydantic import BaseModel
+from backend import auth, billing, esg
 from backend.needy import db as needy_db
 from backend.database import get_db_cursor, log_action
 
@@ -126,6 +127,34 @@ def unblock_user(user_id: int, _user: dict = Depends(require_admin)):
             raise HTTPException(status_code=404, detail="User not found")
     log_action(_user.get('sub'), 'user_unblock', 'user', user_id, f"Admin unblocked user #{user_id}")
     return {"ok": True}
+
+# ── ESG & billing ────────────────────────────────────────────────────────────
+
+@router.get("/esg")
+def admin_esg(months: int = 12, _user: dict = Depends(require_admin)):
+    """Platform-wide ESG report (all shops, top contributors)."""
+    return esg.global_report(months=months)
+
+@router.get("/shops")
+def list_shops(_user: dict = Depends(require_admin)):
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id, name, contact, city, plan, created_at FROM shops ORDER BY created_at DESC")
+        return [dict(r) for r in cur.fetchall()]
+
+class PlanUpdate(BaseModel):
+    plan: str
+
+@router.patch("/shops/{shop_id}/plan")
+def set_shop_plan(shop_id: int, payload: PlanUpdate, _user: dict = Depends(require_admin)):
+    """Manual billing for now: admin flips the plan once an invoice is paid."""
+    if payload.plan not in billing.PLANS:
+        raise HTTPException(status_code=400, detail=f"Unknown plan: {payload.plan}")
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE shops SET plan = %s WHERE id = %s RETURNING id", (payload.plan, shop_id))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Shop not found")
+    log_action(_user.get('sub'), 'plan_change', 'shop', shop_id, f"Admin set plan '{payload.plan}' for shop #{shop_id}")
+    return {"ok": True, "plan": payload.plan}
 
 @router.get("/audit")
 def get_audit_log(limit: int = 50, offset: int = 0, _user: dict = Depends(require_admin)):

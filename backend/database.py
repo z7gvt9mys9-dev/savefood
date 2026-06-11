@@ -44,6 +44,12 @@ def init_common_db():
         """)
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT")
+        # Social login identities (oauth_routes.py). One provider identity can
+        # belong to exactly one account — enforced by partial unique indexes.
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT")
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS yandex_id TEXT")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_google_id ON users (google_id) WHERE google_id IS NOT NULL")
+        cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_yandex_id ON users (yandex_id) WHERE yandex_id IS NOT NULL")
         # One (role, related_id) pair = one account. Admins use related_id IS NULL,
         # which CREATE UNIQUE … WHERE excludes. Without this two shop accounts could
         # both point at the same shop_id and receive each other's Telegram messages.
@@ -63,6 +69,16 @@ def init_common_db():
         # At most one outstanding link token per user — backs the UPSERT in
         # init_telegram_link so concurrent /init-link calls can't trample each other.
         cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_telegram_link_tokens_user ON telegram_link_tokens (user_id)")
+        # Login-via-Telegram tokens: created anonymous (user_id NULL), the bot
+        # fills user_id when the owner of a linked chat opens /start login_<token>.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS telegram_login_tokens (
+                id SERIAL PRIMARY KEY,
+                token TEXT UNIQUE NOT NULL,
+                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id SERIAL PRIMARY KEY,

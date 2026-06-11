@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
+from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime, timezone
+import json
 import os
 import re
 import psycopg2.errors
@@ -11,10 +13,14 @@ from backend.needy import db as needy_db
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
+from backend import billing, esg, receipt_service
 
 router = APIRouter()
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
+# Receipts are NOT publicly mounted (they carry merchant/financial details);
+# the image is only reachable through the auth-checked endpoint below.
+RECEIPT_DIR = os.path.join(os.path.dirname(__file__), "receipt_uploads")
 
 
 def _require_lot_owner(lot_id: int, current_user: dict):
@@ -57,6 +63,7 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
+    billing.check_lot_quota(shop_id)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
     lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment)
     return {"id": lot_id}
@@ -79,6 +86,7 @@ def create_lot_upload(
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
+    billing.check_lot_quota(shop_id)
 
     photo_url = None
     if file and file.filename:
@@ -176,6 +184,151 @@ def mark_notification_read(notification_id: int, current_user: dict = Depends(ge
     ensure_owner_or_admin(current_user, "shop", note.get("shop_id"))
     db.mark_notification_read(notification_id)
     return {"ok": True}
+
+
+def _receipt_to_out(row: dict) -> dict:
+    """DB row → ReceiptOut payload (items JSON unpacked, drafts regrouped)."""
+    items = json.loads(row.get("items") or "[]")
+    score = row.get("fraud_score") or 0.0
+    return {
+        "id": row["id"],
+        "status": row["status"],
+        "merchant": row.get("merchant"),
+        "receipt_date": row.get("receipt_date"),
+        "total": row.get("total"),
+        "currency": row.get("currency"),
+        "items": items,
+        "fraud_score": row.get("fraud_score"),
+        "fraud_reasons": row.get("fraud_reasons"),
+        "fraud_flagged": score >= receipt_service.FRAUD_FLAG_THRESHOLD,
+        "suggested_lots": receipt_service.suggest_lots(items) if row["status"] == "parsed" else [],
+        "lot_ids": json.loads(row.get("lot_ids") or "[]"),
+        "created_at": row.get("created_at"),
+    }
+
+
+@router.post("/shops/{shop_id}/receipts", response_model=schemas.ReceiptOut)
+@limiter.limit("10/minute")
+def upload_receipt(
+    request: Request,
+    shop_id: int,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """OCR pipeline: photo → parsed items + anti-fraud verdict (no lots yet —
+    the shop reviews the draft and confirms via /receipts/{id}/confirm)."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    shop = db.get_shop_by_id(shop_id)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    billing.require_feature(shop_id, "ocr")
+
+    try:
+        filename = validate_and_save_upload(file, RECEIPT_DIR)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    path = os.path.join(RECEIPT_DIR, filename)
+    with open(path, "rb") as f:
+        content = f.read()
+
+    # Cheapest check first: byte-identical photo already uploaded (any shop).
+    sha = receipt_service.sha256_hex(content)
+    if db.find_receipt_by_sha(sha):
+        os.remove(path)
+        raise HTTPException(status_code=409, detail="Этот чек уже загружался (идентичное фото)")
+
+    parsed = receipt_service.parse_receipt_image(content, file.content_type or "image/jpeg")
+    if parsed is None:
+        os.remove(path)
+        raise HTTPException(status_code=503, detail="Распознавание временно недоступно, попробуйте позже или создайте лот вручную")
+    if not parsed["is_receipt"]:
+        os.remove(path)
+        raise HTTPException(status_code=400, detail="На фото не распознан кассовый чек")
+    if not parsed["items"]:
+        os.remove(path)
+        raise HTTPException(status_code=400, detail="В чеке не найдено продуктовых позиций")
+
+    fp = receipt_service.fingerprint(parsed)
+    fp_dupe = bool(fp and db.fingerprint_exists(fp))
+    fraud = receipt_service.evaluate_fraud(parsed, fp_dupe)
+    status = "rejected" if fraud["rejected"] else "parsed"
+    receipt_id = db.create_receipt(shop_id, f"/receipts/{filename}", sha, fp, parsed, fraud, status)
+
+    row = db.get_receipt_by_id(receipt_id)
+    return _receipt_to_out(row)
+
+
+@router.post("/shops/{shop_id}/receipts/{receipt_id}/confirm")
+def confirm_receipt(
+    shop_id: int,
+    receipt_id: int,
+    payload: schemas.ReceiptConfirm,
+    current_user: dict = Depends(get_current_user),
+):
+    """The shop confirmed (possibly edited) the lot drafts — create the lots."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    receipt = db.get_receipt_by_id(receipt_id)
+    if not receipt or receipt["shop_id"] != shop_id:
+        raise HTTPException(status_code=404, detail="Чек не найден")
+    if receipt["status"] == "rejected":
+        raise HTTPException(status_code=400, detail=f"Чек отклонён антифродом: {receipt.get('fraud_reasons') or ''}")
+    if receipt["status"] == "confirmed":
+        raise HTTPException(status_code=400, detail="Лоты по этому чеку уже созданы")
+
+    shop = db.get_shop_by_id(shop_id)
+    expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
+    address = payload.address or shop.get("city")
+    lot_ids = []
+    for draft in payload.lots:
+        if draft.category not in receipt_service.LOT_CATEGORIES:
+            raise HTTPException(status_code=400, detail=f"Неизвестная категория: {draft.category}")
+        lot_ids.append(db.create_lot(
+            shop_id, draft.description, draft.quantity, expiry, None,
+            address, payload.time_slot, draft.category,
+            f"Создано из чека #{receipt_id} (OCR)",
+        ))
+    db.confirm_receipt(receipt_id, lot_ids)
+    return {"ok": True, "lot_ids": lot_ids}
+
+
+@router.get("/shops/{shop_id}/receipts", response_model=List[schemas.ReceiptOut])
+def list_receipts(shop_id: int, limit: int = 20, offset: int = 0, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    if not db.get_shop_by_id(shop_id):
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return [_receipt_to_out(r) for r in db.get_receipts(shop_id, limit=limit, offset=offset)]
+
+
+@router.get("/shops/{shop_id}/receipts/{receipt_id}/image")
+def get_receipt_image(shop_id: int, receipt_id: int, current_user: dict = Depends(get_current_user)):
+    """Receipt photos are not on a public mount — owner/admin only."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    receipt = db.get_receipt_by_id(receipt_id)
+    if not receipt or receipt["shop_id"] != shop_id or not receipt.get("photo"):
+        raise HTTPException(status_code=404, detail="Чек не найден")
+    filename = os.path.basename(receipt["photo"])
+    path = os.path.join(RECEIPT_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    return FileResponse(path)
+
+
+@router.get("/shops/{shop_id}/plan")
+def get_plan(shop_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    if not db.get_shop_by_id(shop_id):
+        raise HTTPException(status_code=404, detail="Shop not found")
+    return billing.plan_summary(shop_id)
+
+
+@router.get("/shops/{shop_id}/esg")
+def get_esg_report(shop_id: int, months: int = 12, current_user: dict = Depends(get_current_user)):
+    """ESG impact report (kg rescued, CO2 prevented, meals) — «Профи» and up."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    if not db.get_shop_by_id(shop_id):
+        raise HTTPException(status_code=404, detail="Shop not found")
+    billing.require_feature(shop_id, "esg")
+    return esg.shop_report(shop_id, months=months)
 
 
 @router.post("/shops/{shop_id}/self_pickup/confirm")

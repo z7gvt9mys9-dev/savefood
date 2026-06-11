@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
+import AccountLinks from '../../components/AccountLinks';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Shop.css';
@@ -27,10 +28,17 @@ const ShopDashboard = () => {
   const [editLot, setEditLot] = useState(null);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-  const [tgLink, setTgLink] = useState(null);
-  const [tgLoading, setTgLoading] = useState(false);
   const [pickupCode, setPickupCode] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
+  const [plan, setPlan] = useState(null);
+  // OCR receipt flow: upload photo → review parsed lot drafts → confirm
+  const [receiptFile, setReceiptFile] = useState(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const [receipt, setReceipt] = useState(null);
+  const [receiptDrafts, setReceiptDrafts] = useState([]);
+  const [receiptCommon, setReceiptCommon] = useState({ expiry_date: '', address: '', time_slot: '18:00 - 20:00' });
+  const [esgReport, setEsgReport] = useState(null);
+  const [esgError, setEsgError] = useState(null);
 
   const [newLot, setNewLot] = useState({
     description: '',
@@ -63,6 +71,11 @@ const ShopDashboard = () => {
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
+
+    fetch(`${API_URL}/shops/${shopId}/plan`, { headers: authHeader })
+      .then(res => res.json())
+      .then(data => setPlan(data && data.plan ? data : null))
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -83,6 +96,80 @@ const ShopDashboard = () => {
     });
     setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
   }, [activeTab, shopId]);
+
+  // ESG report is loaded lazily — only when the tab is opened (pro+ plans).
+  useEffect(() => {
+    if (activeTab !== 'esg' || !shopId) return;
+    setEsgError(null);
+    fetch(`${API_URL}/shops/${shopId}/esg?months=12`, { headers: { Authorization: `Bearer ${user?.token}` } })
+      .then(async res => {
+        const data = await res.json();
+        if (!res.ok) { setEsgError(data.detail || t('common.error')); return; }
+        setEsgReport(data);
+      })
+      .catch(() => setEsgError(t('common.connection_error')));
+  }, [activeTab, shopId]);
+
+  const handleUploadReceipt = async (e) => {
+    e.preventDefault();
+    if (!receiptFile || !shopId) return;
+    setReceiptBusy(true);
+    setReceipt(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', receiptFile);
+      const res = await fetch(`${API_URL}/shops/${shopId}/receipts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || t('shop.ocr_error'));
+        return;
+      }
+      setReceipt(data);
+      setReceiptDrafts(data.suggested_lots || []);
+    } catch {
+      alert(t('common.connection_error'));
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+
+  const handleConfirmReceipt = async (e) => {
+    e.preventDefault();
+    if (!receipt || receiptDrafts.length === 0) return;
+    setReceiptBusy(true);
+    try {
+      const body = {
+        lots: receiptDrafts.map(d => ({ ...d, quantity: Math.max(1, Number(d.quantity) || 1) })),
+      };
+      if (receiptCommon.expiry_date) body.expiry_date = receiptCommon.expiry_date;
+      if (receiptCommon.address) body.address = receiptCommon.address;
+      if (receiptCommon.time_slot) body.time_slot = receiptCommon.time_slot;
+      const res = await fetch(`${API_URL}/shops/${shopId}/receipts/${receipt.id}/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || t('shop.ocr_error'));
+        return;
+      }
+      alert(t('shop.ocr_lots_created', { count: (data.lot_ids || []).length }));
+      setReceipt(null);
+      setReceiptDrafts([]);
+      setReceiptFile(null);
+      fetchShopData();
+      setActiveTab('active');
+    } catch {
+      alert(t('common.connection_error'));
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
 
   const handleCreateLot = async (e) => {
     e.preventDefault();
@@ -233,31 +320,7 @@ const ShopDashboard = () => {
           </button>
         </form>
       </div>
-      <div className="tg-connect-section">
-        <h3>{t('shop.telegram_title')}</h3>
-        {tgLink ? (
-          <div className="tg-link-box">
-            <p>{t('shop.telegram_link_label')}</p>
-            <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
-              {t('shop.open_telegram', { name: tgLink.bot_name })}
-            </a>
-          </div>
-        ) : (
-          <button className="btn btn-secondary" onClick={async () => {
-            setTgLoading(true);
-            try {
-              const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
-                headers: { Authorization: `Bearer ${user?.token}` },
-              });
-              if (res.ok) setTgLink(await res.json());
-              else alert(t('shop.error_tg'));
-            } catch { alert(t('common.connection_error')); }
-            finally { setTgLoading(false); }
-          }} disabled={tgLoading}>
-            {tgLoading ? t('common.loading') : t('shop.telegram_connect')}
-          </button>
-        )}
-      </div>
+      <AccountLinks dashboardPath="/shop" />
     </div>
   );
 
@@ -336,6 +399,172 @@ const ShopDashboard = () => {
 
         <button type="submit" className="btn btn-primary">{t('shop.publish')}</button>
       </form>
+    </div>
+  );
+
+  const renderUpgradeNotice = () => (
+    <div className="warning-box" style={{ marginTop: 16 }}>
+      <p>💎 {t('shop.plan_upgrade_hint')}</p>
+      <p style={{ opacity: 0.8 }}>{t('shop.plan_current')}: {plan?.label || '—'}</p>
+    </div>
+  );
+
+  const renderOcr = () => (
+    <div className="tab-content">
+      {plan && !plan.ocr ? (
+        <>
+          <h3>{t('shop.ocr_title')}</h3>
+          <p>{t('shop.ocr_intro')}</p>
+          {renderUpgradeNotice()}
+        </>
+      ) : !receipt ? (
+        <form className="admin-form" onSubmit={handleUploadReceipt}>
+          <h2>{t('shop.ocr_title')}</h2>
+          <p>{t('shop.ocr_intro')}</p>
+          <div className="form-group">
+            <label>{t('shop.ocr_photo')}</label>
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => setReceiptFile(e.target.files[0])} required />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={receiptBusy || !receiptFile}>
+            {receiptBusy ? t('shop.ocr_processing') : t('shop.ocr_recognize')}
+          </button>
+        </form>
+      ) : (
+        <form className="admin-form" onSubmit={handleConfirmReceipt}>
+          <h2>{t('shop.ocr_review')}</h2>
+          <p>
+            {receipt.merchant && <>🏪 {receipt.merchant} · </>}
+            {receipt.receipt_date && <>📅 {receipt.receipt_date} · </>}
+            {receipt.total != null && <>💰 {receipt.total} {receipt.currency || ''}</>}
+          </p>
+          {receipt.status === 'rejected' ? (
+            <div className="warning-box">
+              <p>🚫 {t('shop.ocr_rejected')}</p>
+              <p>{receipt.fraud_reasons}</p>
+              <button type="button" className="btn btn-secondary" onClick={() => { setReceipt(null); setReceiptFile(null); }}>
+                {t('common.cancel')}
+              </button>
+            </div>
+          ) : (
+            <>
+              {receipt.fraud_flagged && (
+                <div className="warning-box">
+                  <p>⚠️ {t('shop.ocr_flagged')}: {receipt.fraud_reasons}</p>
+                </div>
+              )}
+              {receiptDrafts.map((d, i) => (
+                <div key={i} className="form-row" style={{ alignItems: 'flex-end' }}>
+                  <div className="form-group" style={{ flex: 2 }}>
+                    <label>{t('shop.lot_name')}</label>
+                    <input value={d.description} onChange={e => setReceiptDrafts(ds => ds.map((x, j) => j === i ? { ...x, description: e.target.value } : x))} required />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('shop.weight')}</label>
+                    <input type="number" min="1" value={d.quantity} onChange={e => setReceiptDrafts(ds => ds.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} required />
+                  </div>
+                  <div className="form-group">
+                    <label>{t('shop.category')}</label>
+                    <select value={d.category} onChange={e => setReceiptDrafts(ds => ds.map((x, j) => j === i ? { ...x, category: e.target.value } : x))}>
+                      <option value="Выпечка">{t('categories.bakery')}</option>
+                      <option value="Овощи/Фрукты">{t('categories.vegetables')}</option>
+                      <option value="Готовая еда">{t('categories.prepared')}</option>
+                      <option value="Молочные продукты">{t('categories.dairy')}</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <button type="button" className="btn-small btn-danger" onClick={() => setReceiptDrafts(ds => ds.filter((_, j) => j !== i))}>✕</button>
+                  </div>
+                </div>
+              ))}
+              <div className="form-row">
+                <div className="form-group">
+                  <label>{t('shop.expiry')}</label>
+                  <input type="date" value={receiptCommon.expiry_date} onChange={e => setReceiptCommon({ ...receiptCommon, expiry_date: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label>{t('shop.time_slot')}</label>
+                  <input type="text" value={receiptCommon.time_slot} onChange={e => setReceiptCommon({ ...receiptCommon, time_slot: e.target.value })} />
+                </div>
+              </div>
+              <AddressInput
+                label={t('shop.address_label')}
+                value={receiptCommon.address}
+                onChange={(addr) => setReceiptCommon({ ...receiptCommon, address: addr.address })}
+              />
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button type="submit" className="btn btn-primary" disabled={receiptBusy || receiptDrafts.length === 0}>
+                  {receiptBusy ? t('common.loading') : t('shop.ocr_publish', { count: receiptDrafts.length })}
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => { setReceipt(null); setReceiptFile(null); }}>
+                  {t('common.cancel')}
+                </button>
+              </div>
+            </>
+          )}
+        </form>
+      )}
+    </div>
+  );
+
+  const renderEsg = () => (
+    <div className="tab-content">
+      {esgError ? (
+        <>
+          <h3>{t('shop.esg_title')}</h3>
+          <div className="warning-box"><p>{esgError}</p></div>
+          {plan && !plan.esg && renderUpgradeNotice()}
+        </>
+      ) : !esgReport ? (
+        <p>{t('common.loading')}</p>
+      ) : (
+        <>
+          <div className="stats-grid">
+            <div className="stat-box">
+              <span className="stat-value">{esgReport.totals.kg} {t('shop.kg')}</span>
+              <span className="stat-label">{t('shop.esg_kg_saved')}</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-value">{esgReport.totals.co2_kg} {t('shop.kg')}</span>
+              <span className="stat-label">{t('shop.esg_co2')}</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-value">{esgReport.totals.meals}</span>
+              <span className="stat-label">{t('shop.esg_meals')}</span>
+            </div>
+            <div className="stat-box">
+              <span className="stat-value">{esgReport.totals.lots}</span>
+              <span className="stat-label">{t('shop.esg_lots')}</span>
+            </div>
+          </div>
+          {esgReport.by_category.length > 0 && (
+            <table className="history-table" style={{ marginTop: 16 }}>
+              <thead>
+                <tr><th>{t('shop.category')}</th><th>{t('shop.kg')}</th><th>CO₂ ({t('shop.kg')})</th><th>{t('shop.esg_lots')}</th></tr>
+              </thead>
+              <tbody>
+                {esgReport.by_category.map(c => (
+                  <tr key={c.category}>
+                    <td>{catLabel(c.category)}</td><td>{c.kg}</td><td>{c.co2_kg}</td><td>{c.lots}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {esgReport.by_month.length > 0 && (
+            <table className="history-table" style={{ marginTop: 16 }}>
+              <thead>
+                <tr><th>{t('shop.esg_month')}</th><th>{t('shop.kg')}</th><th>CO₂ ({t('shop.kg')})</th></tr>
+              </thead>
+              <tbody>
+                {esgReport.by_month.map(m => (
+                  <tr key={m.month}><td>{m.month}</td><td>{m.kg}</td><td>{m.co2_kg}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p style={{ marginTop: 16, fontSize: '0.85rem', opacity: 0.7 }}>{t('shop.esg_methodology')}: {esgReport.methodology}</p>
+        </>
+      )}
     </div>
   );
 
@@ -470,10 +699,18 @@ const ShopDashboard = () => {
       )}
       <aside className="sidebar">
         <h2>{shopInfo.name || t('common.loading')}</h2>
+        {plan && (
+          <p style={{ fontSize: '0.85rem', opacity: 0.8 }}>
+            💎 {t('shop.plan_label')}: {plan.label}
+            {plan.monthly_lot_limit != null && ` (${plan.lots_used_this_month}/${plan.monthly_lot_limit})`}
+          </p>
+        )}
         <nav>
           <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>{t('shop.overview')}</button>
           <button className={activeTab === 'create' ? 'active' : ''} onClick={() => setActiveTab('create')}>{t('shop.add_lot')}</button>
+          <button className={activeTab === 'ocr' ? 'active' : ''} onClick={() => setActiveTab('ocr')}>{t('shop.ocr_tab')}</button>
           <button className={activeTab === 'active' ? 'active' : ''} onClick={() => setActiveTab('active')}>{t('shop.lots')}</button>
+          <button className={activeTab === 'esg' ? 'active' : ''} onClick={() => setActiveTab('esg')}>{t('shop.esg_tab')}</button>
           <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('shop.history')}</button>
           <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>
             {t('shop.notifications')} {notifications.filter(n => !n.read).length > 0 && `(${notifications.filter(n => !n.read).length})`}
@@ -483,11 +720,13 @@ const ShopDashboard = () => {
 
       <main className="main-content">
         <header className="content-header">
-          <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'active' ? t('shop.lots') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
+          <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'ocr' ? t('shop.ocr_tab') : activeTab === 'active' ? t('shop.lots') : activeTab === 'esg' ? t('shop.esg_tab') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
         </header>
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'create' && renderCreateLot()}
+        {activeTab === 'ocr' && renderOcr()}
         {activeTab === 'active' && renderActiveLots()}
+        {activeTab === 'esg' && renderEsg()}
         {activeTab === 'history' && renderHistory()}
         {activeTab === 'notifications' && renderNotifications()}
       </main>

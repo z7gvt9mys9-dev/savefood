@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import EmptyState from '../../components/EmptyState';
+import AccountLinks from '../../components/AccountLinks';
 import './Volunteer.css';
 
 const CAT_KEYS = {
@@ -120,8 +121,6 @@ const VolunteerDashboard = () => {
   const [routes, setRoutes] = useState([]);
   const [gpsStatus, setGpsStatus] = useState('unknown');
   const [volunteerRating, setVolunteerRating] = useState(null);
-  const [tgLink, setTgLink] = useState(null);
-  const [tgLoading, setTgLoading] = useState(false);
   const [stats, setStats] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [photoUploading, setPhotoUploading] = useState({});
@@ -559,24 +558,38 @@ const VolunteerDashboard = () => {
             {!stats ? (
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (
-              <div className="stats-row" style={{ flexWrap: 'wrap' }}>
-                <div className="v-stat">
-                  <span>{stats.total_routes}</span>
-                  {t('volunteer.total_routes')}
+              <>
+                <div className="stats-row" style={{ flexWrap: 'wrap' }}>
+                  <div className="v-stat">
+                    <span>{stats.total_routes}</span>
+                    {t('volunteer.total_routes')}
+                  </div>
+                  <div className="v-stat">
+                    <span>{stats.total_deliveries}</span>
+                    {t('volunteer.total_deliveries')}
+                  </div>
+                  <div className="v-stat">
+                    <span>{stats.total_kg}</span>
+                    {t('volunteer.total_kg')}
+                  </div>
+                  <div className="v-stat">
+                    <span>{stats.avg_rating ? stats.avg_rating.toFixed(1) : '—'}</span>
+                    {t('volunteer.rating')} {stats.rating_count > 0 && `(${stats.rating_count})`}
+                  </div>
                 </div>
-                <div className="v-stat">
-                  <span>{stats.total_deliveries}</span>
-                  {t('volunteer.total_deliveries')}
-                </div>
-                <div className="v-stat">
-                  <span>{stats.total_kg}</span>
-                  {t('volunteer.total_kg')}
-                </div>
-                <div className="v-stat">
-                  <span>{stats.avg_rating ? stats.avg_rating.toFixed(1) : '—'}</span>
-                  {t('volunteer.rating')} {stats.rating_count > 0 && `(${stats.rating_count})`}
-                </div>
-              </div>
+                <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.achievements')}</h4>
+                {(stats.achievements || []).length === 0 ? (
+                  <p className="empty-msg" style={{ fontSize: '0.85rem' }}>{t('volunteer.achievements_empty')}</p>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {stats.achievements.map(a => (
+                      <span key={a} className="category-badge" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>
+                        {t(`volunteer.ach_${a}`)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -592,26 +605,8 @@ const VolunteerDashboard = () => {
                   <span style={{ fontSize: '0.8em', color: '#aaa' }}>{volunteerRating.average} ({volunteerRating.count})</span>
                 </div>
               )}
-              <div className="v-stat" style={{ justifyContent: 'center', gap: 6 }}>
-                {tgLink ? (
-                  <a href={tgLink.link} target="_blank" rel="noreferrer"
-                    style={{ fontSize: '0.78rem', color: '#5dade2', textDecoration: 'none', fontWeight: 600 }}>
-                    @{tgLink.bot_name}
-                  </a>
-                ) : (
-                  <button className="btn-small" onClick={async () => {
-                    setTgLoading(true);
-                    try {
-                      const res = await fetch(`${API_URL}/auth/telegram/init-link`, { headers: authHeader });
-                      if (res.ok) setTgLink(await res.json());
-                    } finally { setTgLoading(false); }
-                  }} disabled={tgLoading} style={{ fontSize: '0.75rem' }}>
-                    {tgLoading ? '...' : t('volunteer.telegram_connect')}
-                  </button>
-                )}
-                <span style={{ fontSize: '0.78rem', color: '#555' }}>{t('common.notifications')}</span>
-              </div>
             </div>
+            <AccountLinks dashboardPath="/volunteer" />
           {routes.length === 0 ? (
             <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
           ) : routes.map(r => (

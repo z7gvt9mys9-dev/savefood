@@ -45,6 +45,16 @@ services:
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       # Telegram chat id of the support team for route-timeout alerts (§22.3)
       SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
+      # AI support assistant in the bot (Google Gemini); empty = escalate to admin
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
+      # Social login (OAuth). Empty pair = the provider's button is hidden.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
+      YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
+      # Public base URL for OAuth redirect_uri (defaults to SITE_URL)
+      OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
       # Timezone used to interpret recipients' available_time windows
       LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
     volumes:
@@ -52,6 +62,25 @@ services:
       - needy_uploads:/app/backend/needy/uploads
       # without this volume delivery photos are lost on every container rebuild
       - volunteer_uploads:/app/backend/volunteer/uploads
+
+  # Go-микросервис горячих путей (§31): WebSocket-фанаут уведомлений и
+  # приём/чтение геокоординат волонтёров. Делит БД и SECRET_KEY с backend.
+  geows:
+    build:
+      context: ./go-services/geows
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8001"
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-savefood}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      DB_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
 
   frontend:
     build:
@@ -66,6 +95,7 @@ services:
       - "${APP_PORT:-80}:80"
     depends_on:
       - backend
+      - geows
 
 volumes:
   postgres_data:

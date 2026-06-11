@@ -36,6 +36,10 @@ def init_db():
         # Reassign-timeout is measured from the last completed point, not route
         # start — a long multi-stop route must not be killed mid-delivery.
         cur.execute("ALTER TABLE volunteer_routes ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP WITH TIME ZONE")
+        # Anti-fraud monitor (§27): volunteer→shop distance at claim time and
+        # the timestamp of the "Всё в порядке?" ping (NULL = not pinged).
+        cur.execute("ALTER TABLE volunteer_routes ADD COLUMN IF NOT EXISTS start_dist_m REAL")
+        cur.execute("ALTER TABLE volunteer_routes ADD COLUMN IF NOT EXISTS antifraud_ping_at TIMESTAMP WITH TIME ZONE")
 
         cur.execute(
             """

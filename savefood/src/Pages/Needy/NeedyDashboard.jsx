@@ -4,6 +4,7 @@ import QRCode from 'react-qr-code';
 import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
+import AccountLinks from '../../components/AccountLinks';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Needy.css';
@@ -41,8 +42,6 @@ const NeedyDashboard = () => {
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '', lat: null, lon: null });
-  const [tgLink, setTgLink] = useState(null);
-  const [tgLoading, setTgLoading] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [ratings, setRatings] = useState({});
@@ -284,22 +283,6 @@ const NeedyDashboard = () => {
     } catch { alert(t('common.connection_error')); }
   };
 
-  const handleConnectTelegram = async () => {
-    setTgLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
-        headers: { Authorization: `Bearer ${user?.token}` },
-      });
-      if (!res.ok) { alert(t('needy.error_tg')); return; }
-      const data = await res.json();
-      setTgLink(data);
-    } catch {
-      alert(t('common.connection_error'));
-    } finally {
-      setTgLoading(false);
-    }
-  };
-
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!needyId) { alert(t('common.auth_required')); return; }
@@ -362,22 +345,7 @@ const NeedyDashboard = () => {
         <button type="submit" className="btn btn-primary">{t('needy.save_profile')}</button>
       </form>
 
-      <div className="tg-connect-section">
-        <h3>{t('needy.tg_title')}</h3>
-        {tgLink ? (
-          <div className="tg-link-box">
-            <p>{t('needy.tg_link_label')}</p>
-            <a href={tgLink.link} target="_blank" rel="noreferrer" className="btn btn-primary tg-btn">
-              {t('needy.tg_open', { name: tgLink.bot_name })}
-            </a>
-            {tgLink.already_linked && <p className="tg-hint">{t('needy.tg_already_linked')}</p>}
-          </div>
-        ) : (
-          <button className="btn btn-secondary" onClick={handleConnectTelegram} disabled={tgLoading}>
-            {tgLoading ? t('common.loading') : t('needy.telegram_connect')}
-          </button>
-        )}
-      </div>
+      <AccountLinks dashboardPath="/needy" />
     </div>
   );
 

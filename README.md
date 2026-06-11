@@ -10,10 +10,22 @@
 Магазин публикует лот → Волонтёр берёт маршрут → Нуждающийся получает продукты
 ```
 
-1. Магазин добавляет лот с продуктами, у которых истекает срок годности
-2. Волонтёр видит лоты на карте, берёт маршрут
-3. Едет в магазин, забирает еду, доставляет получателю
-4. Получатель подтверждает получение QR-кодом
+1. Магазин добавляет лот вручную или **фотографирует чек списания** — OCR сам распознаёт позиции, категории и готовит лоты (тариф «Профи»)
+2. Нуждающийся выбирает лот на карте и оформляет заявку (доставка или самовывоз); документы при регистрации предпроверяет **Auto-KYC** (ИИ-вердикт для модератора)
+3. Волонтёр берёт лот — система отбирает заявки по приоритету и строит оптимальный маршрут (2-opt)
+4. Получатель подтверждает доставку QR-кодом + GPS-проверка (≤ 100 м); самовывоз закрывает магазин по тому же QR
+
+## Монетизация (B2B SaaS)
+
+Помощь и работа волонтёров бесплатны — платит ритейл. Тариф хранится в `shops.plan`, фичи гейтятся на сервере (HTTP 402 с подсказкой об апгрейде):
+
+| | Базовый | Профи | Enterprise |
+|---|---|---|---|
+| Создание лотов | вручную, 20/мес | без лимита | без лимита |
+| OCR чеков (фото → лоты) | — | ✓ | ✓ |
+| ESG-отчёт (кг, CO₂, приёмы пищи) | — | ✓ | ✓ |
+
+Чеки проходят **антифрод** (дата, дубликаты по sha256/fingerprint, ИИ-оценка подлинности → `fraud_score`). Смена тарифа — админом (вкладка «Тарифы», пишется в audit log); биллинг-шлюз — в планах.
 
 ---
 
@@ -22,23 +34,29 @@
 | Слой | Технология |
 |---|---|
 | Backend | Python 3.11, FastAPI, PostgreSQL 15 |
-| Frontend | React 18, react-router-dom v7 |
+| Микросервис горячих путей | Go 1.24 (`go-services/geows`): WebSocket-фанаут + геокоординаты |
+| Frontend | React 18, Vite, react-router-dom v7 |
 | Карты | Yandex Maps + Geosuggest/Геокодер (подсказки адресов) |
 | i18n | react-i18next (ru / kk / en) |
 | Мобильное приложение | Capacitor 8 (Android / iOS) |
 | Уведомления | Telegram Bot (aiogram 3.x), WebSocket |
+| ИИ-помощник поддержки | Google Gemini (`backend/ai_service.py`), эскалация на админа |
+| ИИ: OCR чеков + антифрод | Gemini Vision (`backend/receipt_service.py`): позиции, категории, подлинность |
+| ИИ: Auto-KYC документов | Gemini Vision (`backend/kyc_service.py`): вердикт для очереди модерации |
+| SaaS-тарифы / ESG | `backend/billing.py` (гейтинг, квоты), `backend/esg.py` (CO₂-методология v1) |
 | Авторизация | JWT HS256, bcrypt |
-| Деплой | Docker Compose, Nginx |
+| Деплой | Docker Compose, Nginx, Cloudflare Tunnel |
 
 ---
 
-## Быстрый старт
+## Быстрый старт (Docker)
 
 ### Требования
 
 - Docker и Docker Compose
 - Yandex Maps API Key
 - Telegram Bot Token (опционально)
+- Gemini API Key (опционально — для ИИ-помощника в боте, https://aistudio.google.com/apikey)
 
 ### Запуск
 
@@ -52,23 +70,51 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Приложение будет доступно на `http://localhost`.
+Приложение будет доступно на `http://localhost` (порт меняется через `APP_PORT`).
 
 ### Переменные окружения (.env)
 
 ```env
-SECRET_KEY=your-secret-key-here
-DATABASE_URL=postgresql://savefood:savefood@postgres:5432/savefood
+# База данных
+POSTGRES_DB=savefood
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=strong-password
 
-REACT_APP_YANDEX_MAPS_API_KEY=your-yandex-maps-key
-REACT_APP_API_URL=
+# Backend (обязательные)
+SECRET_KEY=random-string-64-chars        # python -c "import secrets; print(secrets.token_urlsafe(64))"
+CORS_ORIGIN=https://yourdomain.com       # список origins через запятую, без wildcard
 
-TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+# Frontend (Vite, передаются при сборке)
+VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-key
+VITE_YANDEX_SUGGEST_API_KEY=your-geosuggest-key
+
+# Telegram-бот (опционально)
+TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_NAME=your_bot_username
+TELEGRAM_POLLING=true                    # true = long-polling, false = webhook
+TELEGRAM_WEBHOOK_SECRET=...              # для webhook-режима
 SITE_URL=https://yourdomain.com
+SUPPORT_CHAT_ID=...                      # chat id админа: алерты + эскалации ИИ
 
-SUPPORT_CHAT_ID=your-telegram-chat-id
-CORS_ORIGINS=http://localhost,https://yourdomain.com
+# ИИ: помощник в боте, OCR чеков, Auto-KYC (опционально — без ключа платформа
+# деградирует в ручной режим: OCR отвечает 503, KYC помечает заявки «unchecked»)
+GEMINI_API_KEY=...
+AI_MODEL=gemini-2.5-flash
+OCR_MODEL=                               # vision-модель для чеков (по умолчанию = AI_MODEL)
+KYC_MODEL=                               # vision-модель для документов (по умолчанию = AI_MODEL)
+RECEIPT_MAX_AGE_HOURS=48                 # максимальный возраст чека для антифрода
+
+# Соц-вход (опционально; кнопка появляется, только если задана пара ключей)
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+YANDEX_CLIENT_ID=...
+YANDEX_CLIENT_SECRET=...
+OAUTH_PUBLIC_URL=                        # база для redirect_uri (по умолчанию SITE_URL)
+
+# Прочее
+LOCAL_TZ=Asia/Almaty                     # часовой пояс окон available_time
+APP_PORT=80
+VLESS_URL=                               # опциональный прокси для Telegram API
 ```
 
 ---
@@ -78,16 +124,21 @@ CORS_ORIGINS=http://localhost,https://yourdomain.com
 ### Backend
 
 ```bash
-cd backend
+# из корня репозитория
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 
-# Запустить базу данных
-docker compose up postgres -d
+# база данных
+docker run -d --name savefood-pg -v savefood_pgdata:/var/lib/postgresql/data \
+  -e POSTGRES_DB=savefood -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 postgres:15-alpine
 
-# Запустить сервер
-uvicorn main:app --reload --port 8000
+# сервер (SECRET_KEY и CORS_ORIGIN обязательны)
+SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(64))") \
+CORS_ORIGIN=http://localhost:3000 \
+DB_HOST=localhost DB_USER=postgres DB_PASS=postgres DB_NAME=savefood \
+uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 API документация: `http://localhost:8000/docs`
@@ -97,10 +148,32 @@ API документация: `http://localhost:8000/docs`
 ```bash
 cd savefood
 npm install
-npm start
+npm run dev        # Vite dev-сервер на http://localhost:3000
 ```
 
-Приложение: `http://localhost:3000`
+В dev-режиме Vite проксирует все API-пути на `http://127.0.0.1:8000` (настраивается через `VITE_API_URL` в `savefood/.env`; пустое значение = относительные пути через прокси).
+
+### Go-микросервис (geows)
+
+Горячие пути — `/ws/needy/{id}` (WebSocket-уведомления) и `/volunteers/{id}/location` — вынесены в Go-сервис. В Docker-развёртке он собирается и маршрутизируется автоматически (nginx). Локально:
+
+```bash
+cd go-services/geows
+SECRET_KEY=<тот же, что у backend> DB_HOST=localhost DB_USER=postgres \
+DB_PASS=postgres DB_NAME=savefood PORT=8001 go run .
+```
+
+Чтобы dev-прокси Vite направлял горячие пути в Go, добавьте в `savefood/.env`:
+`VITE_GO_URL=http://127.0.0.1:8001` (пусто → эти пути обслуживает Python, как раньше).
+
+### Доступ с другого устройства (Cloudflare Tunnel)
+
+```bash
+cloudflared tunnel --url http://localhost:3000   # dev-сервер
+# или ./cloudflare-tunnel.sh                     # прод (nginx на :80), URL пишется в ~/savefood-url.txt
+```
+
+Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js` (`server.allowedHosts`). Quick-туннель живёт, пока работает процесс `cloudflared`; при перезапуске URL меняется.
 
 ### Миграции (опционально)
 
@@ -149,10 +222,10 @@ openssl s_client -connect api.yourdomain.com:443 -servername api.yourdomain.com 
 
 | Роль | Возможности |
 |---|---|
-| **Магазин** | Создание лотов с фото и категорией, подтверждение передачи, история, Telegram-уведомления |
-| **Волонтёр** | Карта лотов, маршруты с навигацией, GPS-верификация, QR-сканер, статистика |
-| **Получатель** | Просмотр лотов на карте, заявки, трекинг волонтёра, оценка доставки |
-| **Администратор** | Модерация заявок, диспетчерская, управление пользователями, аналитика, audit log |
+| **Магазин** | Создание лотов вручную или сканом чека (OCR), подтверждение передачи, закрытие самовывоза по QR-коду, ESG-отчёт, тариф с квотой в сайдбаре, история, Telegram-уведомления |
+| **Волонтёр** | Карта лотов, маршруты с 2-opt-оптимизацией и навигацией, GPS-верификация, QR-сканер, статистика и достижения (бейджи) |
+| **Получатель** | Просмотр лотов на карте, заявки (доставка/самовывоз), трекинг волонтёра, оценка доставки 1–5 ★ |
+| **Администратор** | Модерация заявок с ИИ-вердиктом Auto-KYC, диспетчерская, управление пользователями и тарифами магазинов, аналитика + ESG платформы, audit log |
 
 ---
 
@@ -161,31 +234,45 @@ openssl s_client -connect api.yourdomain.com:443 -servername api.yourdomain.com 
 ```
 savefood/
 ├── backend/                 # FastAPI приложение
-│   ├── main.py              # Точка входа, lifespan, middleware
-│   ├── auth.py              # JWT, авторизация
-│   ├── auth_routes.py       # /auth/login, /auth/telegram
+│   ├── main.py              # Точка входа, CORS, фоновые циклы (expire / reassign / antifraud)
+│   ├── auth.py              # JWT, ensure_owner_or_admin
+│   ├── auth_routes.py       # /auth/login, /auth/refresh
+│   ├── limiter.py           # Rate limiting (slowapi, CF-Connecting-IP)
+│   ├── ai_service.py        # ИИ-помощник поддержки (Google Gemini API)
+│   ├── receipt_service.py   # OCR чеков + классификация + антифрод (Gemini Vision)
+│   ├── kyc_service.py       # Auto-KYC: ИИ-предпроверка документов нуждающихся
+│   ├── billing.py           # SaaS-тарифы: гейтинг OCR/ESG, квоты лотов
+│   ├── esg.py               # ESG-отчёты: CO₂-методология v1, разбивки
+│   ├── telegram_routes.py   # Бот: команды, relay-чат, ИИ-фоллбэк, webhook
+│   ├── telegram_service.py  # Отправка уведомлений в Telegram
+│   ├── proxy_service.py     # Опциональный VLESS-прокси для Telegram API
 │   ├── shop/                # Роуты, БД, схемы магазинов
-│   ├── volunteer/           # Роуты, БД, схемы волонтёров
-│   ├── needy/               # Роуты, БД, схемы получателей
+│   ├── volunteer/           # Роуты, БД, схемы волонтёров (+ маршрутизация)
+│   ├── needy/               # Роуты, БД, схемы получателей (+ WebSocket)
 │   ├── admin/               # Роуты администратора
-│   ├── telegram_routes.py   # Webhook бота
-│   ├── telegram_service.py  # Отправка уведомлений
 │   └── requirements.txt
 │
-├── savefood/                # React приложение
+├── savefood/                # React приложение (Vite)
 │   ├── src/
 │   │   ├── Pages/           # Shop, Volunteer, Needy, Admin, Auth, About
-│   │   ├── components/      # EmptyState и другие общие компоненты
+│   │   ├── components/      # EmptyState, ProtectedRoute
 │   │   ├── context/         # AuthContext
 │   │   ├── i18n/            # Переводы ru/kk/en
-│   │   └── api.js           # API_URL
+│   │   └── api.js           # API_URL (VITE_API_URL)
 │   ├── android/             # Capacitor Android проект
-│   ├── capacitor.config.ts
-│   └── package.json
+│   ├── nginx.conf           # Прод-прокси (rate limit, WS, security headers)
+│   ├── vite.config.js       # Dev-прокси, allowedHosts для туннеля
+│   └── capacitor.config.ts
 │
-├── migrations/              # Alembic миграции
+├── go-services/
+│   └── geows/               # Go-микросервис: WS-фанаут уведомлений, геокоординаты
+│       ├── main.go          # hub с общим поллером БД, JWT (общий SECRET_KEY)
+│       └── Dockerfile       # multi-stage, ~10 MB образ
+│
+├── migrations/              # Alembic миграции (raw SQL)
 ├── docker-compose.yml
 ├── Dockerfile.backend
+├── cloudflare-tunnel.sh     # Quick tunnel для внешнего доступа
 └── .env.example
 ```
 
@@ -197,32 +284,55 @@ savefood/
 
 | Метод | Путь | Описание |
 |---|---|---|
-| `POST` | `/auth/login` | Вход (OAuth2 PasswordFlow) |
-| `POST` | `/shops/register` | Регистрация магазина |
+| `POST` | `/auth/login` | Вход (OAuth2 PasswordFlow), 5 req/min |
+| `GET` | `/auth/oauth/{google\|yandex}/start` | Соц-вход / привязка (authorization code) |
+| `POST` | `/auth/telegram/login/start` + `/poll` | Вход через Telegram (deep-link бота) |
+| `GET` | `/auth/links` | Статус привязок Telegram / Google / Yandex |
+| `POST` | `/shops/register` | Регистрация магазина (атомарно с учёткой) |
 | `POST` | `/volunteers/register` | Регистрация волонтёра |
 | `POST` | `/needy/register` | Регистрация получателя |
-| `GET` | `/lots` | Список активных лотов (с фильтром по категории, городу, поиску) |
-| `POST` | `/shops/{id}/lots` | Создать лот (multipart с фото) |
-| `POST` | `/volunteers/{id}/start_route` | Взять маршрут |
-| `POST` | `/volunteers/route/{id}/complete_point` | Отметить точку выполненной |
-| `POST` | `/volunteers/route/{id}/finish` | Завершить маршрут |
-| `GET` | `/volunteers/map` | Карта лотов для волонтёра (с геофенсом) |
-| `PATCH` | `/volunteers/{id}/location` | Обновить локацию волонтёра |
-| `POST` | `/needy/{id}/ticket` | Создать заявку |
+| `GET` | `/lots` | Активные лоты (фильтры: категория, поиск) |
+| `POST` | `/shops/{id}/lots/upload` | Создать лот (multipart с фото) |
+| `POST` | `/shops/{id}/receipts` | OCR: фото чека → позиции + антифрод-вердикт (Профи+) |
+| `POST` | `/shops/{id}/receipts/{rid}/confirm` | Создать лоты из проверенных черновиков чека |
+| `GET` | `/shops/{id}/esg` | ESG-отчёт магазина: кг, CO₂, приёмы пищи (Профи+) |
+| `GET` | `/shops/{id}/plan` | Текущий тариф и использование квоты |
+| `POST` | `/shops/{id}/self_pickup/confirm` | Закрыть самовывоз по коду `SF-<id>` |
+| `POST` | `/volunteers/{id}/start_route` | Взять лот: отбор заявок по приоритету + 2-opt маршрут |
+| `POST` | `/volunteers/route/{id}/complete_point` | Точка маршрута (QR + GPS проверяются на сервере) |
+| `POST` | `/volunteers/route/{id}/finish` | Завершить маршрут (незакрытые тикеты → open) |
+| `GET` | `/volunteers/{id}/stats` | Статистика + достижения |
+| `PATCH` | `/volunteers/{id}/location` | Пуш координат (каждые 20 с, питает антифрод) |
+| `POST` | `/needy/{id}/ticket` | Создать заявку (доставка / самовывоз) |
 | `PATCH` | `/needy/{id}/moderation` | Одобрить/отклонить (admin) |
 | `GET` | `/admin/stats` | Статистика платформы |
-| `WS` | `/ws/needy/{id}` | WebSocket уведомлений |
+| `GET` | `/admin/esg` | ESG платформы + топ-10 магазинов |
+| `PATCH` | `/admin/shops/{id}/plan` | Сменить тариф магазина (audit log) |
+| `WS` | `/ws/needy/{id}` | WebSocket уведомлений (auth первым сообщением) |
 
 Полная документация: `/docs` (Swagger UI)
 
 ---
 
+## Социальный вход и привязка аккаунтов
+
+- **Профиль** каждой роли содержит блок «Привязанные аккаунты»: Telegram, Google, Яндекс (привязать/отвязать)
+- **Вход**: кнопки на странице логина. Google/Яндекс — стандартный OAuth (authorization code, серверный обмен); redirect URI `<OAUTH_PUBLIC_URL>/auth/oauth/<provider>/callback` нужно зарегистрировать в консоли провайдера
+- **Telegram** — без Login Widget (он требует фиксированный домен в BotFather, что несовместимо с туннелями): вход идёт через deep-link бота `t.me/<bot>?start=login_<token>` + поллинг; работает с любым доменом
+- Вход возможен только в уже существующий аккаунт: сначала регистрация по паролю, затем привязка в профиле
+- Токен после OAuth-входа возвращается во **fragment** URL (`#oauth_token=…`) — не попадает в логи серверов
+
+---
+
 ## Telegram-бот
 
-Бот выполняет две функции:
+Бот выполняет три функции:
 
-1. **Уведомления** — волонтёр взял лот, волонтёр в пути (с ETA), попытка доставки
+1. **Уведомления** — заявка принята волонтёром, волонтёр в пути (с ETA), попытка доставки, антифрод-пинг
 2. **Чат** — сообщения между волонтёром и нуждающимся в активном маршруте
+3. **ИИ-помощник** — если активной доставки нет, на вопрос отвечает Gemini (FAQ по платформе); когда модель не уверена — вопрос автоматически пересылается администратору в `SUPPORT_CHAT_ID`
+
+Команды: `/start`, `/help`, `/status`, `/chat`, `/unlink`.
 
 ### Привязка аккаунта
 
@@ -230,42 +340,35 @@ savefood/
 Профиль → «Подключить Telegram» → deep-link → /start link_<token>
 ```
 
-### Установка webhook
+### Режимы получения апдейтов
+
+- **Long-polling** (по умолчанию, `TELEGRAM_POLLING=true`) — ничего настраивать не нужно
+- **Webhook** (`TELEGRAM_POLLING=false`):
 
 ```bash
-curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/telegram/webhook"
+curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/telegram/webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>"
 ```
 
 ---
 
 ## Особенности безопасности
 
-- Документы нуждающихся удаляются сразу после модерации
+- Документы нуждающихся скачиваются только владельцем/админом и удаляются сразу после модерации
 - Пароли хранятся только в виде bcrypt-хеша
-- JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные
-- Rate limiting на `/auth/login`: 5 запросов в минуту с одного IP
-- Все admin-эндпоинты защищены проверкой роли
-- **SSL pinning (mobile):** Android — `network_security_config.xml` с SHA-256 SPKI pin-set, cleartext-трафик заблокирован; iOS — `NSAppTransportSecurity` отключает `NSAllowsArbitraryLoads`, Certificate Transparency включена для прод-домена. Защищает от MITM-атак даже при скомпрометированном корневом CA.
-
----
+- JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные (`ensure_owner_or_admin` на всех приватных эндпоинтах)
+- Подтверждение доставки: QR-код и GPS-радиус 100 м проверяются **на сервере**
+- Rate limiting на `/auth/login` и `/register`: 5 запросов в минуту с одного IP (за Cloudflare Tunnel клиент определяется по `CF-Connecting-IP`)
+- **Антифрод (волонтёры)**: если волонтёр взял лот и удаляется от магазина — авто-пинг «Всё в порядке?», при отсутствии реакции маршрут снимается и еда возвращается на витрину
+- **Антифрод (чеки)**: дубликаты по sha256 и fingerprint (магазин+дата+сумма), проверка свежести даты, ИИ-оценка подлинности фото; `fraud_score ≥ 0.7` блокирует создание лотов
+- **Auto-KYC**: ИИ предпроверяет документы нуждающихся (тип, ФИО, следы редактирования), но финальное решение принимает модератор; фото чеков и документы недоступны по публичным URL
+- Заблокированный админом пользователь теряет доступ немедленно (проверка на каждом запросе)
+- **SSL pinning (mobile):** Android — `network_security_config.xml` с SHA-256 SPKI pin-set, cleartext-трафик заблокирован; iOS — `NSAppTransportSecurity` отключает `NSAllowsArbitraryLoads`, Certificate Transparency включена для прод-домена
 
 ---
 
 ## Тестирование
 
-### Backend
-
-```bash
-cd backend
-pytest tests/ -v
-```
-
-### Frontend
-
-```bash
-cd savefood
-npm test
-```
+Юнит-тестов в репозитории пока нет (vitest и pytest подключаются без конфигурации). Текущая практика — сквозной runtime-смоук против живого сервера: регистрации (включая негативные 401/403/409/422), модерация, заявки, маршрут с QR/GPS-проверками, самовывоз, рейтинг, ачивки, антифрод-цикл. Сценарий описан в `savefood.md` §21.
 
 ---
 
@@ -273,16 +376,24 @@ npm test
 
 **Ошибка подключения к БД**
 - Убедитесь, что контейнер PostgreSQL запущен: `docker ps`
-- Проверьте переменные в `.env`
+- Проверьте `POSTGRES_*` / `DB_*` переменные
 
 **Карта не загружается**
-- Проверьте `REACT_APP_YANDEX_MAPS_API_KEY` в `.env`
+- Проверьте `VITE_YANDEX_MAPS_API_KEY` (для Docker-сборки передаётся как build ARG)
 - API ключ должен быть активным в консоли Yandex Cloud
 
-**Telegram-бот не отправляет сообщения**
-- Убедитесь, что `TELEGRAM_BOT_TOKEN` заполнен
-- Webhook настроен правильно (см. раздел "Telegram-бот")
-- Проверьте CORS и порт в конфиге Nginx
+**Vite-прокси отдаёт 502 в dev**
+- Бэкенд должен слушать `127.0.0.1:8000` (Node может резолвить `localhost` в IPv6)
+- Проверьте `VITE_API_URL` в `savefood/.env` — устаревший URL туннеля ломает прокси
+
+**Telegram-бот не отвечает**
+- Проверьте `TELEGRAM_BOT_TOKEN`
+- По умолчанию бот работает в режиме long-polling; webhook нужен только при `TELEGRAM_POLLING=false`
+- ИИ-ответы требуют `GEMINI_API_KEY`; без него вопросы эскалируются в `SUPPORT_CHAT_ID`
+
+**OCR чеков возвращает 503 / KYC-вердикт «unchecked»**
+- Проверьте `GEMINI_API_KEY` — без него ИИ-функции отключены (лоты создаются вручную, модерация полностью ручная)
+- Кнопка OCR требует тариф «Профи»+: ответ 402 означает, что магазину нужно сменить тариф (админ → вкладка «Тарифы»)
 
 **Проблемы при сборке APK**
 - Обновите Java: `java -version` (требуется Java 21+)
@@ -301,9 +412,9 @@ npm test
 5. Откройте Pull Request с описанием изменений
 
 Перед отправкой убедитесь:
-- Код работает локально и тесты проходят
+- Код работает локально
 - Переводы добавлены для всех трёх языков (ru/kk/en)
-- API документация обновлена (если нужно)
+- При изменении схемы БД добавлена/обновлена соответствующая Alembic-миграция (`0001`–`0003`, см. `savefood.md` §18)
 
 ---
 

@@ -9,8 +9,13 @@ export default defineConfig(({ mode }) => {
   const backend = env.VITE_API_URL || 'http://127.0.0.1:8000';
 
   const apiProxy = { target: backend, changeOrigin: true };
+  // Optional Go microservice (geows) for the hot paths: set VITE_GO_URL
+  // (e.g. http://127.0.0.1:8001) to route /ws/ and volunteer location to it
+  // in dev, mirroring the prod nginx layout. Unset → Python handles them.
+  const goBackend = env.VITE_GO_URL || '';
+  const hotProxy = goBackend ? { target: goBackend, changeOrigin: true } : apiProxy;
   const wsProxy = {
-    target: backend.replace(/^http/, 'ws'),
+    target: (goBackend || backend).replace(/^http/, 'ws'),
     ws: true,
     changeOrigin: true,
   };
@@ -27,7 +32,13 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       open: false,
+      // Cloudflare quick tunnels get a random *.trycloudflare.com hostname;
+      // without this Vite rejects the Host header and remote access breaks.
+      allowedHosts: ['.trycloudflare.com'],
       proxy: {
+        // hot paths first — order matters, the generic /volunteers rule below
+        // would otherwise swallow the location endpoint
+        '^/volunteers/\\d+/location$': hotProxy,
         '^/auth/.+': apiProxy,
         '^/shops($|/)': apiProxy,
         '^/lots($|/)': apiProxy,

@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
@@ -44,6 +45,36 @@ def init_db():
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS comment TEXT")
         cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS city TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS city TEXT")
+        # SaaS plan: 'basic' | 'pro' | 'enterprise' (see backend/billing.py).
+        cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'basic'")
+
+        # OCR-parsed write-off receipts (photo lives in a non-public dir; the
+        # image is served only through the auth-checked receipt endpoints).
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS receipts (
+                id SERIAL PRIMARY KEY,
+                shop_id INTEGER NOT NULL REFERENCES shops(id),
+                photo TEXT,
+                sha256 TEXT,
+                fingerprint TEXT,
+                merchant TEXT,
+                receipt_date DATE,
+                total REAL,
+                currency TEXT,
+                items TEXT,
+                fraud_score REAL,
+                fraud_reasons TEXT,
+                status TEXT NOT NULL DEFAULT 'parsed',
+                lot_ids TEXT,
+                created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                confirmed_at TIMESTAMP WITH TIME ZONE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_receipts_shop ON receipts (shop_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_receipts_sha ON receipts (sha256)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_receipts_fp ON receipts (fingerprint) WHERE fingerprint IS NOT NULL")
 
         cur.execute(
             """
@@ -282,6 +313,74 @@ def delete_lot(lot_id: int) -> bool:
         except Exception:
             pass
         return True
+
+def find_receipt_by_sha(sha256: str) -> Optional[Dict[str, Any]]:
+    """Exact-duplicate check: the same image bytes uploaded before (any shop)."""
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id, shop_id, status FROM receipts WHERE sha256 = %s LIMIT 1", (sha256,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def fingerprint_exists(fp: str, exclude_id: Optional[int] = None) -> bool:
+    """Near-duplicate check: same merchant+date+total already on a live receipt
+    (rejected ones don't count — the shop may legitimately retry a photo)."""
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM receipts WHERE fingerprint = %s AND status != 'rejected' AND (%s::int IS NULL OR id != %s) LIMIT 1",
+            (fp, exclude_id, exclude_id),
+        )
+        return cur.fetchone() is not None
+
+
+def create_receipt(shop_id: int, photo: Optional[str], sha256: str, fp: Optional[str],
+                   parsed: Dict[str, Any], fraud: Dict[str, Any], status: str) -> int:
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO receipts (shop_id, photo, sha256, fingerprint, merchant, receipt_date,
+                                  total, currency, items, fraud_score, fraud_reasons, status, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+            """,
+            (
+                shop_id, photo, sha256, fp,
+                parsed.get("merchant"),
+                parsed.get("receipt_date"),
+                parsed.get("total"),
+                parsed.get("currency"),
+                json.dumps(parsed.get("items") or [], ensure_ascii=False),
+                fraud.get("score"),
+                "; ".join(fraud.get("reasons") or []) or None,
+                status,
+                datetime.now(timezone.utc),
+            ),
+        )
+        return cur.fetchone()["id"]
+
+
+def get_receipt_by_id(receipt_id: int) -> Optional[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM receipts WHERE id = %s", (receipt_id,))
+        row = cur.fetchone()
+        return dict(row) if row else None
+
+
+def confirm_receipt(receipt_id: int, lot_ids: List[int]):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE receipts SET status = 'confirmed', lot_ids = %s, confirmed_at = %s WHERE id = %s",
+            (json.dumps(lot_ids), datetime.now(timezone.utc), receipt_id),
+        )
+
+
+def get_receipts(shop_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        cur.execute(
+            "SELECT * FROM receipts WHERE shop_id = %s ORDER BY created_at DESC LIMIT %s OFFSET %s",
+            (shop_id, limit, offset),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
 
 def expire_soon_lots() -> int:
     with get_db_cursor() as cur:

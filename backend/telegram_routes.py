@@ -80,6 +80,38 @@ def _build_bot_and_dp():
                 "Теперь вы будете получать уведомления о доставках прямо сюда.",
                 parse_mode="HTML",
             )
+        elif args.startswith("login_"):
+            # Login-via-Telegram: confirm the pending browser session if this
+            # chat is already linked to a SaveFood account.
+            token = args[6:]
+            with get_db_cursor() as cur:
+                cur.execute("SELECT id, username FROM users WHERE telegram_chat_id = %s", (chat_id,))
+                user = cur.fetchone()
+            if not user:
+                await message.answer(
+                    "❌ Этот Telegram не привязан ни к одному аккаунту SaveFood.\n"
+                    "Войдите на платформу по паролю и нажмите «Подключить Telegram» в профиле — "
+                    "после этого вход через Telegram заработает."
+                )
+                return
+            with get_db_cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE telegram_login_tokens SET user_id = %s
+                    WHERE token = %s AND user_id IS NULL
+                      AND created_at >= NOW() - INTERVAL '10 minutes'
+                    """,
+                    (user["id"], token),
+                )
+                confirmed = cur.rowcount > 0
+            if confirmed:
+                await message.answer(
+                    f"✅ Вход подтверждён для аккаунта <b>{html.escape(user['username'])}</b>.\n"
+                    "Вернитесь на вкладку с сайтом — вы уже вошли.",
+                    parse_mode="HTML",
+                )
+            else:
+                await message.answer("❌ Ссылка для входа устарела или уже использована. Начните вход заново.")
         else:
             await message.answer(
                 f"👋 Добро пожаловать в <b>SaveFood</b>!\n\n"
@@ -100,7 +132,9 @@ def _build_bot_and_dp():
         "/chat — как переписываться с волонтёром или получателем\n"
         "/unlink — отвязать Telegram от аккаунта SaveFood\n\n"
         "💬 Просто отправьте текст — он будет переслан вашему волонтёру/получателю "
-        "при наличии активного маршрута."
+        "при наличии активного маршрута.\n"
+        "🤖 Если активной доставки нет — на вопрос ответит ИИ-помощник, "
+        "а сложные вопросы он передаст администратору."
     )
 
     @bot_router.message(Command("help"))
@@ -200,6 +234,40 @@ def _build_bot_and_dp():
     async def handle_unknown_command(message: Message):
         await message.answer("❓ Неизвестная команда. Введите /help чтобы посмотреть список команд.")
 
+    async def _ai_answer_or_escalate(message: Message, text: str, sender) -> None:
+        """Free-form question: try the AI assistant; when it can't answer
+        (or there is no API key), hand the question over to a human admin."""
+        from backend import ai_service
+        from backend import telegram_service as tgsvc
+
+        role = sender["role"] if sender else "guest"
+        username = sender["username"] if sender else None
+        answer = await asyncio.to_thread(ai_service.ask_support_ai, text, role, username)
+
+        if answer and answer.strip() != ai_service.ESCALATE:
+            await message.answer(answer)
+            return
+
+        support_chat = os.getenv("SUPPORT_CHAT_ID", "")
+        if support_chat:
+            who = f"{role} {username}" if username else f"гость (chat {message.chat.id})"
+            await asyncio.to_thread(
+                tgsvc.send_message,
+                support_chat,
+                f"🆘 Вопрос пользователю требует администратора\n"
+                f"От: {html.escape(who)}\n"
+                f"Сообщение: {html.escape(text)}",
+            )
+            await message.answer(
+                "🤝 Я не уверен в ответе, поэтому передал ваш вопрос администратору — "
+                "он ответит вам здесь или на платформе."
+            )
+        else:
+            await message.answer(
+                "❓ Не могу ответить на этот вопрос. Напишите в поддержку на платформе "
+                "или используйте /help для списка команд."
+            )
+
     @bot_router.message(F.text & ~F.text.startswith('/'))
     async def handle_relay_message(message: Message):
         chat_id = str(message.chat.id)
@@ -210,7 +278,7 @@ def _build_bot_and_dp():
             sender = cur.fetchone()
 
         if not sender:
-            await message.answer("❓ Ваш аккаунт не привязан к SaveFood. Используйте /start link_<token>.")
+            await _ai_answer_or_escalate(message, text, None)
             return
 
         role = sender['role']
@@ -227,7 +295,8 @@ def _build_bot_and_dp():
                 )
                 route = cur.fetchone()
             if not route:
-                await message.answer("У вас нет активного маршрута.")
+                # No relay counterpart — treat the message as a support question.
+                await _ai_answer_or_escalate(message, text, sender)
                 return
             import json as _json
             points = _json.loads(route.get('points') or '[]')
@@ -258,7 +327,8 @@ def _build_bot_and_dp():
                 )
                 ticket = cur.fetchone()
             if not ticket or not ticket['assigned_volunteer_id']:
-                await message.answer("У вас нет активного назначенного волонтёра.")
+                # No relay counterpart — treat the message as a support question.
+                await _ai_answer_or_escalate(message, text, sender)
                 return
             safe_sender = html.escape(sender_name or "")
             safe_text = html.escape(text)
@@ -266,7 +336,8 @@ def _build_bot_and_dp():
             await message.answer("✅ Сообщение отправлено")
 
         else:
-            await message.answer("Пересылка сообщений доступна только волонтёрам и получателям.")
+            # Shops/admins have no relay counterpart — route to the AI assistant.
+            await _ai_answer_or_escalate(message, text, sender)
 
     import socket
     from aiogram.client.session.aiohttp import AiohttpSession

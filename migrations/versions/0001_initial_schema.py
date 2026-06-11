@@ -27,9 +27,13 @@ def upgrade() -> None:
             related_id INTEGER,
             is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
             telegram_chat_id TEXT,
+            google_id TEXT,
+            yandex_id TEXT,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_google_id ON users (google_id) WHERE google_id IS NOT NULL")
+    op.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_yandex_id ON users (yandex_id) WHERE yandex_id IS NOT NULL")
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS shops (
@@ -146,6 +150,8 @@ def upgrade() -> None:
             lot_id INTEGER,
             started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_activity_at TIMESTAMP WITH TIME ZONE,
+            start_dist_m REAL,
+            antifraud_ping_at TIMESTAMP WITH TIME ZONE,
             finished_at TIMESTAMP WITH TIME ZONE
         )
     """)
@@ -176,6 +182,15 @@ def upgrade() -> None:
     """)
 
     op.execute("""
+        CREATE TABLE IF NOT EXISTS telegram_login_tokens (
+            id SERIAL PRIMARY KEY,
+            token TEXT UNIQUE NOT NULL,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    op.execute("""
         CREATE TABLE IF NOT EXISTS audit_log (
             id SERIAL PRIMARY KEY,
             actor_username TEXT,
@@ -201,6 +216,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS delivery_ratings CASCADE")
     op.execute("DROP TABLE IF EXISTS audit_log CASCADE")
+    op.execute("DROP TABLE IF EXISTS telegram_login_tokens CASCADE")
     op.execute("DROP TABLE IF EXISTS telegram_link_tokens CASCADE")
     op.execute("DROP TABLE IF EXISTS notifications CASCADE")
     op.execute("DROP TABLE IF EXISTS volunteer_routes CASCADE")

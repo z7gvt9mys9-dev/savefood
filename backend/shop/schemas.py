@@ -87,3 +87,43 @@ class ShopUpdate(BaseModel):
 
 class SelfPickupConfirm(BaseModel):
     code: str  # the recipient's QR payload, e.g. "SF-42"
+
+
+class ReceiptItemOut(BaseModel):
+    raw_name: str
+    name: str
+    category: str
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    weight_kg: Optional[float] = None
+
+
+class ReceiptLotDraft(BaseModel):
+    """One lot draft grouped from receipt items (editable on the frontend)."""
+    description: str
+    quantity: int = Field(..., ge=1)
+    category: str
+
+
+class ReceiptOut(BaseModel):
+    id: int
+    status: str  # parsed | rejected | confirmed
+    merchant: Optional[str] = None
+    receipt_date: Optional[date] = None
+    total: Optional[float] = None
+    currency: Optional[str] = None
+    items: list[ReceiptItemOut] = []
+    fraud_score: Optional[float] = None
+    fraud_reasons: Optional[str] = None
+    fraud_flagged: bool = False
+    suggested_lots: list[ReceiptLotDraft] = []
+    lot_ids: list[int] = []
+    created_at: Optional[datetime] = None
+
+
+class ReceiptConfirm(BaseModel):
+    """Final lot drafts as edited by the shop, plus shared lot fields."""
+    lots: list[ReceiptLotDraft] = Field(..., min_length=1)
+    expiry_date: Optional[date] = None
+    address: Optional[str] = None
+    time_slot: Optional[str] = None

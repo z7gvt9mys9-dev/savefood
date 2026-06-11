@@ -124,7 +124,10 @@
     "finish_register": "Complete registration",
     "fill_required": "Please fill in your name, phone and password",
     "password_min": "Password must be at least 8 characters",
-    "document_required": "Please attach a document confirming your status"
+    "document_required": "Please attach a document confirming your status",
+    "or_login_with": "or sign in with",
+    "tg_login_waiting": "Open the bot and press “Start” — login confirms automatically…",
+    "tg_login_open_again": "Open Telegram again"
   },
   "common": {
     "save": "Save",
@@ -225,7 +228,30 @@
     "self_pickup_title": "Self-pickup confirmation",
     "self_pickup_placeholder": "Recipient code, e.g. SF-42",
     "self_pickup_confirm": "Confirm hand-over",
-    "self_pickup_done": "Self-pickup confirmed — request closed"
+    "self_pickup_done": "Self-pickup confirmed — request closed",
+    "ocr_tab": "Receipt scan (OCR)",
+    "ocr_title": "Write-off receipt recognition",
+    "ocr_intro": "Take a photo of the receipt — the system extracts the items, assigns categories and prepares lots for publishing.",
+    "ocr_photo": "Receipt photo",
+    "ocr_recognize": "Recognize receipt",
+    "ocr_processing": "Recognizing…",
+    "ocr_review": "Review the recognized lots",
+    "ocr_rejected": "Receipt rejected by anti-fraud",
+    "ocr_flagged": "Receipt needs attention",
+    "ocr_error": "Failed to process the receipt",
+    "ocr_publish": "Publish lots ({{count}})",
+    "ocr_lots_created": "Lots created: {{count}}",
+    "esg_tab": "ESG report",
+    "esg_title": "ESG report",
+    "esg_kg_saved": "Food rescued",
+    "esg_co2": "CO₂ prevented",
+    "esg_meals": "Meals provided",
+    "esg_lots": "Lots handed over",
+    "esg_month": "Month",
+    "esg_methodology": "Methodology",
+    "plan_label": "Plan",
+    "plan_current": "Current plan",
+    "plan_upgrade_hint": "This feature is available on the Pro plan and above. Contact us to upgrade."
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",
@@ -277,7 +303,13 @@
     "error_photo_upload": "Photo upload failed",
     "photo_uploaded": "Photo uploaded!",
     "error_auth": "Authorization required",
-    "error_start_route": "Failed to start route"
+    "error_start_route": "Failed to start route",
+    "achievements": "Achievements",
+    "achievements_empty": "No achievements yet — complete your first delivery!",
+    "ach_first_delivery": "🥇 First delivery",
+    "ach_kg_100": "💪 Saved 100 kg of food",
+    "ach_night_courier": "🌙 Night courier",
+    "ach_sprinter": "⚡ Sprinter (< 20 min)"
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -406,7 +438,22 @@
     "chart_key_metrics": "Key Metrics",
     "chart_expired_lots": "Lots: expiry rate",
     "pie_completed": "Completed",
-    "pie_expired": "Expired"
+    "pie_expired": "Expired",
+    "col_kyc": "AI check",
+    "kyc_likely_ok": "Looks fine",
+    "kyc_review": "Needs review",
+    "kyc_likely_fraud": "Possible forgery",
+    "plans": "Plans",
+    "plans_title": "Shop plans",
+    "plans_hint": "Plan changes apply immediately and are written to the audit log.",
+    "col_shop": "Shop",
+    "col_city": "City",
+    "col_plan": "Plan",
+    "plan_basic": "Basic",
+    "plan_pro": "Pro",
+    "esg_title": "Platform ESG metrics (12 mo)",
+    "esg_co2": "CO₂ prevented",
+    "esg_meals": "Meals provided"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",
@@ -489,5 +536,19 @@
     "entrance": "Entrance",
     "entrance_hint": "(if >1)",
     "entrance_placeholder": "Entrance #"
+  },
+  "links": {
+    "title": "Linked accounts",
+    "telegram": "Telegram",
+    "google": "Google",
+    "yandex": "Yandex",
+    "linked": "linked",
+    "not_linked": "not linked",
+    "connect": "Link",
+    "unlink": "Unlink",
+    "confirm_unlink": "Unlink this account?",
+    "linked_success": "{{provider}} linked to your account",
+    "open_telegram": "Open @{{name}}",
+    "refresh_status": "Refresh"
   }
 }
