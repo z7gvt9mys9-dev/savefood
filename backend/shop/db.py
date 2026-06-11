@@ -47,6 +47,10 @@ def init_db():
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS city TEXT")
         # SaaS plan: 'basic' | 'pro' | 'enterprise' (see backend/billing.py).
         cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'basic'")
+        # C2C donors: 'business' (shop/cafe) | 'private' (a person donating
+        # surplus). Private donors reuse the whole shop flow but their lots
+        # require a photo and carry a «Частный донор» badge on the map.
+        cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'business'")
 
         # OCR-parsed write-off receipts (photo lives in a non-public dir; the
         # image is served only through the auth-checked receipt endpoints).
@@ -186,7 +190,7 @@ def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, 
         where = " AND ".join(filters)
         params.extend([limit, offset])
         cur.execute(f"""
-            SELECT l.*, s.name as shop_name, s.lat as shop_lat, s.lon as shop_lon
+            SELECT l.*, s.name as shop_name, s.lat as shop_lat, s.lon as shop_lon, s.kind as shop_kind
             FROM lots l
             JOIN shops s ON s.id = l.shop_id
             WHERE {where}

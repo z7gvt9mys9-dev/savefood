@@ -127,7 +127,10 @@
     "document_required": "Please attach a document confirming your status",
     "or_login_with": "or sign in with",
     "tg_login_waiting": "Open the bot and press “Start” — login confirms automatically…",
-    "tg_login_open_again": "Open Telegram again"
+    "tg_login_open_again": "Open Telegram again",
+    "donor_business": "Shop / cafe",
+    "donor_private": "Private donor",
+    "donor_private_hint": "Giving away surplus after a party or a move? Register as an individual: up to 20 lots per month, a food photo is required."
   },
   "common": {
     "save": "Save",
@@ -425,7 +428,6 @@
     "items_default": "Products",
     "status_fulfilled": "Received",
     "status_processing": "In progress",
-    "delivery_photo_alt": "Delivery photo",
     "rate_label": "Rate:",
     "shop_name_default": "Shop"
   },
@@ -611,9 +613,12 @@
     "monthly_title": "Rescued by month (kg)",
     "cities_title": "City leaderboard",
     "kg": "kg",
-    "feed_title": "Impact feed",
-    "feed_hint": "Anonymous photos of delivered packages — no names, no addresses.",
+    "feed_title": "Impact Feed",
+    "feed_hint": "Anonymous photos of delivered packages shared by recipients.",
     "feed_alt": "Delivery photo",
+    "share_title": "Share your result",
+    "share_hint": "Upload a photo of the products you received to help others see the impact.",
+    "upload_btn": "Upload Photo",
     "methodology": "Methodology",
     "teams_title": "Corporate teams",
     "teams_hint": "Companies compete in food rescue: employees' deliveries and kilograms count toward the team."
@@ -641,5 +646,9 @@
     "volunteer_first_delivery": "Complete your first delivery",
     "needy_fill_profile": "Fill in your profile (delivery address)",
     "needy_first_ticket": "Create your first food request"
+  },
+  "donor": {
+    "badge": "Private donor",
+    "photo_required": "Private donors must attach a photo — recipients need to see exactly what you're giving away."
   }
 }

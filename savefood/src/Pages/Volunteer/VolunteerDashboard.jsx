@@ -125,7 +125,6 @@ const VolunteerDashboard = () => {
   const [volunteerRating, setVolunteerRating] = useState(null);
   const [stats, setStats] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
-  const [photoUploading, setPhotoUploading] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
   const [team, setTeam] = useState(undefined); // undefined=loading, null=no team
   const [teamName, setTeamName] = useState('');
@@ -258,22 +257,6 @@ const VolunteerDashboard = () => {
       const data = await res.json();
       setAttemptMsgs(prev => ({ ...prev, [ticketId]: t('volunteer.attempt_registered', { count: data.attempt_count }) }));
     } catch { alert(t('common.connection_error')); }
-  };
-
-  const handlePhotoUpload = async (routeId, ticketId, file) => {
-    setPhotoUploading(prev => ({ ...prev, [ticketId]: true }));
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(`${API_URL}/volunteers/route/${routeId}/point/${ticketId}/photo`, {
-        method: 'POST',
-        headers: authHeader,
-        body: fd,
-      });
-      if (!res.ok) { alert(t('volunteer.error_photo_upload')); return; }
-      alert(t('volunteer.photo_uploaded'));
-    } catch { alert(t('common.connection_error')); }
-    finally { setPhotoUploading(prev => ({ ...prev, [ticketId]: false })); }
   };
 
   const fetchMapData = async () => {
@@ -456,6 +439,11 @@ const VolunteerDashboard = () => {
                 )}
                 <div className="task-info">
                   {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
+                  {s.kind === 'private' && (
+                    <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
+                      🏠 {t('donor.badge')}
+                    </span>
+                  )}
                   <h4>{s.name}</h4>
                   <p>{lot.description} — {lot.quantity} {t('volunteer.qty_pcs')}</p>
                 </div>
@@ -533,15 +521,6 @@ const VolunteerDashboard = () => {
                           {attemptMsgs[p.ticket_id] && (
                             <span style={{ color: '#f90', fontSize: '0.75rem', alignSelf: 'center' }}>{attemptMsgs[p.ticket_id]}</span>
                           )}
-                        </div>
-                      )}
-                      {p.kind === 'ticket' && p.done && (
-                        <div style={{ marginTop: 6 }}>
-                          <label className="btn-small" style={{ cursor: 'pointer', opacity: photoUploading[p.ticket_id] ? 0.6 : 1 }}>
-                            {photoUploading[p.ticket_id] ? t('common.loading') : t('volunteer.add_photo')}
-                            <input type="file" accept="image/*" style={{ display: 'none' }}
-                              onChange={e => e.target.files[0] && handlePhotoUpload(activeRoute.id, p.ticket_id, e.target.files[0])} />
-                          </label>
                         </div>
                       )}
                     </div>

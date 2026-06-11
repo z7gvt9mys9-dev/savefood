@@ -506,8 +506,11 @@ const ShopDashboard = () => {
         />
 
         <div className="form-group">
-          <label>{t('shop.photo')}</label>
-          <input type="file" onChange={(e) => setPhotoFile(e.target.files[0])} />
+          <label>{t('shop.photo')}{shopInfo.kind === 'private' && ' *'}</label>
+          <input type="file" onChange={(e) => setPhotoFile(e.target.files[0])} required={shopInfo.kind === 'private'} />
+          {shopInfo.kind === 'private' && (
+            <p style={{ fontSize: '0.78rem', color: '#FFB74D', margin: '4px 0 0' }}>{t('donor.photo_required')}</p>
+          )}
         </div>
 
         <div className="warning-box">
@@ -920,6 +923,9 @@ const ShopDashboard = () => {
             💎 {t('shop.plan_label')}: {plan.label}
             {plan.monthly_lot_limit != null && ` (${plan.lots_used_this_month}/${plan.monthly_lot_limit})`}
           </p>
+        )}
+        {shopInfo.kind === 'private' && (
+          <p style={{ fontSize: '0.85rem', color: '#FFB74D' }}>🏠 {t('donor.badge')}</p>
         )}
         <nav>
           <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>{t('shop.overview')}</button>

@@ -38,13 +38,16 @@ def register_shop(request: Request, payload: schemas.ShopCreate):
     # An account is mandatory: a shop row without credentials can never log in.
     if not payload.username or not payload.password:
         raise HTTPException(status_code=400, detail="Укажите логин и пароль")
+    kind = payload.kind or "business"
+    if kind not in ("business", "private"):
+        raise HTTPException(status_code=400, detail="kind должен быть 'business' или 'private'")
     hashed = get_password_hash(payload.password)
     # Single transaction: if the username is taken, the shop row rolls back too.
     try:
         with get_db_cursor() as cur:
             cur.execute(
-                "INSERT INTO shops (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (payload.name, payload.contact, payload.lat, payload.lon, payload.city, datetime.now(timezone.utc)),
+                "INSERT INTO shops (name, contact, lat, lon, city, kind, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (payload.name, payload.contact, payload.lat, payload.lon, payload.city, kind, datetime.now(timezone.utc)),
             )
             shop_id = cur.fetchone()['id']
             cur.execute(
@@ -64,6 +67,10 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
         raise HTTPException(status_code=404, detail="Shop not found")
 
     billing.check_lot_quota(shop_id)
+    # C2C anti-abuse (§45): a private donor's lot must show the actual food —
+    # recipients can't rely on a business reputation they can see on the map.
+    if (shop.get("kind") == "private") and not payload.photo:
+        raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
     lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment)
     # «Карта потребностей»: ping recipients whose preferences match the category.
@@ -89,6 +96,8 @@ def create_lot_upload(
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
     billing.check_lot_quota(shop_id)
+    if shop.get("kind") == "private" and not (file and file.filename):
+        raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
 
     photo_url = None
     if file and file.filename:

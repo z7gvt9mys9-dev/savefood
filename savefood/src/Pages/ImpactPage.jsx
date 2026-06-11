@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api';
 import './Style/ImpactPage.css';
 
@@ -11,10 +12,13 @@ const POLL_MS = 20000;
 // No auth — this page is the platform's PR surface (media, city halls, sponsors).
 const ImpactPage = () => {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [summary, setSummary] = useState(null);
   const [cities, setCities] = useState([]);
   const [teams, setTeams] = useState([]);
   const [feed, setFeed] = useState([]);
+  const [userTickets, setUserTickets] = useState([]);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(false);
   const pollRef = useRef(null);
 
@@ -41,6 +45,44 @@ const ImpactPage = () => {
     pollRef.current = setInterval(fetchAll, POLL_MS);
     return () => clearInterval(pollRef.current);
   }, []);
+
+  useEffect(() => {
+    if (user?.role === 'needy' && user?.relatedId) {
+      fetch(`${API_URL}/needy/${user.relatedId}/history`, {
+        headers: { Authorization: `Bearer ${user.token}` }
+      })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        const fulfilled = Array.isArray(data) ? data.filter(t => t.status === 'fulfilled' && !t.delivery_photo) : [];
+        setUserTickets(fulfilled);
+      })
+      .catch(() => {});
+    }
+  }, [user]);
+
+  const handleUpload = async (ticketId, file) => {
+    if (!file) return;
+    setUploading(true);
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res = await fetch(`${API_URL}/needy/${user.relatedId}/ticket/${ticketId}/photo`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.token}` },
+        body: fd
+      });
+      if (res.ok) {
+        fetchAll();
+        setUserTickets(prev => prev.filter(t => t.id !== ticketId));
+      } else {
+        alert(t('common.error'));
+      }
+    } catch {
+      alert(t('common.connection_error'));
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const totals = summary?.totals;
   const counters = totals ? [
@@ -124,6 +166,31 @@ const ImpactPage = () => {
                 <span className="impact-city-kg" style={{ color: '#64B5F6' }}>
                   {tm.deliveries} · {Math.round(tm.kg)} {t('impact.kg')}
                 </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {userTickets.length > 0 && (
+        <section className="impact-section upload-impact-section">
+          <h2>{t('impact.share_title')}</h2>
+          <p className="impact-feed-hint">{t('impact.share_hint')}</p>
+          <div className="impact-upload-grid">
+            {userTickets.map(ticket => (
+              <div key={ticket.id} className="impact-upload-card">
+                <p><strong>{ticket.items || t('needy.items_default')}</strong></p>
+                <p>{new Date(ticket.created_at).toLocaleDateString()}</p>
+                <label className={`btn btn-primary ${uploading ? 'disabled' : ''}`}>
+                  {uploading ? t('common.loading') : t('impact.upload_btn')}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    disabled={uploading}
+                    onChange={(e) => e.target.files[0] && handleUpload(ticket.id, e.target.files[0])}
+                  />
+                </label>
               </div>
             ))}
           </div>

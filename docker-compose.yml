@@ -57,11 +57,67 @@ services:
       OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
       # Timezone used to interpret recipients' available_time windows
       LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
+      # Maintenance loops run in the dedicated `worker` service, not in the API
+      BACKGROUND_TASKS: external
+      # Redis cache (hot reads: lots list, stats, volunteer locations)
+      REDIS_URL: redis://redis:6379/0
+      # Observability (optional)
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENV: ${SENTRY_ENV:-production}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Web Push / VAPID (optional — empty keys hide the subscribe toggle)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      # Auto-KYC v2 (optional)
+      KYC_AUTO_APPROVE: ${KYC_AUTO_APPROVE:-false}
+      KYC_AUTO_APPROVE_SCORE: ${KYC_AUTO_APPROVE_SCORE:-0.85}
     volumes:
       - shop_uploads:/app/backend/shop/uploads
       - needy_uploads:/app/backend/needy/uploads
       # without this volume delivery photos are lost on every container rebuild
       - volunteer_uploads:/app/backend/volunteer/uploads
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Выделенный воркер фоновых задач (expiry лотов, таймауты маршрутов,
+  # GPS-антифрод §27) — backend/background.py. API-контейнер с
+  # BACKGROUND_TASKS=external циклы не запускает, поэтому его можно
+  # масштабировать на несколько реплик без дублирования задач.
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: ["python", "-m", "backend.worker"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_NAME: ${POSTGRES_DB:-savefood}
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      DB_PORT: 5432
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      VLESS_URL: ${VLESS_URL:-}
+      LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENV: ${SENTRY_ENV:-production}
 
   # Go-микросервис горячих путей (§31): WebSocket-фанаут уведомлений и
   # приём/чтение геокоординат волонтёров. Делит БД и SECRET_KEY с backend.

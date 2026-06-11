@@ -440,6 +440,11 @@ const NeedyDashboard = () => {
                     />
                   )}
                   {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
+                  {lot.shop_kind === 'private' && (
+                    <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
+                      🏠 {t('donor.badge')}
+                    </span>
+                  )}
                   <h4>{lot.description}</h4>
                   <p>{lot.address || t('needy.address_tbd')}</p>
                   <span className="distance">{lot.quantity} {t('needy.qty_unit')}</span>
@@ -628,11 +633,6 @@ const NeedyDashboard = () => {
                   <p><strong>{item.items || t('needy.items_default')}</strong></p>
                   <p>{t('common.status')}: {item.status === 'fulfilled' ? t('needy.status_fulfilled') : t('needy.status_processing')}</p>
                   <p>{new Date(item.created_at).toLocaleDateString()}</p>
-                  {item.delivery_photo && (
-                    <a href={`${API_URL}${item.delivery_photo}`} target="_blank" rel="noreferrer">
-                      <img src={`${API_URL}${item.delivery_photo}`} alt={t('needy.delivery_photo_alt')} className="delivery-photo-thumb" />
-                    </a>
-                  )}
                   {item.status === 'fulfilled' && (
                     <div className="rating-row">
                       <span style={{ color: '#aaa', fontSize: '0.85em' }}>{t('needy.rate_label')} </span>

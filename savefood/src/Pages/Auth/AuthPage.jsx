@@ -12,6 +12,8 @@ const AuthPage = () => {
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
   const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
   const [regToken, setRegToken] = useState(null); // token after registration
+  // C2C: 'business' (магазин/кафе) | 'private' (частное лицо отдаёт излишки)
+  const [donorKind, setDonorKind] = useState('business');
 
   const [formData, setFormData] = useState({
     email: '',
@@ -224,7 +226,7 @@ const AuthPage = () => {
         let body = {};
         if (role === 'shop') {
           endpoint = `${API_URL}/shops/register`;
-          body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, city: formData.city, username: formData.email, password: formData.password };
+          body = { name: formData.name, contact: formData.contact, lat: formData.lat, lon: formData.lon, city: formData.city, username: formData.email, password: formData.password, kind: donorKind };
         } else if (role === 'volunteer') {
           endpoint = `${API_URL}/volunteers/register`;
           body = { name: formData.name, contact: formData.phone, city: formData.city, lat: formData.lat, lon: formData.lon, username: formData.phone, password: formData.password };
@@ -344,9 +346,31 @@ const AuthPage = () => {
 
   const renderShopReg = () => (
     <form onSubmit={handleSubmit} className="auth-form">
-      <h2>{t('auth.register')}: {t('auth.role_shop')}</h2>
-      <input type="text" name="name" placeholder={t('auth.name')} onChange={handleInputChange} required />
-      <input type="text" name="legalData" placeholder={t('auth.legal')} onChange={handleInputChange} required />
+      <h2>{t('auth.register')}: {donorKind === 'private' ? t('auth.donor_private') : t('auth.role_shop')}</h2>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        {['business', 'private'].map(kind => (
+          <button
+            key={kind}
+            type="button"
+            onClick={() => setDonorKind(kind)}
+            style={{
+              flex: 1, padding: '8px 6px', fontSize: '0.85rem', borderRadius: 8, cursor: 'pointer',
+              border: '1px solid', borderColor: donorKind === kind ? '#4CAF50' : '#444',
+              background: donorKind === kind ? '#4CAF5022' : 'transparent',
+              color: donorKind === kind ? '#4CAF50' : '#999',
+            }}
+          >
+            {kind === 'business' ? `🏪 ${t('auth.donor_business')}` : `🏠 ${t('auth.donor_private')}`}
+          </button>
+        ))}
+      </div>
+      {donorKind === 'private' && (
+        <p style={{ fontSize: '0.8rem', color: '#aaa', margin: '0 0 8px' }}>{t('auth.donor_private_hint')}</p>
+      )}
+      <input type="text" name="name" placeholder={donorKind === 'private' ? t('auth.full_name') : t('auth.name')} onChange={handleInputChange} required />
+      {donorKind === 'business' && (
+        <input type="text" name="legalData" placeholder={t('auth.legal')} onChange={handleInputChange} required />
+      )}
       <input type="text" name="contact" placeholder={t('auth.contact')} onChange={handleInputChange} required />
       <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
       <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} minLength={8} required />

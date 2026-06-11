@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, UploadFile, Depends, WebSocket, WebSocketDisconnect, Request
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 from typing import List, Optional
 import os
@@ -209,8 +209,15 @@ def moderate_needy(needy_id: int, status: str, current_user: dict = Depends(auth
 
 @router.get("/lots", response_model=List[shop_schemas.LotOut])
 def all_active_lots(limit: int = 20, offset: int = 0, category: Optional[str] = None, search: Optional[str] = None):
-    rows = shop_db.get_all_active_lots(limit=limit, offset=offset, category=category, search=search)
-    return rows
+    # The hottest read on the platform (every recipient's map). Short-TTL
+    # read-through cache: a lot may appear on the map up to TTL_LOTS seconds
+    # late, which is harmless; no write-side invalidation needed.
+    from backend import cache
+    key = f"lots:active:{limit}:{offset}:{category or ''}:{search or ''}"
+    return cache.cached_json(
+        key, cache.TTL_LOTS,
+        lambda: shop_db.get_all_active_lots(limit=limit, offset=offset, category=category, search=search),
+    )
 
 
 @router.get("/needy/{needy_id}/tickets", response_model=List[schemas.TicketOut])
@@ -371,3 +378,34 @@ def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: str = "",
             (ticket_id, ticket.get("assigned_volunteer_id"), rating, comment),
         )
     return {"ok": True}
+
+
+@router.post("/needy/{needy_id}/ticket/{ticket_id}/photo")
+def upload_impact_photo(
+    needy_id: int,
+    ticket_id: int,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(auth.get_current_user),
+):
+    """Recipients upload photos of their received food to share results/impact."""
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM tickets WHERE id = %s AND needy_id = %s", (ticket_id, needy_id))
+        ticket = cur.fetchone()
+        if not ticket:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if ticket["status"] != "fulfilled":
+            raise HTTPException(status_code=400, detail="Can only upload photos for fulfilled deliveries")
+
+    # Reuse the volunteer uploads directory for the public impact feed
+    from backend.volunteer.routes import UPLOAD_DIR as VOL_UPLOAD_DIR
+    try:
+        filename = validate_and_save_upload(file, VOL_UPLOAD_DIR)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
+    photo_url = f"/volunteer_uploads/{filename}"
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE tickets SET delivery_photo = %s WHERE id = %s", (photo_url, ticket_id))
+
+    return {"photo_url": photo_url}

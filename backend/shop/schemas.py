@@ -11,6 +11,8 @@ class ShopCreate(BaseModel):
     city: Optional[str] = None
     username: Optional[str] = None
     password: Optional[str] = Field(None, min_length=8, max_length=128)
+    # 'business' (default) | 'private' — C2C donor, see §45
+    kind: Optional[str] = "business"
 
 
 class ShopOut(BaseModel):
@@ -21,6 +23,7 @@ class ShopOut(BaseModel):
     lat: Optional[float]
     lon: Optional[float]
     city: Optional[str]
+    kind: Optional[str] = "business"
 
 
 class LotCreate(BaseModel):
@@ -52,6 +55,7 @@ class LotOut(BaseModel):
     shop_name: Optional[str] = None
     shop_lat: Optional[float] = None
     shop_lon: Optional[float] = None
+    shop_kind: Optional[str] = None
 
 
 class LotUpdate(BaseModel):

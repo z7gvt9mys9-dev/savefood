@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
+from fastapi import APIRouter, HTTPException, Depends, Request
 import html
 import json
 import math
@@ -82,7 +82,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
     shops_map = {}
     with get_db_cursor() as cur:
         cur.execute("""
-            SELECT s.id as shop_id, s.name, s.lat, s.lon, l.id as lot_id, l.description, l.quantity, l.photo
+            SELECT s.id as shop_id, s.name, s.lat, s.lon, s.kind, l.id as lot_id, l.description, l.quantity, l.photo, l.category
             FROM shops s
             JOIN lots l ON s.id = l.shop_id
             WHERE l.status = 'active'
@@ -98,6 +98,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
                     'name': r['name'],
                     'lat': r['lat'],
                     'lon': r['lon'],
+                    'kind': r.get('kind') or 'business',
                     'lots': []
                 }
             shops_map[sid]['lots'].append({
@@ -105,6 +106,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
                 'description': r['description'],
                 'quantity': r['quantity'],
                 'photo': r['photo'],
+                'category': r['category'],
             })
 
     shops = list(shops_map.values())
@@ -928,6 +930,14 @@ def leave_team(volunteer_id: int, current_user: dict = Depends(get_current_user)
 def update_location(volunteer_id: int, payload: vschemas.LocationUpdate, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     vdb.update_volunteer_location(volunteer_id, payload.lat, payload.lon)
+    # Write-through cache: recipients poll this every 15s during delivery —
+    # serve the hot value from Redis, Postgres stays the source of truth.
+    from backend import cache
+    cache.set_json(
+        f"vol:loc:{volunteer_id}",
+        {"lat": payload.lat, "lon": payload.lon, "updated_at": datetime.now(timezone.utc)},
+        cache.TTL_LOCATION,
+    )
     return {'ok': True}
 
 
@@ -943,39 +953,11 @@ def get_location(volunteer_id: int, current_user: dict = Depends(get_current_use
     )
     if not allowed:
         raise HTTPException(status_code=403, detail="Forbidden")
+    from backend import cache
+    cached = cache.get_json(f"vol:loc:{volunteer_id}")
+    if cached is not None:
+        return cached
     loc = vdb.get_volunteer_location(volunteer_id)
     if not loc:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     return loc
-
-
-@router.post("/volunteers/route/{route_id}/point/{ticket_id}/photo")
-async def upload_delivery_photo(route_id: int, ticket_id: int, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    route = vdb.get_route_by_id(route_id)
-    if not route:
-        raise HTTPException(status_code=404, detail="Route not found")
-    ensure_owner_or_admin(current_user, "volunteer", route["volunteer_id"])
-
-    # ticket_id must belong to this route — otherwise a volunteer with any
-    # active route could overwrite delivery_photo on arbitrary tickets.
-    try:
-        points = json.loads(route.get('points') or '[]')
-    except Exception:
-        points = []
-    allowed_ticket_ids = {
-        p['ticket_id'] for p in points
-        if p.get('kind') == 'ticket' and p.get('ticket_id')
-    }
-    if ticket_id not in allowed_ticket_ids:
-        raise HTTPException(status_code=403, detail="Ticket does not belong to this route")
-
-    try:
-        filename = validate_and_save_upload(file, UPLOAD_DIR)
-    except UploadValidationError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-
-    photo_url = f"/volunteer_uploads/{filename}"
-    with get_db_cursor() as cur:
-        cur.execute("UPDATE tickets SET delivery_photo = %s WHERE id = %s", (photo_url, ticket_id))
-
-    return {'photo_url': photo_url}

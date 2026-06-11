@@ -7,7 +7,7 @@ only volunteer first names they registered with and aggregate numbers.
 """
 from fastapi import APIRouter
 
-from backend import esg, gamification
+from backend import cache, esg, gamification
 from backend.database import get_db_cursor
 
 router = APIRouter(prefix="/impact", tags=["impact"])
@@ -19,7 +19,15 @@ _RESCUED_AT = "COALESCE(l.taken_at, l.created_at)"
 
 @router.get("/summary")
 def impact_summary(months: int = 12):
-    """Live city dashboard: ESG totals + platform counters + monthly series."""
+    """Live city dashboard: ESG totals + platform counters + monthly series.
+    Polled every 20s by every open /impact page — cached behind a short TTL."""
+    months = max(1, min(36, months))
+    return cache.cached_json(
+        f"impact:summary:{months}", cache.TTL_STATS, lambda: _compute_summary(months)
+    )
+
+
+def _compute_summary(months: int):
     report = esg.global_report(months=months)
     with get_db_cursor() as cur:
         cur.execute("SELECT COUNT(*) AS n FROM tickets WHERE status = 'fulfilled'")
@@ -124,9 +132,9 @@ def team_leaderboard():
 
 @router.get("/feed")
 def impact_feed(limit: int = 20):
-    """Anonymous feed of completed deliveries with photos (§ social mechanics).
+    """Anonymous feed of completed deliveries with photos shared by recipients.
 
-    Only deliveries the volunteer photographed appear; no names, no addresses,
+    Only deliveries the recipient photographed appear; no names, no addresses,
     no ids of people — just the photo, the food category, city and date.
     """
     limit = max(1, min(50, limit))
