@@ -1,0 +1,3 @@
+# Dev/CI-only dependencies — keep out of the production image (Dockerfile.backend
+# installs backend/requirements.txt only).
+pytest>=8.0
