@@ -103,6 +103,26 @@ AI_MODEL=gemini-2.5-flash
 OCR_MODEL=                               # vision-модель для чеков (по умолчанию = AI_MODEL)
 KYC_MODEL=                               # vision-модель для документов (по умолчанию = AI_MODEL)
 RECEIPT_MAX_AGE_HOURS=48                 # максимальный возраст чека для антифрода
+KYC_AUTO_APPROVE=false                   # Auto-KYC v2: авто-одобрение уверенных likely_ok
+KYC_AUTO_APPROVE_SCORE=0.85              # порог скора для авто-одобрения
+
+# Мониторинг (опционально)
+SENTRY_DSN=                              # ошибки в Sentry; пусто = выключено
+SENTRY_ENV=production
+METRICS_TOKEN=                           # если задан, GET /metrics требует Bearer-токен
+
+# Web Push / VAPID (опционально; без ключей кнопка подписки скрыта)
+# Генерация пары:
+#   python -c "from cryptography.hazmat.primitives.asymmetric import ec; \
+# from cryptography.hazmat.primitives import serialization; import base64; \
+# k = ec.generate_private_key(ec.SECP256R1()); \
+# priv = k.private_numbers().private_value.to_bytes(32,'big'); \
+# pub = k.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint); \
+# print('VAPID_PRIVATE_KEY=' + base64.urlsafe_b64encode(priv).decode().rstrip('=')); \
+# print('VAPID_PUBLIC_KEY=' + base64.urlsafe_b64encode(pub).decode().rstrip('='))"
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
 
 # Соц-вход (опционально; кнопка появляется, только если задана пара ключей)
 GOOGLE_CLIENT_ID=...
@@ -368,7 +388,7 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/
 
 ## Тестирование
 
-Юнит-тесты: `tests/` (pytest, без БД — чистая логика: 2-opt-маршрутизация, окна `available_time`, приоритетный score, ESG-математика, антифрод чеков, биллинг-гейтинг, уровни геймификации, прогноз списаний, матчинг предпочтений, JWT/пароли).
+Юнит-тесты: `tests/` (pytest, без БД — чистая логика: 2-opt-маршрутизация, окна `available_time`, приоритетный score, ESG-математика, антифрод чеков, биллинг-гейтинг, уровни геймификации, прогноз списаний, матчинг предпочтений, JWT/пароли, API-ключи и HMAC-подпись вебхуков, решение Auto-KYC v2, коды команд).
 
 ```bash
 pip install -r requirements-dev.txt
