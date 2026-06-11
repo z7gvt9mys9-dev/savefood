@@ -144,7 +144,7 @@ def impact_feed(limit: int = 20):
             SELECT t.delivery_photo, t.fulfilled_at, t.items,
                    l.category, l.city
             FROM tickets t
-            JOIN lots l ON l.id = t.lot_id
+            LEFT JOIN lots l ON l.id = t.lot_id
             WHERE t.status = 'fulfilled' AND t.delivery_photo IS NOT NULL
             ORDER BY t.fulfilled_at DESC NULLS LAST
             LIMIT %s

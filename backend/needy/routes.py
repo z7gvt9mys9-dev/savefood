@@ -381,7 +381,9 @@ def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: str = "",
 
 
 @router.post("/needy/{needy_id}/ticket/{ticket_id}/photo")
+@limiter.limit("3/hour")
 def upload_impact_photo(
+    request: Request,
     needy_id: int,
     ticket_id: int,
     file: UploadFile = File(...),
@@ -407,5 +409,15 @@ def upload_impact_photo(
     photo_url = f"/volunteer_uploads/{filename}"
     with get_db_cursor() as cur:
         cur.execute("UPDATE tickets SET delivery_photo = %s WHERE id = %s", (photo_url, ticket_id))
+
+    # The DB now points at the new file — the replaced photo (if any) is an orphan.
+    old_photo = ticket.get("delivery_photo")
+    if old_photo and old_photo.startswith("/volunteer_uploads/"):
+        old_path = os.path.join(VOL_UPLOAD_DIR, os.path.basename(old_photo))
+        try:
+            if os.path.isfile(old_path):
+                os.remove(old_path)
+        except OSError:
+            pass
 
     return {"photo_url": photo_url}

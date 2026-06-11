@@ -13,7 +13,6 @@ from backend.utils import ensure_aware_utc
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
-from backend.utils import validate_and_save_upload, UploadValidationError
 from backend import telegram_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime

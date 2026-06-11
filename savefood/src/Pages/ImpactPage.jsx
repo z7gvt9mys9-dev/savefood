@@ -18,7 +18,7 @@ const ImpactPage = () => {
   const [teams, setTeams] = useState([]);
   const [feed, setFeed] = useState([]);
   const [userTickets, setUserTickets] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingTickets, setUploadingTickets] = useState({});
   const [error, setError] = useState(false);
   const pollRef = useRef(null);
 
@@ -48,7 +48,8 @@ const ImpactPage = () => {
 
   useEffect(() => {
     if (user?.role === 'needy' && user?.relatedId) {
-      fetch(`${API_URL}/needy/${user.relatedId}/history`, {
+      // Fetch up to 100 recent tickets to ensure recipients can find orders to photograph
+      fetch(`${API_URL}/needy/${user.relatedId}/history?limit=100`, {
         headers: { Authorization: `Bearer ${user.token}` }
       })
       .then(res => res.ok ? res.json() : [])
@@ -62,7 +63,7 @@ const ImpactPage = () => {
 
   const handleUpload = async (ticketId, file) => {
     if (!file) return;
-    setUploading(true);
+    setUploadingTickets(prev => ({ ...prev, [ticketId]: true }));
     const fd = new FormData();
     fd.append('file', file);
     try {
@@ -80,7 +81,7 @@ const ImpactPage = () => {
     } catch {
       alert(t('common.connection_error'));
     } finally {
-      setUploading(false);
+      setUploadingTickets(prev => ({ ...prev, [ticketId]: false }));
     }
   };
 
@@ -181,13 +182,13 @@ const ImpactPage = () => {
               <div key={ticket.id} className="impact-upload-card">
                 <p><strong>{ticket.items || t('needy.items_default')}</strong></p>
                 <p>{new Date(ticket.created_at).toLocaleDateString()}</p>
-                <label className={`btn btn-primary ${uploading ? 'disabled' : ''}`}>
-                  {uploading ? t('common.loading') : t('impact.upload_btn')}
+                <label className={`btn btn-primary ${uploadingTickets[ticket.id] ? 'disabled' : ''}`}>
+                  {uploadingTickets[ticket.id] ? t('common.loading') : t('impact.upload_btn')}
                   <input
                     type="file"
                     accept="image/*"
                     style={{ display: 'none' }}
-                    disabled={uploading}
+                    disabled={uploadingTickets[ticket.id]}
                     onChange={(e) => e.target.files[0] && handleUpload(ticket.id, e.target.files[0])}
                   />
                 </label>

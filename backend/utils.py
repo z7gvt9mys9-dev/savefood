@@ -2,7 +2,9 @@ import math
 import os
 import secrets
 import uuid
+import io
 from datetime import datetime, timezone
+from PIL import Image, ImageOps
 
 # Unambiguous alphabet for human-typed codes: no 0/O, 1/I/L.
 JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -49,6 +51,22 @@ def validate_and_save_upload(file, dest_dir: str, *, allow_pdf: bool = False) ->
     content = file.file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
         raise UploadValidationError(413, f"File too large (limit {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)")
+
+    # Strip metadata (privacy): smartphone photos carry GPS in EXIF, and some of
+    # these images end up on the public impact feed. Re-encode so nothing survives.
+    if not allow_pdf:
+        try:
+            img = Image.open(io.BytesIO(content))
+            fmt = img.format  # transpose returns a copy whose .format is None
+            # Bake EXIF orientation into the pixels, then drop the metadata:
+            # WEBP/PNG encoders silently re-attach exif/icc/xmp from img.info.
+            img = ImageOps.exif_transpose(img)
+            img.info = {}
+            output = io.BytesIO()
+            img.save(output, format=fmt)
+            content = output.getvalue()
+        except Exception:
+            raise UploadValidationError(400, "Invalid or corrupted image")
 
     os.makedirs(dest_dir, exist_ok=True)
     safe_name = f"{uuid.uuid4().hex}{ext}"
