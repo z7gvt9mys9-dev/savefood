@@ -21,7 +21,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    # A malformed/empty hash in the DB must read as "wrong password" (401),
+    # not crash the login endpoint with a 500.
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except ValueError:
+        return False
 
 def get_password_hash(password):
     return pwd_context.hash(password)
