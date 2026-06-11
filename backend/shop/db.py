@@ -76,6 +76,40 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_receipts_sha ON receipts (sha256)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_receipts_fp ON receipts (fingerprint) WHERE fingerprint IS NOT NULL")
 
+        # Enterprise partner API: keys are stored only as sha256 hashes — the
+        # full secret is shown to the shop exactly once at creation time.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id SERIAL PRIMARY KEY,
+                shop_id INTEGER NOT NULL REFERENCES shops(id),
+                key_hash TEXT UNIQUE NOT NULL,
+                prefix TEXT NOT NULL,
+                revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TIMESTAMP WITH TIME ZONE
+            )
+            """
+        )
+        # Outgoing webhooks to the shop's ERP. `events` is a CSV of event names
+        # ('*' = everything); deliveries are HMAC-signed with `secret`.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id SERIAL PRIMARY KEY,
+                shop_id INTEGER NOT NULL REFERENCES shops(id),
+                url TEXT NOT NULL,
+                secret TEXT NOT NULL,
+                events TEXT NOT NULL DEFAULT '*',
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                last_status INTEGER,
+                last_delivery_at TIMESTAMP WITH TIME ZONE
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_webhooks_shop ON webhooks (shop_id) WHERE active")
+
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS notifications (

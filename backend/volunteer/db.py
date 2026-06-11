@@ -20,6 +20,20 @@ def init_db():
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE")
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS city TEXT")
 
+        # Corporate volunteering: a team is just a named group with a join
+        # code; impact aggregates roll up via volunteers.team_id.
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teams (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                join_code TEXT UNIQUE NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS team_id INTEGER REFERENCES teams(id)")
+
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS volunteer_routes (

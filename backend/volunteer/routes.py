@@ -452,6 +452,19 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
              f'Маршрут #{route_id} построен — посмотрите вкладку «Маршрут»', now),
         )
 
+    # Enterprise webhooks (ERP integration) — fire-and-forget, outside the tx.
+    try:
+        from backend import webhook_service
+        webhook_service.fire(lot["shop_id"], "lot.taken", {
+            "lot_id": payload.lot_id,
+            "route_id": route_id,
+            "description": lot.get("description"),
+            "quantity": lot.get("quantity"),
+            "volunteer_name": vol_name,
+        })
+    except Exception:
+        pass
+
     # Telegram is best-effort and lives outside the transaction.
     # Names and lot descriptions originate from user input, so escape them
     # before embedding into an HTML-parsed Telegram message.
@@ -805,6 +818,110 @@ def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_
         'achievements': achievements,
         'level': compute_level(total_deliveries, float(total_kg)),
     }
+
+
+# ── Corporate volunteering: teams ────────────────────────────────────────────
+
+def _team_summary(team_id: int):
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id, name, join_code, created_at FROM teams WHERE id = %s", (team_id,))
+        team = cur.fetchone()
+        if not team:
+            return None
+        cur.execute("SELECT COUNT(*) AS n FROM volunteers WHERE team_id = %s", (team_id,))
+        members = cur.fetchone()["n"]
+        cur.execute(
+            """
+            SELECT COUNT(t.id) AS deliveries
+            FROM tickets t JOIN volunteers v ON v.id = t.assigned_volunteer_id
+            WHERE v.team_id = %s AND t.status = 'fulfilled'
+            """,
+            (team_id,),
+        )
+        deliveries = cur.fetchone()["deliveries"]
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(l.quantity), 0) AS kg
+            FROM volunteer_routes vr
+            JOIN lots l ON l.id = vr.lot_id
+            JOIN volunteers v ON v.id = vr.volunteer_id
+            WHERE v.team_id = %s AND vr.status = 'finished'
+            """,
+            (team_id,),
+        )
+        kg = float(cur.fetchone()["kg"])
+    return {**dict(team), "members": members, "deliveries": deliveries, "kg": kg}
+
+
+@router.get("/volunteers/{volunteer_id}/team")
+def get_team(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    if not vol.get("team_id"):
+        return {"team": None}
+    return {"team": _team_summary(vol["team_id"])}
+
+
+@router.post("/volunteers/{volunteer_id}/team/create")
+def create_team(volunteer_id: int, payload: vschemas.TeamCreate, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    if vol.get("team_id"):
+        raise HTTPException(status_code=400, detail="Вы уже состоите в команде — сначала покиньте её")
+    name = (payload.name or "").strip()
+    if len(name) < 3:
+        raise HTTPException(status_code=400, detail="Название команды — минимум 3 символа")
+    from backend.utils import generate_join_code
+    # Retry on the (astronomically unlikely) join-code collision.
+    for _ in range(5):
+        try:
+            with get_db_cursor() as cur:
+                cur.execute(
+                    "INSERT INTO teams (name, join_code) VALUES (%s, %s) RETURNING id",
+                    (name[:80], generate_join_code()),
+                )
+                team_id = cur.fetchone()["id"]
+                cur.execute("UPDATE volunteers SET team_id = %s WHERE id = %s", (team_id, volunteer_id))
+            break
+        except psycopg2.errors.UniqueViolation:
+            continue
+    else:
+        raise HTTPException(status_code=500, detail="Не удалось создать команду, попробуйте ещё раз")
+    return {"team": _team_summary(team_id)}
+
+
+@router.post("/volunteers/{volunteer_id}/team/join")
+def join_team(volunteer_id: int, payload: vschemas.TeamJoin, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    if vol.get("team_id"):
+        raise HTTPException(status_code=400, detail="Вы уже состоите в команде — сначала покиньте её")
+    code = (payload.code or "").strip().upper()
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id FROM teams WHERE join_code = %s", (code,))
+        team = cur.fetchone()
+        if not team:
+            raise HTTPException(status_code=404, detail="Команда с таким кодом не найдена")
+        cur.execute("UPDATE volunteers SET team_id = %s WHERE id = %s", (team["id"], volunteer_id))
+    return {"team": _team_summary(team["id"])}
+
+
+@router.post("/volunteers/{volunteer_id}/team/leave")
+def leave_team(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE volunteers SET team_id = NULL WHERE id = %s", (volunteer_id,))
+        # Empty teams are garbage-collected so abandoned codes don't pile up.
+        cur.execute(
+            "DELETE FROM teams t WHERE NOT EXISTS (SELECT 1 FROM volunteers v WHERE v.team_id = t.id)"
+        )
+    return {"ok": True}
 
 
 @router.patch("/volunteers/{volunteer_id}/location")

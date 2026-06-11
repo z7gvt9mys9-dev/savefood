@@ -5,6 +5,8 @@ import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
+import PushToggle from '../../components/PushToggle';
+import OnboardingChecklist from '../../components/OnboardingChecklist';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Needy.css';
@@ -346,6 +348,7 @@ const NeedyDashboard = () => {
       </form>
 
       <AccountLinks dashboardPath="/needy" />
+      <PushToggle />
     </div>
   );
 
@@ -367,6 +370,13 @@ const NeedyDashboard = () => {
   const renderMap = () => (
     <>
       <div className="tab-content">
+        <OnboardingChecklist
+          storageKey="needy"
+          items={[
+            { id: 'profile', label: t('onboarding.needy_fill_profile'), done: !!profile.address },
+            { id: 'ticket', label: t('onboarding.needy_first_ticket'), done: !!activeOrder || history.length > 0 },
+          ]}
+        />
         <div className="lot-filters">
           <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
             <option value="">{t('needy.filter_all_categories')}</option>

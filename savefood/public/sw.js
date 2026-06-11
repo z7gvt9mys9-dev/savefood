@@ -19,12 +19,39 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Web Push (VAPID): payload is JSON {title, body, url} from backend/push_service.py
+self.addEventListener('push', event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) {}
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'SaveFood', {
+      body: data.body || '',
+      data: { url: data.url || '/' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const existing = list.find(c => 'focus' in c);
+      if (existing) { existing.navigate(url); return existing.focus(); }
+      return clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
   // Pass API, WebSocket upgrades, and cross-origin requests straight to network
   if (
     url.pathname.startsWith('/auth') ||
+    url.pathname.startsWith('/push') ||
+    url.pathname.startsWith('/api') ||
+    url.pathname.startsWith('/impact/') ||
     url.pathname.startsWith('/shops') ||
     url.pathname.startsWith('/lots') ||
     url.pathname.startsWith('/volunteers') ||

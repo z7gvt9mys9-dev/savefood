@@ -38,19 +38,32 @@ def get_chat_id_by_related(role: str, related_id: int) -> str:
         return None
 
 
+def _also_web_push(role: str, related_id: int, text: str):
+    # Web Push mirrors every Telegram notification so users without the bot
+    # still get pushes in the browser/PWA. Best-effort, never blocks.
+    try:
+        from backend import push_service
+        push_service.notify_role(role, related_id, text)
+    except Exception:
+        pass
+
+
 def notify_needy(needy_id: int, text: str):
     chat_id = get_chat_id_by_related("needy", needy_id)
     if chat_id:
         send_message(chat_id, text)
+    _also_web_push("needy", needy_id, text)
 
 
 def notify_shop(shop_id: int, text: str):
     chat_id = get_chat_id_by_related("shop", shop_id)
     if chat_id:
         send_message(chat_id, text)
+    _also_web_push("shop", shop_id, text)
 
 
 def notify_volunteer(volunteer_id: int, text: str):
     chat_id = get_chat_id_by_related("volunteer", volunteer_id)
     if chat_id:
         send_message(chat_id, text)
+    _also_web_push("volunteer", volunteer_id, text)

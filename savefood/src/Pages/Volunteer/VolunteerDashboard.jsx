@@ -6,6 +6,8 @@ import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
+import PushToggle from '../../components/PushToggle';
+import OnboardingChecklist from '../../components/OnboardingChecklist';
 import './Volunteer.css';
 
 const CAT_KEYS = {
@@ -125,6 +127,10 @@ const VolunteerDashboard = () => {
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [photoUploading, setPhotoUploading] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
+  const [team, setTeam] = useState(undefined); // undefined=loading, null=no team
+  const [teamName, setTeamName] = useState('');
+  const [teamCode, setTeamCode] = useState('');
+  const [teamBusy, setTeamBusy] = useState(false);
   const locationWatchRef = useRef(null);
   const locationIntervalRef = useRef(null);
   const qrScannerRef = useRef(null);
@@ -218,6 +224,26 @@ const VolunteerDashboard = () => {
         volunteers: volsRes.ok ? await volsRes.json() : [],
       });
     } catch {}
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/team`, { headers: authHeader });
+      if (res.ok) setTeam((await res.json()).team);
+    } catch {}
+  };
+
+  const teamAction = async (path, body) => {
+    setTeamBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/team/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { alert(data.detail || t('common.error')); return; }
+      setTeam(path === 'leave' ? null : data.team);
+      setTeamName(''); setTeamCode('');
+    } catch { alert(t('common.connection_error')); }
+    finally { setTeamBusy(false); }
   };
 
   const handleAttemptDelivery = async (ticketId) => {
@@ -388,6 +414,13 @@ const VolunteerDashboard = () => {
         </YMaps>
       </div>
       <div className="task-list-mobile">
+        <OnboardingChecklist
+          storageKey="volunteer"
+          items={[
+            { id: 'route', label: t('onboarding.volunteer_first_route'), done: routes.length > 0 || !!activeRoute },
+            { id: 'delivery', label: t('onboarding.volunteer_first_delivery'), done: routes.some(r => r.status === 'finished') },
+          ]}
+        />
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           {CATEGORIES.map(cat => (
             <button
@@ -624,6 +657,49 @@ const VolunteerDashboard = () => {
                     ))}
                   </div>
                 )}
+                <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.team_title')}</h4>
+                {team === undefined ? (
+                  <p className="empty-msg" style={{ fontSize: '0.85rem' }}>{t('common.loading')}</p>
+                ) : team ? (
+                  <div style={{ background: '#2196F312', border: '1px solid #2196F344', borderRadius: 12, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <strong style={{ color: '#64B5F6' }}>🏢 {team.name}</strong>
+                      <span style={{ fontSize: '0.8rem', color: '#aaa' }}>
+                        {t('volunteer.team_members', { count: team.members })}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.85rem', margin: '8px 0 4px' }}>
+                      {team.deliveries} {t('volunteer.total_deliveries').toLowerCase()} · {Math.round(team.kg)} {t('volunteer.total_kg').toLowerCase()}
+                    </p>
+                    <p style={{ fontSize: '0.8rem', color: '#aaa', margin: '4px 0 8px' }}>
+                      {t('volunteer.team_code_hint')}: <code style={{ color: '#64B5F6' }}>{team.join_code}</code>
+                    </p>
+                    <button className="btn-small btn-warning" disabled={teamBusy}
+                      onClick={() => window.confirm(t('volunteer.team_leave_confirm')) && teamAction('leave')}>
+                      {t('volunteer.team_leave')}
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <p style={{ fontSize: '0.82rem', color: '#aaa', margin: 0 }}>{t('volunteer.team_intro')}</p>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <input type="text" placeholder={t('volunteer.team_code_placeholder')} value={teamCode}
+                        onChange={e => setTeamCode(e.target.value.toUpperCase())} style={{ flex: 1, minWidth: 120 }} />
+                      <button className="btn-small btn-success" disabled={teamBusy || !teamCode.trim()}
+                        onClick={() => teamAction('join', { code: teamCode })}>
+                        {t('volunteer.team_join')}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <input type="text" placeholder={t('volunteer.team_name_placeholder')} value={teamName}
+                        onChange={e => setTeamName(e.target.value)} style={{ flex: 1, minWidth: 120 }} />
+                      <button className="btn-small" disabled={teamBusy || teamName.trim().length < 3}
+                        onClick={() => teamAction('create', { name: teamName })}>
+                        {t('volunteer.team_create')}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {leaderboard && leaderboard.cities.length > 0 && (
                   <>
                     <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.leaderboard_cities')}</h4>
@@ -667,6 +743,7 @@ const VolunteerDashboard = () => {
               )}
             </div>
             <AccountLinks dashboardPath="/volunteer" />
+            <PushToggle />
           {routes.length === 0 ? (
             <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
           ) : routes.map(r => (

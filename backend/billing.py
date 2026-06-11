@@ -22,18 +22,21 @@ PLANS = {
         "monthly_lot_limit": 20,
         "ocr": False,
         "esg": False,
+        "api": False,
     },
     "pro": {
         "label": "Профи",
         "monthly_lot_limit": None,
         "ocr": True,
         "esg": True,
+        "api": False,
     },
     "enterprise": {
         "label": "Enterprise",
         "monthly_lot_limit": None,
         "ocr": True,
         "esg": True,
+        "api": True,
     },
 }
 
@@ -41,6 +44,7 @@ PLANS = {
 FEATURE_LABELS = {
     "ocr": "Распознавание чеков (OCR)",
     "esg": "ESG-отчёты",
+    "api": "Партнёрский API и вебхуки",
 }
 
 
@@ -100,6 +104,7 @@ def plan_summary(shop_id: int) -> dict:
         "label": features["label"],
         "ocr": features["ocr"],
         "esg": features["esg"],
+        "api": features["api"],
         "monthly_lot_limit": limit,
         "lots_used_this_month": lots_created_this_month(shop_id),
     }

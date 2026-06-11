@@ -256,7 +256,25 @@
     "forecast_hint": "Weekday averages over the last {{weeks}} weeks. Publish “future write-off” lots in advance so volunteers are ready.",
     "forecast_today": "Today",
     "forecast_tomorrow": "Tomorrow",
-    "forecast_cta": "Create a lot in advance"
+    "forecast_cta": "Create a lot in advance",
+    "api_tab": "API",
+    "api_title": "Partner API & webhooks",
+    "api_intro": "POS/ERP integration: create lots automatically from your write-off button and receive pickup/hand-over events.",
+    "api_keys_title": "API keys",
+    "api_key_create": "Create key",
+    "api_key_once": "Copy the key now — it is shown only once:",
+    "api_col_key": "Key",
+    "api_col_used": "Last used",
+    "api_revoke": "Revoke",
+    "api_revoked": "Revoked",
+    "api_revoke_confirm": "Revoke this key? Integrations using it will stop working.",
+    "api_hooks_title": "Webhooks",
+    "api_hooks_hint": "POST to your URL on lot.taken / lot.confirmed / receipt.parsed. Signed with HMAC-SHA256 in the X-SaveFood-Signature header.",
+    "api_hook_secret_once": "Webhook secret (for signature verification) — shown once:",
+    "api_hook_delete_confirm": "Delete this webhook?",
+    "api_all_events": "All events",
+    "api_col_events": "Events",
+    "api_col_last": "Last delivery"
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",
@@ -323,7 +341,17 @@
     "level_points": "{{count}} points",
     "level_next": "To “{{level}}”: {{points}} more points",
     "leaderboard_cities": "City leaderboard",
-    "leaderboard_volunteers": "Top volunteers"
+    "leaderboard_volunteers": "Top volunteers",
+    "team_title": "Team",
+    "team_intro": "Corporate volunteering: join your company team with a code or create your own — results roll up to the team.",
+    "team_members": "{{count}} members",
+    "team_code_hint": "Code for colleagues",
+    "team_code_placeholder": "Team code",
+    "team_name_placeholder": "Team name",
+    "team_join": "Join",
+    "team_create": "Create",
+    "team_leave": "Leave team",
+    "team_leave_confirm": "Leave the team? Your past deliveries stay in its score."
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -586,12 +614,32 @@
     "feed_title": "Impact feed",
     "feed_hint": "Anonymous photos of delivered packages — no names, no addresses.",
     "feed_alt": "Delivery photo",
-    "methodology": "Methodology"
+    "methodology": "Methodology",
+    "teams_title": "Corporate teams",
+    "teams_hint": "Companies compete in food rescue: employees' deliveries and kilograms count toward the team."
   },
   "legal": {
     "terms_title": "Terms of Service (public offer)",
     "privacy_title": "Privacy Policy",
     "updated": "Updated",
     "version": "version"
+  },
+  "push": {
+    "title": "Browser push notifications",
+    "enabled_hint": "Notifications are on for this device — delivery updates arrive even with the tab closed.",
+    "disabled_hint": "Get delivery updates right in your browser/app — no need to open Telegram.",
+    "enable": "Enable notifications",
+    "disable": "Disable"
+  },
+  "onboarding": {
+    "title": "First steps",
+    "dismiss": "Dismiss",
+    "connect_telegram": "Connect Telegram for notifications",
+    "shop_first_lot": "Create your first lot",
+    "shop_first_handover": "Hand over your first lot to a volunteer",
+    "volunteer_first_route": "Take your first route on the map",
+    "volunteer_first_delivery": "Complete your first delivery",
+    "needy_fill_profile": "Fill in your profile (delivery address)",
+    "needy_first_ticket": "Create your first food request"
   }
 }

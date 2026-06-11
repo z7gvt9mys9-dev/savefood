@@ -1,7 +1,17 @@
 import math
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
+
+# Unambiguous alphabet for human-typed codes: no 0/O, 1/I/L.
+JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+JOIN_CODE_LENGTH = 6
+
+
+def generate_join_code(length: int = JOIN_CODE_LENGTH) -> str:
+    """Team invite code — short enough to dictate over the phone."""
+    return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(length))
 
 # Allowed MIME types and file extensions for uploaded files.
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}

@@ -13,19 +13,22 @@ const ImpactPage = () => {
   const { t } = useTranslation();
   const [summary, setSummary] = useState(null);
   const [cities, setCities] = useState([]);
+  const [teams, setTeams] = useState([]);
   const [feed, setFeed] = useState([]);
   const [error, setError] = useState(false);
   const pollRef = useRef(null);
 
   const fetchAll = async () => {
     try {
-      const [sRes, cRes, fRes] = await Promise.all([
+      const [sRes, cRes, tRes, fRes] = await Promise.all([
         fetch(`${API_URL}/impact/summary`),
         fetch(`${API_URL}/impact/cities`),
+        fetch(`${API_URL}/impact/teams`),
         fetch(`${API_URL}/impact/feed?limit=12`),
       ]);
       if (sRes.ok) setSummary(await sRes.json());
       if (cRes.ok) setCities(await cRes.json());
+      if (tRes.ok) setTeams(await tRes.json());
       if (fRes.ok) setFeed(await fRes.json());
       setError(!sRes.ok);
     } catch {
@@ -97,6 +100,30 @@ const ImpactPage = () => {
                   />
                 </div>
                 <span className="impact-city-kg">{Math.round(c.kg)} {t('impact.kg')}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {teams.length > 0 && (
+        <section className="impact-section">
+          <h2>{t('impact.teams_title')}</h2>
+          <p className="impact-feed-hint">{t('impact.teams_hint')}</p>
+          <div className="impact-cities">
+            {teams.map((tm, i) => (
+              <div key={tm.id} className="impact-city-row">
+                <span className="impact-city-rank">{['🥇', '🥈', '🥉'][i] || i + 1}</span>
+                <span className="impact-city-name">🏢 {tm.name}</span>
+                <div className="impact-city-bar">
+                  <div
+                    className="impact-city-fill"
+                    style={{ width: `${Math.max(4, Math.round((tm.deliveries / (teams[0].deliveries || 1)) * 100))}%`, background: 'linear-gradient(90deg, #2196F3, #64B5F6)' }}
+                  />
+                </div>
+                <span className="impact-city-kg" style={{ color: '#64B5F6' }}>
+                  {tm.deliveries} · {Math.round(tm.kg)} {t('impact.kg')}
+                </span>
               </div>
             ))}
           </div>

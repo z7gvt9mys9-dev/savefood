@@ -91,6 +91,37 @@ def volunteer_leaderboard():
     return rows
 
 
+@router.get("/teams")
+def team_leaderboard():
+    """Corporate volunteering: top-10 teams by delivered tickets / rescued kg.
+    Company names are public by design — that's the whole PR point for them."""
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT tm.id, tm.name,
+                   COUNT(DISTINCT v.id) AS members,
+                   COUNT(t.id) AS deliveries,
+                   COALESCE((
+                       SELECT SUM(l.quantity)
+                       FROM volunteer_routes vr
+                       JOIN lots l ON l.id = vr.lot_id
+                       JOIN volunteers v2 ON v2.id = vr.volunteer_id
+                       WHERE v2.team_id = tm.id AND vr.status = 'finished'
+                   ), 0) AS kg
+            FROM teams tm
+            JOIN volunteers v ON v.team_id = tm.id
+            LEFT JOIN tickets t ON t.assigned_volunteer_id = v.id AND t.status = 'fulfilled'
+            GROUP BY tm.id, tm.name
+            ORDER BY deliveries DESC, kg DESC
+            LIMIT 10
+            """
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+    for r in rows:
+        r["kg"] = float(r["kg"])
+    return rows
+
+
 @router.get("/feed")
 def impact_feed(limit: int = 20):
     """Anonymous feed of completed deliveries with photos (§ social mechanics).

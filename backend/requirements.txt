@@ -11,3 +11,6 @@ aiogram>=3.0.0
 alembic>=1.12.0
 sqlalchemy>=2.0.0
 slowapi>=0.1.9
+sentry-sdk>=2.0
+prometheus-client>=0.20
+pywebpush>=2.0

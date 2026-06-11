@@ -1,7 +1,13 @@
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+
+from backend import monitoring
+
+# Sentry must initialize before the app object so its auto-instrumentation
+# wraps FastAPI/HTTPX. No DSN in env → clean no-op.
+monitoring.init_sentry()
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -17,11 +23,28 @@ from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
 from backend import auth_routes, oauth_routes, database, telegram_routes, proxy_service, telegram_service
 from backend import impact as impact_routes
+from backend import push_routes, partner_api
 from backend.admin import routes as admin_routes
 from backend.database import get_db_cursor
 
 app = FastAPI(title="SaveFood - Backend")
 app.state.limiter = limiter
+
+
+@app.middleware("http")
+async def prometheus_middleware(request: Request, call_next):
+    import time as _time
+    started = _time.perf_counter()
+    response = await call_next(request)
+    # Route template ("/lots/{lot_id}"), not the raw path — keeps label
+    # cardinality bounded. Unmatched paths (404 spam) are bucketed together.
+    route = request.scope.get("route")
+    route_path = getattr(route, "path", "<unmatched>")
+    try:
+        monitoring.observe_request(request.method, route_path, response.status_code, started)
+    except Exception:
+        pass
+    return response
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
@@ -236,6 +259,22 @@ app.include_router(vol_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(telegram_routes.router)
 app.include_router(impact_routes.router)
+app.include_router(push_routes.router)
+app.include_router(partner_api.router)
+app.include_router(partner_api.manage_router)
+
+
+@app.get("/metrics")
+def metrics(request: Request):
+    """Prometheus scrape endpoint. Not exposed through nginx — scrape the
+    backend container directly. Optional METRICS_TOKEN guards direct access."""
+    token = request.query_params.get("token", "")
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = token or auth[7:]
+    if not monitoring.metrics_allowed(token):
+        return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+    return Response(content=monitoring.metrics_payload(), media_type=monitoring.CONTENT_TYPE_LATEST)
 
 
 @app.get("/stats")

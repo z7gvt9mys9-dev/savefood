@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
+import PushToggle from '../../components/PushToggle';
+import OnboardingChecklist from '../../components/OnboardingChecklist';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Shop.css';
@@ -40,6 +42,13 @@ const ShopDashboard = () => {
   const [receiptCommon, setReceiptCommon] = useState({ expiry_date: '', address: '', time_slot: '18:00 - 20:00' });
   const [esgReport, setEsgReport] = useState(null);
   const [esgError, setEsgError] = useState(null);
+  // Enterprise partner API: keys + webhooks management
+  const [apiKeys, setApiKeys] = useState([]);
+  const [webhooks, setWebhooks] = useState([]);
+  const [newSecret, setNewSecret] = useState(null);
+  const [newHook, setNewHook] = useState({ url: '', events: ['*'] });
+  const [newHookSecret, setNewHookSecret] = useState(null);
+  const [apiBusy, setApiBusy] = useState(false);
 
   const [newLot, setNewLot] = useState({
     description: '',
@@ -115,6 +124,75 @@ const ShopDashboard = () => {
       })
       .catch(() => setEsgError(t('common.connection_error')));
   }, [activeTab, shopId]);
+
+  // Partner API tab: load keys + webhooks lazily (enterprise plan only).
+  useEffect(() => {
+    if (activeTab !== 'api' || !shopId || !plan?.api) return;
+    const authHeader = { Authorization: `Bearer ${user?.token}` };
+    fetch(`${API_URL}/shops/${shopId}/api_keys`, { headers: authHeader })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setApiKeys(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    fetch(`${API_URL}/shops/${shopId}/webhooks`, { headers: authHeader })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setWebhooks(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [activeTab, shopId, plan?.api]);
+
+  const handleCreateApiKey = async () => {
+    setApiBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/api_keys`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || t('common.error')); return; }
+      setNewSecret(data.key);
+      setApiKeys(prev => [{ id: data.id, prefix: data.prefix, revoked: false, created_at: new Date().toISOString() }, ...prev]);
+    } catch { alert(t('common.connection_error')); }
+    finally { setApiBusy(false); }
+  };
+
+  const handleRevokeApiKey = async (keyId) => {
+    if (!window.confirm(t('shop.api_revoke_confirm'))) return;
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/api_keys/${keyId}/revoke`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (res.ok) setApiKeys(prev => prev.map(k => k.id === keyId ? { ...k, revoked: true } : k));
+    } catch {}
+  };
+
+  const handleCreateWebhook = async (e) => {
+    e.preventDefault();
+    setApiBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/webhooks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify(newHook),
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.detail || t('common.error')); return; }
+      setNewHookSecret(data.secret);
+      setWebhooks(prev => [{ id: data.id, url: newHook.url, events: newHook.events.join(','), active: true }, ...prev]);
+      setNewHook({ url: '', events: ['*'] });
+    } catch { alert(t('common.connection_error')); }
+    finally { setApiBusy(false); }
+  };
+
+  const handleDeleteWebhook = async (hookId) => {
+    if (!window.confirm(t('shop.api_hook_delete_confirm'))) return;
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/webhooks/${hookId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (res.ok) setWebhooks(prev => prev.filter(h => h.id !== hookId));
+    } catch {}
+  };
 
   const handleUploadReceipt = async (e) => {
     e.preventDefault();
@@ -292,6 +370,13 @@ const ShopDashboard = () => {
 
   const renderOverview = () => (
     <div className="tab-content">
+      <OnboardingChecklist
+        storageKey="shop"
+        items={[
+          { id: 'lot', label: t('onboarding.shop_first_lot'), done: lots.length + history.length > 0 },
+          { id: 'handover', label: t('onboarding.shop_first_handover'), done: history.some(l => l.status === 'taken' || l.status === 'confirmed') },
+        ]}
+      />
       <div className="stats-grid">
         <div className="stat-box">
           <span className="stat-value">{lots.length}</span>
@@ -352,6 +437,7 @@ const ShopDashboard = () => {
         </form>
       </div>
       <AccountLinks dashboardPath="/shop" />
+      <PushToggle />
     </div>
   );
 
@@ -430,6 +516,105 @@ const ShopDashboard = () => {
 
         <button type="submit" className="btn btn-primary">{t('shop.publish')}</button>
       </form>
+    </div>
+  );
+
+  const WEBHOOK_EVENTS = ['*', 'lot.taken', 'lot.confirmed', 'receipt.parsed'];
+
+  const renderApi = () => (
+    <div className="tab-content">
+      <h3>{t('shop.api_title')}</h3>
+      <p style={{ opacity: 0.8 }}>{t('shop.api_intro')}</p>
+      {plan && !plan.api ? renderUpgradeNotice() : (
+        <>
+          <div className="info-section">
+            <h3>{t('shop.api_keys_title')}</h3>
+            {newSecret && (
+              <div className="warning-box" style={{ wordBreak: 'break-all' }}>
+                <p>{t('shop.api_key_once')}</p>
+                <code>{newSecret}</code>
+              </div>
+            )}
+            <button className="btn-small btn-success" disabled={apiBusy} onClick={handleCreateApiKey}>
+              {t('shop.api_key_create')}
+            </button>
+            {apiKeys.length > 0 && (
+              <table className="admin-table" style={{ marginTop: 10 }}>
+                <thead>
+                  <tr><th>{t('shop.api_col_key')}</th><th>{t('shop.api_col_used')}</th><th>{t('common.status')}</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {apiKeys.map(k => (
+                    <tr key={k.id} style={{ opacity: k.revoked ? 0.5 : 1 }}>
+                      <td><code>{k.prefix}…</code></td>
+                      <td>{k.last_used_at ? new Date(k.last_used_at).toLocaleString() : '—'}</td>
+                      <td>{k.revoked ? t('shop.api_revoked') : t('admin.active')}</td>
+                      <td>{!k.revoked && (
+                        <button className="btn-small btn-danger" onClick={() => handleRevokeApiKey(k.id)}>
+                          {t('shop.api_revoke')}
+                        </button>
+                      )}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="info-section">
+            <h3>{t('shop.api_hooks_title')}</h3>
+            <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>{t('shop.api_hooks_hint')}</p>
+            {newHookSecret && (
+              <div className="warning-box" style={{ wordBreak: 'break-all' }}>
+                <p>{t('shop.api_hook_secret_once')}</p>
+                <code>{newHookSecret}</code>
+              </div>
+            )}
+            <form onSubmit={handleCreateWebhook} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="url"
+                placeholder="https://erp.example.com/savefood-hook"
+                value={newHook.url}
+                onChange={e => setNewHook(prev => ({ ...prev, url: e.target.value }))}
+                style={{ flex: 1, minWidth: 220 }}
+                required
+              />
+              <select
+                value={newHook.events[0]}
+                onChange={e => setNewHook(prev => ({ ...prev, events: [e.target.value] }))}
+              >
+                {WEBHOOK_EVENTS.map(ev => (
+                  <option key={ev} value={ev}>{ev === '*' ? t('shop.api_all_events') : ev}</option>
+                ))}
+              </select>
+              <button type="submit" className="btn-small btn-success" disabled={apiBusy || !newHook.url}>
+                {t('common.save')}
+              </button>
+            </form>
+            {webhooks.length > 0 && (
+              <table className="admin-table" style={{ marginTop: 10 }}>
+                <thead>
+                  <tr><th>URL</th><th>{t('shop.api_col_events')}</th><th>{t('shop.api_col_last')}</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {webhooks.map(h => (
+                    <tr key={h.id}>
+                      <td style={{ wordBreak: 'break-all' }}>{h.url}</td>
+                      <td>{h.events}</td>
+                      <td>{h.last_status ? `HTTP ${h.last_status}` : '—'}</td>
+                      <td>
+                        <button className="btn-small btn-danger" onClick={() => handleDeleteWebhook(h.id)}>
+                          {t('common.delete')}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 
@@ -742,6 +927,7 @@ const ShopDashboard = () => {
           <button className={activeTab === 'ocr' ? 'active' : ''} onClick={() => setActiveTab('ocr')}>{t('shop.ocr_tab')}</button>
           <button className={activeTab === 'active' ? 'active' : ''} onClick={() => setActiveTab('active')}>{t('shop.lots')}</button>
           <button className={activeTab === 'esg' ? 'active' : ''} onClick={() => setActiveTab('esg')}>{t('shop.esg_tab')}</button>
+          <button className={activeTab === 'api' ? 'active' : ''} onClick={() => setActiveTab('api')}>{t('shop.api_tab')}</button>
           <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('shop.history')}</button>
           <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>
             {t('shop.notifications')} {notifications.filter(n => !n.read).length > 0 && `(${notifications.filter(n => !n.read).length})`}
@@ -751,13 +937,14 @@ const ShopDashboard = () => {
 
       <main className="main-content">
         <header className="content-header">
-          <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'ocr' ? t('shop.ocr_tab') : activeTab === 'active' ? t('shop.lots') : activeTab === 'esg' ? t('shop.esg_tab') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
+          <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'ocr' ? t('shop.ocr_tab') : activeTab === 'active' ? t('shop.lots') : activeTab === 'esg' ? t('shop.esg_tab') : activeTab === 'api' ? t('shop.api_tab') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
         </header>
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'create' && renderCreateLot()}
         {activeTab === 'ocr' && renderOcr()}
         {activeTab === 'active' && renderActiveLots()}
         {activeTab === 'esg' && renderEsg()}
+        {activeTab === 'api' && renderApi()}
         {activeTab === 'history' && renderHistory()}
         {activeTab === 'notifications' && renderNotifications()}
       </main>

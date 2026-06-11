@@ -13,7 +13,7 @@ from backend.needy import db as needy_db
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
-from backend import billing, esg, receipt_service, needs_match, forecast
+from backend import billing, esg, receipt_service, needs_match, forecast, webhook_service
 
 router = APIRouter()
 
@@ -134,10 +134,18 @@ def patch_lot(lot_id: int, payload: schemas.LotUpdate, current_user: dict = Depe
 
 @router.post("/lots/{lot_id}/confirm_transfer")
 def confirm_transfer(lot_id: int, current_user: dict = Depends(get_current_user)):
-    _require_lot_owner(lot_id, current_user)
+    lot = _require_lot_owner(lot_id, current_user)
     ok = db.confirm_lot_transfer(lot_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Lot not found or not in taken status")
+    try:
+        webhook_service.fire(lot["shop_id"], "lot.confirmed", {
+            "lot_id": lot_id,
+            "description": lot.get("description"),
+            "quantity": lot.get("quantity"),
+        })
+    except Exception:
+        pass
     return {"ok": True}
 
 
@@ -256,6 +264,17 @@ def upload_receipt(
     fraud = receipt_service.evaluate_fraud(parsed, fp_dupe)
     status = "rejected" if fraud["rejected"] else "parsed"
     receipt_id = db.create_receipt(shop_id, f"/receipts/{filename}", sha, fp, parsed, fraud, status)
+
+    try:
+        webhook_service.fire(shop_id, "receipt.parsed", {
+            "receipt_id": receipt_id,
+            "status": status,
+            "fraud_score": fraud["score"],
+            "items_count": len(parsed["items"]),
+            "total": parsed.get("total"),
+        })
+    except Exception:
+        pass
 
     row = db.get_receipt_by_id(receipt_id)
     return _receipt_to_out(row)

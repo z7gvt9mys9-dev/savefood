@@ -70,3 +70,11 @@ class CompletePointRequest(BaseModel):
 class LocationUpdate(BaseModel):
     lat: float
     lon: float
+
+
+class TeamCreate(BaseModel):
+    name: str
+
+
+class TeamJoin(BaseModel):
+    code: str
