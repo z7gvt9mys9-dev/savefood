@@ -99,3 +99,39 @@
 .audit-table td { font-size: 0.82rem; vertical-align: top; }
 .audit-time { white-space: nowrap; color: #888; }
 .audit-action { background: rgba(255,255,255,0.07); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 0.78rem; letter-spacing: 0.3px; }
+
+/* ─── Delivery photo moderation queue (§36.1) ─── */
+.photo-mod-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.photo-mod-card {
+  background: #0d1117;
+  border: 1px solid #222;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.photo-mod-img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  display: block;
+  background: #000;
+}
+.photo-mod-meta {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+.photo-mod-actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.photo-mod-actions .btn-small { flex: 1; }

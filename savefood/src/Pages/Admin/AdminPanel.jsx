@@ -18,6 +18,8 @@ const AdminPanel = () => {
   const [shops, setShops] = useState([]);
   const [esgGlobal, setEsgGlobal] = useState(null);
   const [kycRechecking, setKycRechecking] = useState({});
+  const [deliveryPhotos, setDeliveryPhotos] = useState([]);
+  const [photoBusy, setPhotoBusy] = useState({});
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -59,10 +61,18 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  const fetchDeliveryPhotos = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/delivery_photos?status=pending`, { headers: authHeader });
+      if (res.ok) setDeliveryPhotos(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
     if (activeTab === 'plans') fetchShops();
+    if (activeTab === 'photos') fetchDeliveryPhotos();
     if (activeTab === 'analytics' && !esgGlobal) {
       fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
@@ -144,6 +154,38 @@ const AdminPanel = () => {
     finally { setKycRechecking(prev => ({ ...prev, [needyId]: false })); }
   };
 
+  // Delivery photo moderation: publish or drop a recipient photo before it
+  // reaches the public Impact feed.
+  const handleModeratePhoto = async (ticketId, action) => {
+    setPhotoBusy(prev => ({ ...prev, [ticketId]: true }));
+    try {
+      const res = await fetch(`${API_URL}/admin/delivery_photos/${ticketId}/${action}`, { method: 'POST', headers: authHeader });
+      if (res.ok) setDeliveryPhotos(prev => prev.filter(p => p.ticket_id !== ticketId));
+      else alert(t('common.error'));
+    } catch { alert(t('common.connection_error')); }
+    finally { setPhotoBusy(prev => ({ ...prev, [ticketId]: false })); }
+  };
+
+  // AI "is this food?" pre-check verdict as a colored hint; the publish
+  // decision stays with the human moderator.
+  const photoBadge = (item) => {
+    const v = item.delivery_photo_ai_verdict;
+    if (!v || v === 'unchecked') return <span style={{ opacity: 0.6 }}>{t('admin.photo_unchecked')}</span>;
+    const colors = { food: '#5f5', review: '#fa0', not_food: '#f55', inappropriate: '#f55' };
+    const labels = {
+      food: t('admin.photo_food'),
+      review: t('admin.photo_review'),
+      not_food: t('admin.photo_not_food'),
+      inappropriate: t('admin.photo_inappropriate'),
+    };
+    return (
+      <span style={{ color: colors[v] || '#aaa' }}>
+        {labels[v] || v}
+        {item.delivery_photo_ai_score != null && ` (${Math.round(item.delivery_photo_ai_score * 100)}%)`}
+      </span>
+    );
+  };
+
   // Auto-KYC v1: AI pre-check verdict rendered as a colored hint; the
   // approve/reject decision stays with the human moderator.
   const kycBadge = (item) => {
@@ -206,6 +248,41 @@ const AdminPanel = () => {
           ))}
         </tbody>
       </table>
+      )}
+    </div>
+  );
+
+  const renderPhotos = () => (
+    <div className="admin-tab">
+      <h2>{t('admin.photo_queue')}</h2>
+      <p style={{ opacity: 0.75 }}>{t('admin.photo_hint')}</p>
+      {deliveryPhotos.length === 0 ? (
+        <EmptyState icon="📷" title={t('empty.photos_title')} description={t('empty.photos_desc')} />
+      ) : (
+      <div className="photo-mod-grid">
+        {deliveryPhotos.map(p => (
+          <div key={p.ticket_id} className="photo-mod-card">
+            <a href={`${API_URL}${p.delivery_photo}`} target="_blank" rel="noopener noreferrer">
+              <img src={`${API_URL}${p.delivery_photo}`} alt="" className="photo-mod-img" />
+            </a>
+            <div className="photo-mod-meta">
+              <div>{photoBadge(p)}</div>
+              {p.delivery_photo_ai_notes && (
+                <div style={{ fontSize: '0.78rem', opacity: 0.75 }}>{p.delivery_photo_ai_notes}</div>
+              )}
+              <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>
+                {[p.category, p.city].filter(Boolean).join(' · ') || '—'}
+              </div>
+            </div>
+            <div className="photo-mod-actions">
+              <button className="btn-small btn-success" disabled={!!photoBusy[p.ticket_id]}
+                onClick={() => handleModeratePhoto(p.ticket_id, 'approve')}>{t('admin.publish')}</button>
+              <button className="btn-small btn-danger" disabled={!!photoBusy[p.ticket_id]}
+                onClick={() => handleModeratePhoto(p.ticket_id, 'reject')}>{t('admin.reject')}</button>
+            </div>
+          </div>
+        ))}
+      </div>
       )}
     </div>
   );
@@ -440,6 +517,7 @@ const AdminPanel = () => {
         <h2>SaveFood Admin</h2>
         <nav>
           <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.moderation')}</button>
+          <button className={activeTab === 'photos' ? 'active' : ''} onClick={() => setActiveTab('photos')}>{t('admin.photos')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
           <button className={activeTab === 'plans' ? 'active' : ''} onClick={() => setActiveTab('plans')}>{t('admin.plans')}</button>
@@ -450,6 +528,7 @@ const AdminPanel = () => {
 
       <main className="main-content">
         {activeTab === 'moderation' && renderModeration()}
+        {activeTab === 'photos' && renderPhotos()}
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}
         {activeTab === 'plans' && renderPlans()}

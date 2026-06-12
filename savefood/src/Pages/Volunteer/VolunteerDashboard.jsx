@@ -124,6 +124,7 @@ const VolunteerDashboard = () => {
   const [gpsStatus, setGpsStatus] = useState('unknown');
   const [volunteerRating, setVolunteerRating] = useState(null);
   const [stats, setStats] = useState(null);
+  const [thanks, setThanks] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
   const [team, setTeam] = useState(undefined); // undefined=loading, null=no team
@@ -226,6 +227,10 @@ const VolunteerDashboard = () => {
     try {
       const res = await fetch(`${API_URL}/volunteers/${volunteerId}/team`, { headers: authHeader });
       if (res.ok) setTeam((await res.json()).team);
+    } catch {}
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/thanks`, { headers: authHeader });
+      if (res.ok) setThanks(await res.json());
     } catch {}
   };
 
@@ -624,6 +629,31 @@ const VolunteerDashboard = () => {
                     {t('volunteer.rating')} {stats.rating_count > 0 && `(${stats.rating_count})`}
                   </div>
                 </div>
+                {thanks && thanks.length > 0 && (
+                  <>
+                    <h4 style={{ margin: '18px 0 8px' }}>💌 {t('volunteer.thanks_title')}</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {thanks.map((th, i) => (
+                        <div key={i} style={{ background: '#E91E6310', border: '1px solid #E91E6333', borderRadius: 12, padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ color: '#FFC107', fontSize: '0.9rem', letterSpacing: 1 }}>
+                              {'★'.repeat(th.rating)}{'☆'.repeat(5 - th.rating)}
+                            </span>
+                            {th.created_at && (
+                              <span style={{ fontSize: '0.72rem', color: '#888' }}>{new Date(th.created_at).toLocaleDateString()}</span>
+                            )}
+                          </div>
+                          <p style={{ margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.4 }}>“{th.comment}”</p>
+                          {th.category && (
+                            <span className="category-badge" style={{ fontSize: '0.72rem', marginTop: 6, display: 'inline-block' }}>
+                              {t(`categories.${CAT_KEYS[th.category]}`, { defaultValue: th.category })}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.achievements')}</h4>
                 {(stats.achievements || []).length === 0 ? (
                   <p className="empty-msg" style={{ fontSize: '0.85rem' }}>{t('volunteer.achievements_empty')}</p>

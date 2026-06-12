@@ -120,6 +120,16 @@ def init_ticket_extensions():
     with get_db_cursor() as cur:
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_volunteer_id INTEGER")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo TEXT")
+        # Pre-publication moderation of the public Impact feed photo (§36).
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo_status TEXT")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo_ai_verdict TEXT")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo_ai_score REAL")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo_ai_notes TEXT")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS delivery_photo_reviewed_at TIMESTAMP WITH TIME ZONE")
+        # Photos that pre-date moderation are already public — grandfather them.
+        cur.execute("UPDATE tickets SET delivery_photo_status = 'approved' "
+                    "WHERE delivery_photo IS NOT NULL AND delivery_photo_status IS NULL")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_photo_status ON tickets (delivery_photo_status) WHERE delivery_photo_status IS NOT NULL")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_tickets_assigned_volunteer_id ON tickets (assigned_volunteer_id) WHERE assigned_volunteer_id IS NOT NULL")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS delivery_ratings (

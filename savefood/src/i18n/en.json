@@ -179,7 +179,9 @@
     "map_title": "No lots in your city",
     "map_desc": "Shops in your city haven't added products yet. Tell your partners about the platform.",
     "stats_title": "Stats unavailable",
-    "stats_desc": "Data will appear after the first completed routes."
+    "stats_desc": "Data will appear after the first completed routes.",
+    "photos_title": "Photo queue is empty",
+    "photos_desc": "All delivery photos have been reviewed."
   },
   "shop": {
     "dashboard": "Shop Dashboard",
@@ -330,6 +332,7 @@
     "photo_uploaded": "Photo uploaded!",
     "error_auth": "Authorization required",
     "error_start_route": "Failed to start route",
+    "thanks_title": "Thank-you notes from recipients",
     "achievements": "Achievements",
     "achievements_empty": "No achievements yet — complete your first delivery!",
     "ach_first_delivery": "🥇 First delivery",
@@ -429,6 +432,8 @@
     "status_fulfilled": "Received",
     "status_processing": "In progress",
     "rate_label": "Rate:",
+    "thanks_placeholder": "Thank your volunteer…",
+    "thanks_send": "Send",
     "shop_name_default": "Shop"
   },
   "admin": {
@@ -498,7 +503,16 @@
     "esg_title": "Platform ESG metrics (12 mo)",
     "esg_co2": "CO₂ prevented",
     "esg_meals": "Meals provided",
-    "kyc_recheck": "🔁 Re-run AI check"
+    "kyc_recheck": "🔁 Re-run AI check",
+    "photos": "Photos",
+    "photo_queue": "Delivery photo moderation",
+    "photo_hint": "Recipient photos are published to the Impact feed only after approval. AI pre-checks that the photo really shows food.",
+    "publish": "Publish",
+    "photo_unchecked": "not AI-checked",
+    "photo_food": "food",
+    "photo_review": "review",
+    "photo_not_food": "not food",
+    "photo_inappropriate": "inappropriate"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",
@@ -621,7 +635,8 @@
     "upload_btn": "Upload Photo",
     "methodology": "Methodology",
     "teams_title": "Corporate teams",
-    "teams_hint": "Companies compete in food rescue: employees' deliveries and kilograms count toward the team."
+    "teams_hint": "Companies compete in food rescue: employees' deliveries and kilograms count toward the team.",
+    "photo_pending": "Photo sent for moderation. It will appear in the Impact feed once approved."
   },
   "legal": {
     "terms_title": "Terms of Service (public offer)",

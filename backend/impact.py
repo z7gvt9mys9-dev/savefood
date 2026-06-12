@@ -136,6 +136,9 @@ def impact_feed(limit: int = 20):
 
     Only deliveries the recipient photographed appear; no names, no addresses,
     no ids of people — just the photo, the food category, city and date.
+
+    Photos must be moderation-approved (§36.1) before they reach this public
+    PR surface — a 'pending'/'rejected' photo is never returned here.
     """
     limit = max(1, min(50, limit))
     with get_db_cursor() as cur:
@@ -146,6 +149,7 @@ def impact_feed(limit: int = 20):
             FROM tickets t
             LEFT JOIN lots l ON l.id = t.lot_id
             WHERE t.status = 'fulfilled' AND t.delivery_photo IS NOT NULL
+              AND t.delivery_photo_status = 'approved'
             ORDER BY t.fulfilled_at DESC NULLS LAST
             LIMIT %s
             """,

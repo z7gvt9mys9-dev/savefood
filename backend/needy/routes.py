@@ -355,7 +355,7 @@ async def ws_needy(websocket: WebSocket, needy_id: int):
 
 
 @router.post("/needy/{needy_id}/ticket/{ticket_id}/rate")
-def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: str = "", current_user: dict = Depends(auth.get_current_user)):
+def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: Optional[str] = None, current_user: dict = Depends(auth.get_current_user)):
     if current_user["role"] not in ("needy", "admin"):
         raise HTTPException(status_code=403, detail="Forbidden")
     if current_user["role"] == "needy" and current_user.get("related_id") != needy_id:
@@ -369,11 +369,14 @@ def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: str = "",
             raise HTTPException(status_code=404, detail="Ticket not found")
         if ticket["status"] != "fulfilled":
             raise HTTPException(status_code=400, detail="Can only rate fulfilled deliveries")
+        # comment is optional: when omitted (e.g. user only re-taps a star) keep
+        # any thank-you note already on file instead of wiping it to ''.
         cur.execute(
             """
             INSERT INTO delivery_ratings (ticket_id, volunteer_id, rating, comment)
             VALUES (%s, %s, %s, %s)
-            ON CONFLICT (ticket_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment
+            ON CONFLICT (ticket_id) DO UPDATE SET rating = EXCLUDED.rating,
+                comment = COALESCE(EXCLUDED.comment, delivery_ratings.comment)
             """,
             (ticket_id, ticket.get("assigned_volunteer_id"), rating, comment),
         )
@@ -407,8 +410,22 @@ def upload_impact_photo(
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
     photo_url = f"/volunteer_uploads/{filename}"
+    # The photo is NOT public yet: it lands as 'pending' and only the
+    # moderation queue / AI pre-check can promote it to 'approved' (§36.1).
     with get_db_cursor() as cur:
-        cur.execute("UPDATE tickets SET delivery_photo = %s WHERE id = %s", (photo_url, ticket_id))
+        cur.execute(
+            """
+            UPDATE tickets
+               SET delivery_photo = %s,
+                   delivery_photo_status = 'pending',
+                   delivery_photo_ai_verdict = NULL,
+                   delivery_photo_ai_score = NULL,
+                   delivery_photo_ai_notes = NULL,
+                   delivery_photo_reviewed_at = NULL
+             WHERE id = %s
+            """,
+            (photo_url, ticket_id),
+        )
 
     # The DB now points at the new file — the replaced photo (if any) is an orphan.
     old_photo = ticket.get("delivery_photo")
@@ -420,4 +437,8 @@ def upload_impact_photo(
         except OSError:
             pass
 
-    return {"photo_url": photo_url}
+    # Fire-and-forget AI "is this actually food?" pre-check (§36.1).
+    from backend import photo_moderation
+    photo_moderation.start_photo_check(ticket_id, os.path.join(VOL_UPLOAD_DIR, filename))
+
+    return {"photo_url": photo_url, "status": "pending"}

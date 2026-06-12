@@ -50,7 +50,9 @@ class TicketOut(BaseModel):
     entrance: Optional[str]
     self_pickup: Optional[bool] = None
     delivery_photo: Optional[str] = None
+    delivery_photo_status: Optional[str] = None  # pending/approved/rejected (moderation §36.1)
     rating: Optional[int] = None  # joined from delivery_ratings in history
+    rating_comment: Optional[str] = None  # thank-you note joined from delivery_ratings
 
 
 class NotificationOut(BaseModel):

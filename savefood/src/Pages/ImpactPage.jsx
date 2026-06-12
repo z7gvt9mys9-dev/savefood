@@ -75,6 +75,8 @@ const ImpactPage = () => {
       if (res.ok) {
         fetchAll();
         setUserTickets(prev => prev.filter(t => t.id !== ticketId));
+        // Photo is not public immediately — it goes through moderation (§36.1).
+        alert(t('impact.photo_pending'));
       } else {
         alert(t('common.error'));
       }

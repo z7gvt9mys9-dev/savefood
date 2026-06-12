@@ -47,6 +47,8 @@ const NeedyDashboard = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [ratings, setRatings] = useState({});
+  const [thankNotes, setThankNotes] = useState({});
+  const [sentNotes, setSentNotes] = useState({});
   const [volunteerLocation, setVolunteerLocation] = useState(null);
   const locationPollRef = useRef(null);
   const ticketPollRef = useRef(null);
@@ -273,14 +275,18 @@ const NeedyDashboard = () => {
     loadLots(0, false, filterCategory, filterSearch);
   }, [filterCategory, filterSearch]);
 
-  const handleRateDelivery = async (ticketId, rating) => {
+  const handleRateDelivery = async (ticketId, rating, comment) => {
     if (!needyId) return;
+    const stars = rating ?? ratings[ticketId];
+    if (!stars) return;
     try {
+      const params = new URLSearchParams({ rating: String(stars) });
+      if (comment != null) params.set('comment', comment);
       const res = await fetch(
-        `${API_URL}/needy/${needyId}/ticket/${ticketId}/rate?rating=${rating}`,
+        `${API_URL}/needy/${needyId}/ticket/${ticketId}/rate?${params.toString()}`,
         { method: 'POST', headers: { Authorization: `Bearer ${user?.token}` } }
       );
-      if (res.ok) setRatings(prev => ({ ...prev, [ticketId]: rating }));
+      if (res.ok) setRatings(prev => ({ ...prev, [ticketId]: stars }));
       else alert(t('needy.error_rate'));
     } catch { alert(t('common.connection_error')); }
   };
@@ -645,6 +651,36 @@ const NeedyDashboard = () => {
                       ))}
                       {(ratings[item.id] || item.rating) && <span style={{ color: '#aaa', fontSize: '0.8em', marginLeft: 6 }}>{ratings[item.id] || item.rating}/5</span>}
                     </div>
+                  )}
+                  {item.status === 'fulfilled' && (ratings[item.id] || item.rating) && (
+                    (sentNotes[item.id] ?? item.rating_comment) ? (
+                      <p style={{ color: '#aaa', fontSize: '0.85em', margin: '6px 0 0', fontStyle: 'italic' }}>
+                        💌 “{sentNotes[item.id] ?? item.rating_comment}”
+                      </p>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                        <input
+                          type="text"
+                          maxLength={300}
+                          placeholder={t('needy.thanks_placeholder')}
+                          value={thankNotes[item.id] || ''}
+                          onChange={e => setThankNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                          style={{ flex: 1, minWidth: 0 }}
+                        />
+                        <button
+                          className="btn-small btn-success"
+                          disabled={!(thankNotes[item.id] || '').trim()}
+                          onClick={async () => {
+                            const note = (thankNotes[item.id] || '').trim();
+                            await handleRateDelivery(item.id, null, note);
+                            setSentNotes(prev => ({ ...prev, [item.id]: note }));
+                            setThankNotes(prev => ({ ...prev, [item.id]: '' }));
+                          }}
+                        >
+                          {t('needy.thanks_send')}
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               ))

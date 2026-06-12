@@ -172,10 +172,11 @@ def get_tickets_by_needy_id(needy_id: int) -> List[Dict[str, Any]]:
 
 def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        # rating joined in so a saved star rating survives page reloads
+        # rating + comment joined in so a saved star rating and thank-you note
+        # survive page reloads
         cur.execute(
             """
-            SELECT t.*, dr.rating
+            SELECT t.*, dr.rating, dr.comment AS rating_comment
             FROM tickets t
             LEFT JOIN delivery_ratings dr ON dr.ticket_id = t.id
             WHERE t.needy_id = %s AND t.status IN ('assigned','fulfilled')

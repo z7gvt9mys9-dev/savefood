@@ -102,9 +102,12 @@ GEMINI_API_KEY=...
 AI_MODEL=gemini-2.5-flash
 OCR_MODEL=                               # vision-модель для чеков (по умолчанию = AI_MODEL)
 KYC_MODEL=                               # vision-модель для документов (по умолчанию = AI_MODEL)
+PHOTO_MODEL=                             # vision-модель для модерации фото доставок (по умолчанию = AI_MODEL)
 RECEIPT_MAX_AGE_HOURS=48                 # максимальный возраст чека для антифрода
 KYC_AUTO_APPROVE=false                   # Auto-KYC v2: авто-одобрение уверенных likely_ok
 KYC_AUTO_APPROVE_SCORE=0.85              # порог скора для авто-одобрения
+PHOTO_AUTO_MODERATE=false                # авто-модерация фото ленты: одобрять уверенную еду, отклонять недопустимое
+PHOTO_AUTO_APPROVE_SCORE=0.85            # порог скора для авто-одобрения фото
 
 # Мониторинг (опционально)
 SENTRY_DSN=                              # ошибки в Sentry; пусто = выключено

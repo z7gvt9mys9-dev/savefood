@@ -821,6 +821,41 @@ def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_
     }
 
 
+@router.get("/volunteers/{volunteer_id}/thanks")
+def volunteer_thanks(volunteer_id: int, limit: int = 30, offset: int = 0,
+                     current_user: dict = Depends(get_current_user)):
+    """Feed of thank-you notes: ratings this volunteer received that carry a
+    written comment. Cheapest possible motivation — the data already lives in
+    `delivery_ratings.comment`, the volunteer just never saw it."""
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT dr.rating, dr.comment, dr.created_at, l.category
+            FROM delivery_ratings dr
+            JOIN tickets t ON t.id = dr.ticket_id
+            LEFT JOIN lots l ON l.id = t.lot_id
+            WHERE dr.volunteer_id = %s
+              AND dr.comment IS NOT NULL AND TRIM(dr.comment) <> ''
+            ORDER BY dr.created_at DESC
+            LIMIT %s OFFSET %s
+            """,
+            (volunteer_id, limit, offset),
+        )
+        rows = cur.fetchall()
+    return [
+        {
+            'rating': r['rating'],
+            'comment': r['comment'],
+            'category': r['category'],
+            'created_at': r['created_at'].isoformat() if r['created_at'] else None,
+        }
+        for r in rows
+    ]
+
+
 # ── Corporate volunteering: teams ────────────────────────────────────────────
 
 def _team_summary(team_id: int):

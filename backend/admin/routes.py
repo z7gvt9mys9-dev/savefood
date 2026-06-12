@@ -48,6 +48,80 @@ def kyc_recheck(needy_id: int, _user: dict = Depends(require_admin)):
         "kyc_notes": updated.get("kyc_notes"),
     }
 
+# ── Delivery photo moderation (public Impact feed, §36.1) ────────────────────
+
+@router.get("/delivery_photos")
+def list_delivery_photos(status: str = "pending", _user: dict = Depends(require_admin)):
+    """Queue of recipient delivery photos awaiting a publish decision.
+
+    Each row carries the AI pre-check verdict/score/notes so the moderator can
+    decide in seconds; the photo URL is the same /volunteer_uploads/ path the
+    feed uses. Only photos still attached to fulfilled tickets are listed."""
+    if status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT t.id AS ticket_id, t.delivery_photo, t.delivery_photo_status,
+                   t.delivery_photo_ai_verdict, t.delivery_photo_ai_score,
+                   t.delivery_photo_ai_notes, t.fulfilled_at,
+                   l.category, l.city
+            FROM tickets t
+            LEFT JOIN lots l ON l.id = t.lot_id
+            WHERE t.delivery_photo IS NOT NULL AND t.delivery_photo_status = %s
+            ORDER BY t.fulfilled_at DESC NULLS LAST
+            LIMIT 100
+            """,
+            (status,),
+        )
+        return [dict(r) for r in cur.fetchall()]
+
+
+@router.post("/delivery_photos/{ticket_id}/approve")
+def approve_delivery_photo(ticket_id: int, _user: dict = Depends(require_admin)):
+    """Publish the photo to the public Impact feed."""
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE tickets SET delivery_photo_status = 'approved', "
+            "delivery_photo_reviewed_at = NOW() "
+            "WHERE id = %s AND delivery_photo IS NOT NULL RETURNING id",
+            (ticket_id,),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Photo not found")
+    log_action(_user.get("sub"), "photo_approve", "ticket", ticket_id,
+               f"Admin approved delivery photo for ticket #{ticket_id}")
+    return {"ok": True, "status": "approved"}
+
+
+@router.post("/delivery_photos/{ticket_id}/reject")
+def reject_delivery_photo(ticket_id: int, _user: dict = Depends(require_admin)):
+    """Reject the photo — it never appears in the feed and the file is deleted."""
+    from backend.volunteer.routes import UPLOAD_DIR as VOL_UPLOAD_DIR
+    with get_db_cursor() as cur:
+        cur.execute("SELECT delivery_photo FROM tickets WHERE id = %s", (ticket_id,))
+        row = cur.fetchone()
+        if not row or not row.get("delivery_photo"):
+            raise HTTPException(status_code=404, detail="Photo not found")
+        cur.execute(
+            "UPDATE tickets SET delivery_photo_status = 'rejected', "
+            "delivery_photo_reviewed_at = NOW() WHERE id = %s",
+            (ticket_id,),
+        )
+        photo = row["delivery_photo"]
+    # Remove the file so a rejected (e.g. trolling) image can never leak.
+    if photo and photo.startswith("/volunteer_uploads/"):
+        path = os.path.join(VOL_UPLOAD_DIR, os.path.basename(photo))
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError:
+            pass
+    log_action(_user.get("sub"), "photo_reject", "ticket", ticket_id,
+               f"Admin rejected delivery photo for ticket #{ticket_id}")
+    return {"ok": True, "status": "rejected"}
+
+
 @router.get("/stats")
 def admin_stats(_user: dict = Depends(require_admin)):
     with get_db_cursor() as cur:
