@@ -81,13 +81,24 @@ def list_delivery_photos(status: str = "pending", _user: dict = Depends(require_
 def approve_delivery_photo(ticket_id: int, _user: dict = Depends(require_admin)):
     """Publish the photo to the public Impact feed."""
     with get_db_cursor() as cur:
+        # A rejected photo's file is already deleted from disk — approving it
+        # would put a broken image into the public feed, so it's a hard no;
+        # the recipient has to upload a new photo instead.
         cur.execute(
             "UPDATE tickets SET delivery_photo_status = 'approved', "
             "delivery_photo_reviewed_at = NOW() "
-            "WHERE id = %s AND delivery_photo IS NOT NULL RETURNING id",
+            "WHERE id = %s AND delivery_photo IS NOT NULL "
+            "AND delivery_photo_status <> 'rejected' RETURNING id",
             (ticket_id,),
         )
         if not cur.fetchone():
+            cur.execute(
+                "SELECT delivery_photo_status AS s FROM tickets WHERE id = %s AND delivery_photo IS NOT NULL",
+                (ticket_id,),
+            )
+            row = cur.fetchone()
+            if row and row["s"] == "rejected":
+                raise HTTPException(status_code=409, detail="Файл фото уже удалён при отклонении — нужна новая загрузка от получателя")
             raise HTTPException(status_code=404, detail="Photo not found")
     log_action(_user.get("sub"), "photo_approve", "ticket", ticket_id,
                f"Admin approved delivery photo for ticket #{ticket_id}")
@@ -238,6 +249,10 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
         route = cur.fetchone()
         if not route:
             raise HTTPException(status_code=404, detail="Route not found")
+        # Only an in-progress route can be reset: resetting a finished one would
+        # flip its (already delivered) lot back to 'active' on the map.
+        if route.get('status') != 'in_progress':
+            raise HTTPException(status_code=400, detail="Маршрут уже завершён или сброшен")
         # free assigned tickets back to open
         try:
             points = json_mod.loads(route.get('points') or '[]')
