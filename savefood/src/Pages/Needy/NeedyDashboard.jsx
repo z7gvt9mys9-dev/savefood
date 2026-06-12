@@ -7,6 +7,7 @@ import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
+import TicketChat from '../../components/TicketChat';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Needy.css';
@@ -627,6 +628,13 @@ const NeedyDashboard = () => {
                 )}
                 <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
               </div>
+
+              {activeOrder.assigned_volunteer_id && activeOrder.ticketStatus !== 'fulfilled' && (
+                <div style={{ marginTop: 16 }}>
+                  <h4>{t('needy.chat_title')}</h4>
+                  <TicketChat ticketId={activeOrder.ticketId} token={user?.token} me="needy" ns="needy" />
+                </div>
+              )}
             </>
           )}
 

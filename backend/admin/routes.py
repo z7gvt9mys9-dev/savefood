@@ -184,6 +184,17 @@ def supply_demand_heatmap(_user: dict = Depends(require_admin)):
             FROM volunteers GROUP BY 1
         """)
         volunteers = {r["city"]: r["volunteers"] for r in cur.fetchall()}
+        # Availability calendar (§54): how many volunteers are free *right now*
+        # per city — the real-time coverage signal, not just the headcount.
+        cur.execute("SELECT city, availability FROM volunteers")
+        avail_rows = cur.fetchall()
+
+    from backend.volunteer.db import is_available_now
+    available_now = {}
+    for r in avail_rows:
+        c = (r["city"] or "").strip() or "Без города"
+        if is_available_now(r["availability"]):
+            available_now[c] = available_now.get(c, 0) + 1
 
     cities = set(supply) | set(demand_tickets) | set(approved) | set(volunteers)
     rows = []
@@ -197,6 +208,7 @@ def supply_demand_heatmap(_user: dict = Depends(require_admin)):
             "open_tickets": open_tickets,
             "approved_needy": int(approved.get(c, 0) or 0),
             "volunteers": int(volunteers.get(c, 0) or 0),
+            "volunteers_available": int(available_now.get(c, 0)),
             # >0 = unmet demand (more open requests than lots on the shelf).
             "gap": open_tickets - active_lots,
         })

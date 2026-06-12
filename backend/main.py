@@ -19,7 +19,7 @@ from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
 from backend import auth_routes, oauth_routes, background, database, telegram_routes, proxy_service
 from backend import impact as impact_routes
-from backend import push_routes, partner_api
+from backend import push_routes, partner_api, chat_routes
 from backend.admin import routes as admin_routes
 from backend.database import get_db_cursor
 
@@ -101,6 +101,7 @@ app.include_router(impact_routes.router)
 app.include_router(push_routes.router)
 app.include_router(partner_api.router)
 app.include_router(partner_api.manage_router)
+app.include_router(chat_routes.router)
 
 
 @app.get("/metrics")

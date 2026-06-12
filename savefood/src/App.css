@@ -3,3 +3,19 @@
   min-height: 100vh;
   color: white;
 }
+/* In-app ticket chat (§53) */
+.ticket-chat { display: flex; flex-direction: column; border: 1px solid #2a2a3a; border-radius: 12px; overflow: hidden; margin-top: 12px; background: #15151f; }
+.ticket-chat-log { display: flex; flex-direction: column; gap: 6px; padding: 12px; max-height: 280px; overflow-y: auto; }
+.ticket-chat-empty { color: #888; font-size: 0.85rem; text-align: center; margin: 12px 0; }
+.ticket-chat-msg { max-width: 78%; padding: 7px 11px; border-radius: 12px; font-size: 0.9rem; word-break: break-word; }
+.ticket-chat-msg.mine { align-self: flex-end; background: #4CAF50; color: #fff; border-bottom-right-radius: 3px; }
+.ticket-chat-msg.theirs { align-self: flex-start; background: #2a2a3a; color: #eee; border-bottom-left-radius: 3px; }
+.ticket-chat-input { display: flex; gap: 6px; padding: 8px; border-top: 1px solid #2a2a3a; }
+.ticket-chat-input input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #2a2a3a; background: #1e1e2e; color: #fff; }
+
+/* Volunteer availability editor (§54) */
+.avail-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+.avail-row select, .avail-row input[type="time"] { padding: 6px 8px; border-radius: 8px; border: 1px solid #2a2a3a; background: #1e1e2e; color: #fff; }
+
+/* Offline route banner (§55) */
+.offline-banner { background: #FF980022; color: #FFB74D; border: 1px solid #FF980044; border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; font-size: 0.85rem; }

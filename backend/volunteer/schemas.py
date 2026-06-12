@@ -13,6 +13,12 @@ class VolunteerCreate(BaseModel):
     password: Optional[str] = Field(None, min_length=8, max_length=128)
 
 
+class AvailabilityWindow(BaseModel):
+    day: int = Field(..., ge=0, le=6)   # 0=Mon … 6=Sun
+    start: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+
+
 class VolunteerUpdate(BaseModel):
     name: Optional[str] = None
     contact: Optional[str] = None
@@ -20,6 +26,7 @@ class VolunteerUpdate(BaseModel):
     lon: Optional[float] = None
     city: Optional[str] = None
     has_thermal_bag: Optional[bool] = None
+    availability: Optional[List[AvailabilityWindow]] = None
 
 
 class VolunteerOut(BaseModel):
@@ -30,6 +37,7 @@ class VolunteerOut(BaseModel):
     lon: Optional[float]
     city: Optional[str] = None
     has_thermal_bag: Optional[bool] = False
+    availability: Optional[List[AvailabilityWindow]] = None
     created_at: datetime
 
 

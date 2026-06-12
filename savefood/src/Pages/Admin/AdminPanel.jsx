@@ -451,6 +451,7 @@ const AdminPanel = () => {
                   <th>{t('admin.heatmap_tickets')}</th>
                   <th>{t('admin.heatmap_needy')}</th>
                   <th>{t('admin.heatmap_vols')}</th>
+                  <th>{t('admin.heatmap_available')}</th>
                   <th>{t('admin.heatmap_gap')}</th>
                 </tr>
               </thead>
@@ -462,6 +463,7 @@ const AdminPanel = () => {
                     <td>{r.open_tickets}</td>
                     <td>{r.approved_needy}</td>
                     <td>{r.volunteers}</td>
+                    <td>{r.volunteers_available}</td>
                     <td style={{ fontWeight: 700, color: r.gap > 0 ? '#f44336' : (r.gap < 0 ? '#4CAF50' : '#aaa') }}>
                       {r.gap > 0 ? `+${r.gap}` : r.gap}
                     </td>

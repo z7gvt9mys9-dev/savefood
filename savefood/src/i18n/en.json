@@ -368,7 +368,26 @@
     "team_leave": "Leave team",
     "team_leave_confirm": "Leave the team? Your past deliveries stay in its score.",
     "thermal_bag": "I have a thermal bag",
-    "thermal_bag_hint": "Needed to take lots that require refrigeration"
+    "thermal_bag_hint": "Needed to take lots that require refrigeration",
+    "chat_title": "Chat with recipient",
+    "chat_send": "Send",
+    "chat_placeholder": "Message…",
+    "chat_empty": "No messages yet",
+    "chat_open": "💬 Chat",
+    "availability_title": "When I am free",
+    "availability_hint": "Set availability windows — it helps you get more accepted routes",
+    "availability_add": "Add window",
+    "availability_save": "Save schedule",
+    "availability_saved": "Schedule saved",
+    "availability_empty": "No windows set — you count as always available",
+    "offline_route": "Offline — showing saved route",
+    "day_0": "Mon",
+    "day_1": "Tue",
+    "day_2": "Wed",
+    "day_3": "Thu",
+    "day_4": "Fri",
+    "day_5": "Sat",
+    "day_6": "Sun"
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -451,7 +470,12 @@
     "export_data": "Download my data (JSON)",
     "delete_account": "Delete account",
     "delete_confirm": "Delete your account and all personal data? This cannot be undone.",
-    "deleted": "Account deleted"
+    "deleted": "Account deleted",
+    "chat_title": "Chat with volunteer",
+    "chat_send": "Send",
+    "chat_placeholder": "Message…",
+    "chat_empty": "No messages yet",
+    "chat_unavailable": "Chat opens once a volunteer is assigned"
   },
   "admin": {
     "dashboard": "Admin Panel",
@@ -536,7 +560,8 @@
     "heatmap_tickets": "Open requests",
     "heatmap_needy": "Recipients",
     "heatmap_vols": "Volunteers",
-    "heatmap_gap": "Gap"
+    "heatmap_gap": "Gap",
+    "heatmap_available": "Free now"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",

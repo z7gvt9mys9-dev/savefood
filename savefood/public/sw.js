@@ -1,4 +1,9 @@
-const CACHE_NAME = 'savefood-cache-v2';
+const CACHE_NAME = 'savefood-cache-v3';
+// §55 offline route: the volunteer's active route is cached so its delivery
+// points survive a dead spot (basement/elevator). Kept in its own cache so the
+// asset-cache version bump doesn't wipe a route mid-delivery.
+const ROUTE_CACHE = 'savefood-route-v1';
+const KEEP_CACHES = [CACHE_NAME, ROUTE_CACHE];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -14,7 +19,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+      Promise.all(keys.filter(k => !KEEP_CACHES.includes(k)).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
@@ -45,6 +50,28 @@ self.addEventListener('notificationclick', event => {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+
+  // §55 offline route: network-first cache for the active-route GET so the
+  // volunteer keeps their delivery points when the network drops. Only this
+  // exact read is cached — every other /volunteers call still goes to network.
+  if (
+    event.request.method === 'GET' &&
+    url.origin === self.location.origin &&
+    /^\/volunteers\/\d+\/active_route$/.test(url.pathname)
+  ) {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(ROUTE_CACHE).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then(c => c || Response.error()))
+    );
+    return;
+  }
 
   // Pass API, WebSocket upgrades, and cross-origin requests straight to network
   if (

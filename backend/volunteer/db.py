@@ -1,7 +1,71 @@
+import json
 import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from backend.database import get_db_cursor
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # py < 3.9 fallback
+    ZoneInfo = None
+
+LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
+
+
+def _local_now() -> datetime:
+    if ZoneInfo is not None:
+        try:
+            return datetime.now(ZoneInfo(LOCAL_TZ_NAME))
+        except Exception:
+            pass
+    return datetime.now()
+
+
+def is_available_now(availability, now: Optional[datetime] = None) -> bool:
+    """Availability calendar (§54): True if `now` (local) falls in any weekly
+    window. `availability` is the parsed list [{day,start,end}]. An empty/missing
+    calendar means «always available» — the platform must not silently hide a
+    volunteer who simply never filled it in."""
+    if isinstance(availability, str):
+        try:
+            availability = json.loads(availability) if availability else None
+        except (ValueError, TypeError):
+            availability = None
+    if not availability:
+        return True
+    now = now or _local_now()
+    weekday = now.weekday()  # 0=Mon … 6=Sun
+    minutes = now.hour * 60 + now.minute
+    for w in availability:
+        try:
+            if int(w["day"]) != weekday:
+                continue
+            sh, sm = [int(x) for x in str(w["start"]).split(":")]
+            eh, em = [int(x) for x in str(w["end"]).split(":")]
+            start_m, end_m = sh * 60 + sm, eh * 60 + em
+            if start_m <= end_m:
+                if start_m <= minutes <= end_m:
+                    return True
+            else:  # overnight window
+                if minutes >= start_m or minutes <= end_m:
+                    return True
+        except (KeyError, ValueError, TypeError):
+            continue
+    return False
+
+
+def _parse_availability(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Decode the volunteers.availability JSON text column into a list so it
+    matches the VolunteerOut schema. Bad/empty values become None."""
+    if not row:
+        return row
+    raw = row.get("availability")
+    if isinstance(raw, str):
+        try:
+            row["availability"] = json.loads(raw) if raw else None
+        except (ValueError, TypeError):
+            row["availability"] = None
+    return row
 
 def init_db():
     with get_db_cursor() as cur:
@@ -22,6 +86,9 @@ def init_db():
         # Cold chain (§47): only a volunteer with a thermal bag may claim a
         # refrigerated (requires_cold) lot.
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS has_thermal_bag BOOLEAN NOT NULL DEFAULT FALSE")
+        # Availability calendar (§54): weekly time windows as JSON, e.g.
+        # [{"day":1,"start":"18:00","end":"21:00"}] (day 0=Mon … 6=Sun).
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS availability TEXT")
 
         # Corporate volunteering: a team is just a named group with a join
         # code; impact aggregates roll up via volunteers.team_id.
@@ -128,9 +195,9 @@ def get_volunteer_by_id(vol_id: int) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         row = cur.fetchone()
-        return dict(row) if row else None
+        return _parse_availability(dict(row)) if row else None
 
-def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None, has_thermal_bag: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None, has_thermal_bag: Optional[bool] = None, availability_json: Optional[str] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         v = cur.fetchone()
@@ -142,10 +209,11 @@ def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], l
         new_lon = lon if lon is not None else v['lon']
         new_city = city if city is not None else v.get('city')
         new_bag = has_thermal_bag if has_thermal_bag is not None else v.get('has_thermal_bag')
-        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s, city = %s, has_thermal_bag = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, new_city, new_bag, vol_id))
+        new_avail = availability_json if availability_json is not None else v.get('availability')
+        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s, city = %s, has_thermal_bag = %s, availability = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, new_city, new_bag, new_avail, vol_id))
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         updated = cur.fetchone()
-        return dict(updated)
+        return _parse_availability(dict(updated))
 
 def create_route(volunteer_id: int, points_json: str, lot_id: Optional[int] = None) -> int:
     with get_db_cursor() as cur:

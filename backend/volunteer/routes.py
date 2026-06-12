@@ -137,7 +137,11 @@ def get_volunteer(volunteer_id: int, current_user: dict = Depends(get_current_us
 @router.patch("/volunteers/{volunteer_id}")
 def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerUpdate, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
-    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city, has_thermal_bag=payload.has_thermal_bag)
+    availability_json = None
+    if payload.availability is not None:
+        # Validated windows → compact JSON for the TEXT column.
+        availability_json = json.dumps([w.model_dump() for w in payload.availability])
+    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city, has_thermal_bag=payload.has_thermal_bag, availability_json=availability_json)
     if not updated:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     return updated

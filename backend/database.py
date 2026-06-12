@@ -141,6 +141,19 @@ def init_ticket_extensions():
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_delivery_ratings_volunteer ON delivery_ratings (volunteer_id)")
+        # In-app chat (§53): volunteer↔recipient messages scoped to one ticket.
+        # Replaces the Telegram-only relay (§22.7) for users without Telegram.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS ticket_messages (
+                id SERIAL PRIMARY KEY,
+                ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+                sender_role TEXT NOT NULL,
+                sender_id INTEGER NOT NULL,
+                body TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages (ticket_id, id)")
 
 def create_user(username, hashed_password, role, related_id=None):
     with get_db_cursor() as cur:

@@ -8,6 +8,7 @@ import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
+import TicketChat from '../../components/TicketChat';
 import './Volunteer.css';
 
 const CAT_KEYS = {
@@ -125,6 +126,8 @@ const VolunteerDashboard = () => {
   const [volunteerRating, setVolunteerRating] = useState(null);
   const [stats, setStats] = useState(null);
   const [volunteerInfo, setVolunteerInfo] = useState(null);
+  const [availability, setAvailability] = useState([]);
+  const [isOnline, setIsOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
   const [thanks, setThanks] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
@@ -207,6 +210,31 @@ const VolunteerDashboard = () => {
     locationIntervalRef.current = setInterval(sendLocation, 20000);
     return () => clearInterval(locationIntervalRef.current);
   }, [volunteerId, activeRoute?.id]);
+
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
+
+  // Keep the availability editor in sync with whatever the profile fetch returns.
+  useEffect(() => {
+    if (Array.isArray(volunteerInfo?.availability)) setAvailability(volunteerInfo.availability);
+  }, [volunteerInfo]);
+
+  const saveAvailability = async () => {
+    if (!volunteerId) return;
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ availability }),
+      });
+      if (res.ok) alert(t('volunteer.availability_saved'));
+    } catch { /* offline */ }
+  };
 
   const toggleThermalBag = async (checked) => {
     if (!volunteerId) return;
@@ -497,6 +525,9 @@ const VolunteerDashboard = () => {
         />
       ) : (
         <>
+          {!isOnline && (
+            <div className="offline-banner">📴 {t('volunteer.offline_route')}</div>
+          )}
           <div className="map-container-mobile mini-map">
             <YMaps query={{ apikey: import.meta.env.VITE_YANDEX_MAPS_API_KEY, load: 'package.full' }}>
               <RouteMapView points={points} />
@@ -553,6 +584,13 @@ const VolunteerDashboard = () => {
                 );
               })}
             </div>
+
+            {isShopDone && nextTicket?.ticket_id && (
+              <div style={{ marginTop: 12 }}>
+                <h4 style={{ margin: '0 0 4px' }}>{t('volunteer.chat_title')}</h4>
+                <TicketChat ticketId={nextTicket.ticket_id} token={user?.token} me="volunteer" ns="volunteer" />
+              </div>
+            )}
 
             <div className="navigation-actions">
               {!isShopDone ? (
@@ -612,6 +650,29 @@ const VolunteerDashboard = () => {
               <span>❄️ {t('volunteer.thermal_bag')}</span>
             </label>
             <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
+
+            <div style={{ background: '#1a1a26', border: '1px solid #2a2a3a', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 4px' }}>🗓️ {t('volunteer.availability_title')}</h4>
+              <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 10px' }}>{t('volunteer.availability_hint')}</p>
+              {availability.length === 0 && (
+                <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>
+              )}
+              {availability.map((w, i) => (
+                <div className="avail-row" key={i}>
+                  <select value={w.day} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, day: Number(e.target.value) } : x))}>
+                    {[0,1,2,3,4,5,6].map(d => <option key={d} value={d}>{t(`volunteer.day_${d}`)}</option>)}
+                  </select>
+                  <input type="time" value={w.start} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, start: e.target.value } : x))} />
+                  <span>—</span>
+                  <input type="time" value={w.end} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, end: e.target.value } : x))} />
+                  <button className="btn-small btn-danger" onClick={() => setAvailability(a => a.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button className="btn-small" onClick={() => setAvailability(a => [...a, { day: 1, start: '18:00', end: '21:00' }])}>+ {t('volunteer.availability_add')}</button>
+                <button className="btn-small btn-success" onClick={saveAvailability}>{t('volunteer.availability_save')}</button>
+              </div>
+            </div>
             {!stats ? (
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (
