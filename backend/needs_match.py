@@ -58,7 +58,7 @@ def notify_matching_needy(lot_id: int):
             """
             SELECT l.id, l.description, l.category, l.city, s.name AS shop_name
             FROM lots l JOIN shops s ON s.id = l.shop_id
-            WHERE l.id = %s AND l.status = 'active'
+            WHERE l.id = %s AND l.status = 'active' AND l.quantity > 0
             """,
             (lot_id,),
         )
@@ -132,7 +132,7 @@ def notify_available_volunteers(lot_id: int):
             SELECT l.id, l.description, l.category, l.city,
                    s.name AS shop_name, s.lat AS s_lat, s.lon AS s_lon
             FROM lots l JOIN shops s ON s.id = l.shop_id
-            WHERE l.id = %s AND l.status = 'active'
+            WHERE l.id = %s AND l.status = 'active' AND l.quantity > 0
             """,
             (lot_id,),
         )

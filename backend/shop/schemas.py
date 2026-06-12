@@ -28,7 +28,9 @@ class ShopOut(BaseModel):
 
 class LotCreate(BaseModel):
     description: str
-    quantity: int
+    quantity: float
+    unit: str = "кг"
+    unit_weight_kg: float = 1.0
     expiry_date: Optional[date] = None
     photo: Optional[str] = None
     address: Optional[str] = None
@@ -42,7 +44,10 @@ class LotOut(BaseModel):
     id: int
     shop_id: int
     description: Optional[str]
-    quantity: Optional[int]
+    quantity: Optional[float]
+    initial_quantity: Optional[float] = None
+    unit: Optional[str] = "кг"
+    unit_weight_kg: Optional[float] = 1.0
     expiry_date: Optional[date]
     photo: Optional[str]
     address: Optional[str]
@@ -62,7 +67,9 @@ class LotOut(BaseModel):
 
 class LotUpdate(BaseModel):
     description: Optional[str] = None
-    quantity: Optional[int] = None
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    unit_weight_kg: Optional[float] = None
     expiry_date: Optional[date] = None
     address: Optional[str] = None
     category: Optional[str] = None

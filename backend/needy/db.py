@@ -31,6 +31,8 @@ def init_db():
                 lat REAL,
                 lon REAL,
                 lot_id INTEGER,
+                quantity REAL NOT NULL DEFAULT 1.0,
+                expires_at TIMESTAMP WITH TIME ZONE,
                 status TEXT NOT NULL DEFAULT 'open',
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL,
                 assigned_volunteer TEXT,
@@ -39,6 +41,8 @@ def init_db():
             )
             """
         )
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS quantity REAL NOT NULL DEFAULT 1.0")
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE")
         # Auto-KYC v1: AI pre-check verdict for the admin moderation queue
         # (likely_ok | review | likely_fraud | unchecked); final decision stays human.
         cur.execute("ALTER TABLE needy ADD COLUMN IF NOT EXISTS kyc_score REAL")
@@ -168,25 +172,36 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
             # Self-pickup is confirmed by the shop against the ticket's lot —
             # without a lot the QR can never be matched to a shop.
             raise TicketCreateError("lot_required")
+
+        expires_at = None
         if lot_id is not None:
+            # Atomic reservation: check status, expiry, AND quantity.
+            # Decrement quantity by 1 for any ticket linked to a lot.
             cur.execute(
                 """
-                SELECT 1 FROM lots
-                WHERE id = %s AND status = 'active'
+                UPDATE lots SET quantity = quantity - 1
+                WHERE id = %s AND status = 'active' AND quantity >= 1
                   AND (expiry_date IS NULL OR expiry_date::date >= CURRENT_DATE)
                 """,
                 (lot_id,),
             )
-            if not cur.fetchone():
+            if cur.rowcount == 0:
                 raise TicketCreateError("lot_unavailable")
+
+            if self_pickup:
+                # Self-pickup reservation TTL: 2 hours.
+                expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
 
         try:
             cur.execute(
-                "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, qr_secret, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
-                (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, generate_qr_secret(), datetime.now(timezone.utc)),
+                "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, quantity, expires_at, apartment, floor_num, entrance, self_pickup, qr_secret, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
+                (needy_id, items, address, lat, lon, available_time, lot_id, 1.0, expires_at, apartment, floor_num, entrance, self_pickup, generate_qr_secret(), datetime.now(timezone.utc)),
             )
         except psycopg2.errors.UniqueViolation:
             # uq_tickets_one_active_per_needy: a parallel request won the race
+            # Rollback lot reservation if lot_id was used
+            if lot_id is not None:
+                cur.execute("UPDATE lots SET quantity = quantity + 1 WHERE id = %s", (lot_id,))
             raise TicketCreateError("active_ticket_exists")
         tid = cur.fetchone()['id']
         return tid
@@ -347,6 +362,23 @@ def export_account(needy_id: int) -> Optional[Dict[str, Any]]:
     }
 
 
+def cancel_ticket(ticket_id: int) -> bool:
+    """Explicit ticket cancellation: return reserved quantity to the lot if it's still active."""
+    with get_db_cursor() as cur:
+        cur.execute("SELECT lot_id, quantity, status FROM tickets WHERE id = %s", (ticket_id,))
+        ticket = cur.fetchone()
+        if not ticket or ticket['status'] not in ('open', 'assigned'):
+            return False
+        
+        cur.execute("UPDATE tickets SET status = 'cancelled' WHERE id = %s", (ticket_id,))
+        if ticket['lot_id']:
+            # Guarded return: only if lot is still active.
+            cur.execute(
+                "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                (ticket['quantity'], ticket['lot_id'])
+            )
+        return True
+
 def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
     """«Право на забвение» (§49). Returns the on-disk file paths the caller must
     delete (document + delivery photos), having already anonymised the row.
@@ -369,6 +401,15 @@ def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
             (needy_id,),
         )
         photos = [r["delivery_photo"] for r in cur.fetchall()]
+
+        # Return reservations for live tickets
+        cur.execute("SELECT id, lot_id, quantity FROM tickets WHERE needy_id = %s AND status IN ('open', 'assigned')", (needy_id,))
+        for t in cur.fetchall():
+            if t['lot_id']:
+                cur.execute(
+                    "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                    (t['quantity'], t['lot_id'])
+                )
 
         # Close live tickets first: a scrubbed row must not hang in the queue as
         # an eternal 'open' request with NULL coordinates (nobody can serve it),

@@ -46,6 +46,7 @@ RESCUED_SQL = (
     "(SELECT 1 FROM tickets _t WHERE _t.lot_id = l.id AND _t.status = 'fulfilled'))"
 )
 RESCUED_AT_SQL = "COALESCE(l.taken_at, l.created_at)"
+RESCUED_KG_SQL = "(l.initial_quantity * l.unit_weight_kg)"
 
 
 def _co2(kg: float, category: Optional[str]) -> float:
@@ -105,7 +106,7 @@ def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
     with get_db_cursor() as cur:
         cur.execute(
             f"""
-            SELECT l.category, COALESCE(SUM(l.quantity), 0) AS kg, COUNT(*) AS lots
+            SELECT l.category, COALESCE(SUM({RESCUED_KG_SQL}), 0) AS kg, COUNT(*) AS lots
             FROM lots l
             WHERE l.shop_id = %s AND {RESCUED_SQL}
               AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
@@ -118,8 +119,8 @@ def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
         cur.execute(
             f"""
             SELECT to_char(date_trunc('month', {RESCUED_AT_SQL}), 'YYYY-MM') AS month,
-                   COALESCE(SUM(l.quantity), 0) AS kg,
-                   COALESCE(SUM(l.quantity * {_co2_sql_case()}), 0) AS co2_kg
+                   COALESCE(SUM({RESCUED_KG_SQL}), 0) AS kg,
+                   COALESCE(SUM({RESCUED_KG_SQL} * {_co2_sql_case()}), 0) AS co2_kg
             FROM lots l
             WHERE l.shop_id = %s AND {RESCUED_SQL}
               AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
@@ -162,7 +163,7 @@ def global_report(months: int = 12) -> Dict[str, Any]:
     with get_db_cursor() as cur:
         cur.execute(
             f"""
-            SELECT l.category, COALESCE(SUM(l.quantity), 0) AS kg, COUNT(*) AS lots
+            SELECT l.category, COALESCE(SUM({RESCUED_KG_SQL}), 0) AS kg, COUNT(*) AS lots
             FROM lots l
             WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY l.category ORDER BY kg DESC
@@ -173,8 +174,8 @@ def global_report(months: int = 12) -> Dict[str, Any]:
         cur.execute(
             f"""
             SELECT to_char(date_trunc('month', {RESCUED_AT_SQL}), 'YYYY-MM') AS month,
-                   COALESCE(SUM(l.quantity), 0) AS kg,
-                   COALESCE(SUM(l.quantity * {_co2_sql_case()}), 0) AS co2_kg
+                   COALESCE(SUM({RESCUED_KG_SQL}), 0) AS kg,
+                   COALESCE(SUM({RESCUED_KG_SQL} * {_co2_sql_case()}), 0) AS co2_kg
             FROM lots l
             WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY 1 ORDER BY 1
@@ -184,7 +185,7 @@ def global_report(months: int = 12) -> Dict[str, Any]:
         rows_month = [dict(r) for r in cur.fetchall()]
         cur.execute(
             f"""
-            SELECT s.id, s.name, COALESCE(SUM(l.quantity), 0) AS kg
+            SELECT s.id, s.name, COALESCE(SUM({RESCUED_KG_SQL}), 0) AS kg
             FROM lots l JOIN shops s ON s.id = l.shop_id
             WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY s.id, s.name ORDER BY kg DESC LIMIT 10

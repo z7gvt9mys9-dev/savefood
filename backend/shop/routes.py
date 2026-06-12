@@ -67,12 +67,21 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
         raise HTTPException(status_code=404, detail="Shop not found")
 
     billing.check_lot_quota(shop_id)
+    # Validation: if unit is not kg, unit_weight_kg is mandatory and must be > 0.
+    if payload.unit != 'кг' and (payload.unit_weight_kg is None or payload.unit_weight_kg <= 0):
+        raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    
     # C2C anti-abuse (§45): a private donor's lot must show the actual food —
     # recipients can't rely on a business reputation they can see on the map.
     if (shop.get("kind") == "private") and not payload.photo:
         raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment, requires_cold=bool(payload.requires_cold))
+    lot_id = db.create_lot(
+        shop_id, payload.description, payload.quantity, expiry, payload.photo,
+        payload.address, payload.time_slot, payload.category, payload.comment,
+        requires_cold=bool(payload.requires_cold),
+        unit=payload.unit, unit_weight_kg=payload.unit_weight_kg
+    )
     # «Карта потребностей»: ping recipients whose preferences match the category.
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
@@ -82,7 +91,9 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
 def create_lot_upload(
     shop_id: int,
     description: str = Form(...),
-    quantity: int = Form(...),
+    quantity: float = Form(...),
+    unit: str = Form("кг"),
+    unit_weight_kg: float = Form(1.0),
     expiry_date: Optional[str] = Form(None),
     address: Optional[str] = Form(None),
     time_slot: Optional[str] = Form(None),
@@ -97,6 +108,8 @@ def create_lot_upload(
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
     billing.check_lot_quota(shop_id)
+    if unit != 'кг' and (unit_weight_kg is None or unit_weight_kg <= 0):
+        raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
     if shop.get("kind") == "private" and not (file and file.filename):
         raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
 
@@ -108,7 +121,7 @@ def create_lot_upload(
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         photo_url = f"/uploads/{filename}"
 
-    lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment, requires_cold=bool(requires_cold))
+    lot_id = db.create_lot(shop_id, description, float(quantity), expiry_date, photo_url, address, time_slot, category, comment, requires_cold=bool(requires_cold), unit=unit, unit_weight_kg=unit_weight_kg)
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 

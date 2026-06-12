@@ -31,6 +31,7 @@ from backend.utils import haversine as haversine_m
 EXPIRE_INTERVAL = 60 * 30
 REASSIGN_INTERVAL = 60 * 10
 ANTIFRAUD_INTERVAL = 60 * 3
+RESERVATION_TTL_INTERVAL = 60 * 5
 
 REASSIGN_TIMEOUT_MINUTES = 60
 
@@ -202,12 +203,51 @@ def antifraud_tick() -> dict:
     return {"pinged": pinged, "released": released}
 
 
+def reservation_ttl_tick() -> int:
+    """Cancel expired self-pickup reservations and return quantity to lot."""
+    cancelled = 0
+    with get_db_cursor() as cur:
+        # Find 'open' self-pickup tickets that passed expires_at
+        cur.execute(
+            """
+            SELECT id, needy_id, lot_id, quantity FROM tickets
+            WHERE status = 'open' AND self_pickup = TRUE
+              AND expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
+            """
+        )
+        expired = cur.fetchall()
+        for t in expired:
+            # 1. Cancel ticket
+            cur.execute("UPDATE tickets SET status = 'cancelled' WHERE id = %s", (t['id'],))
+            
+            # 2. Return quantity (guarded: lot must be active)
+            if t['lot_id']:
+                cur.execute(
+                    "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                    (t['quantity'], t['lot_id'])
+                )
+            
+            # 3. Notify needy
+            msg = f"⏳ Срок брони лота #{t['lot_id']} (самовывоз) истёк. Заявка отменена, еда вернулась на витрину."
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 0)",
+                (t['needy_id'], "self_pickup_expired", msg)
+            )
+            try:
+                telegram_service.notify_needy(t['needy_id'], f"⏳ {msg}")
+            except Exception:
+                pass
+            cancelled += 1
+    return cancelled
+
+
 # ── Scheduling ───────────────────────────────────────────────────────────────
 
 TASKS = (
     ("expire", expire_tick, EXPIRE_INTERVAL),
     ("reassign", reassign_tick, REASSIGN_INTERVAL),
     ("antifraud", antifraud_tick, ANTIFRAUD_INTERVAL),
+    ("reservation_ttl", reservation_ttl_tick, RESERVATION_TTL_INTERVAL),
 )
 
 

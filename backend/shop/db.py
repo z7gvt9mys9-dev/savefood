@@ -25,7 +25,10 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 shop_id INTEGER NOT NULL,
                 description TEXT,
-                quantity INTEGER,
+                quantity REAL,
+                initial_quantity REAL,
+                unit TEXT NOT NULL DEFAULT 'кг',
+                unit_weight_kg REAL NOT NULL DEFAULT 1.0,
                 expiry_date DATE,
                 photo TEXT,
                 address TEXT,
@@ -40,6 +43,13 @@ def init_db():
             )
             """
         )
+        cur.execute("ALTER TABLE lots ALTER COLUMN quantity TYPE REAL")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS initial_quantity REAL")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS unit TEXT NOT NULL DEFAULT 'кг'")
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS unit_weight_kg REAL NOT NULL DEFAULT 1.0")
+        # Backfill initial_quantity for legacy lots
+        cur.execute("UPDATE lots SET initial_quantity = quantity WHERE initial_quantity IS NULL")
+
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS time_slot TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS category TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS comment TEXT")
@@ -149,14 +159,24 @@ def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, 
         shop_id = cur.fetchone()['id']
         return shop_id
 
-def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None, requires_cold: bool = False) -> int:
+def create_lot(shop_id: int, description: str, quantity: float, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None, requires_cold: bool = False, unit: str = 'кг', unit_weight_kg: float = 1.0) -> int:
     with get_db_cursor() as cur:
         cur.execute("SELECT city FROM shops WHERE id = %s", (shop_id,))
         row = cur.fetchone()
         city = row['city'] if row else None
         cur.execute(
-            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, requires_cold, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
-            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, bool(requires_cold), datetime.now(timezone.utc)),
+            """
+            INSERT INTO lots (
+                shop_id, description, quantity, initial_quantity, unit, unit_weight_kg,
+                expiry_date, photo, address, time_slot, category, comment, city,
+                requires_cold, status, created_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id
+            """,
+            (
+                shop_id, description, float(quantity), float(quantity), unit, float(unit_weight_kg),
+                expiry_date, photo, address, time_slot, category, comment, city,
+                bool(requires_cold), datetime.now(timezone.utc)
+            ),
         )
         lot_id = cur.fetchone()['id']
         return lot_id
@@ -165,12 +185,13 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         # 'taken' lots stay visible regardless of expiry so the shop can still
         # confirm transfer even after the 24h cutoff would have hidden them.
+        # quantity > 0 filter for active lots.
         cur.execute(
             """
             SELECT * FROM lots
             WHERE shop_id = %s
               AND (
-                (status = 'active' AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day'))
+                (status = 'active' AND quantity > 0 AND (expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day'))
                 OR status = 'taken'
               )
             ORDER BY created_at DESC
@@ -182,7 +203,7 @@ def get_active_lots(shop_id: int) -> List[Dict[str, Any]]:
 
 def get_all_active_lots(limit: int = 20, offset: int = 0, category: str = None, search: str = None) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
-        filters = ["l.status = 'active'", "(l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
+        filters = ["l.status = 'active'", "l.quantity > 0", "(l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day')"]
         params = []
         if category:
             filters.append("l.category ILIKE %s")
@@ -224,8 +245,9 @@ def take_lot(lot_id: int, volunteer_name: str) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         taken_at = datetime.now(timezone.utc)
         # Atomic claim — only one concurrent caller can flip 'active' → 'taken'.
+        # Volunteer takes the whole lot physically (quantity → 0).
         cur.execute(
-            "UPDATE lots SET status = 'taken', taken_at = %s, taken_by = %s WHERE id = %s AND status = 'active'",
+            "UPDATE lots SET status = 'taken', quantity = 0, taken_at = %s, taken_by = %s WHERE id = %s AND status = 'active'",
             (taken_at, volunteer_name, lot_id),
         )
         if cur.rowcount == 0:
@@ -300,7 +322,7 @@ def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: 
         updated = cur.fetchone()
         return dict(updated)
 
-def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int], expiry_date: Optional[str], address: Optional[str], category: Optional[str] = None, comment: Optional[str] = None, requires_cold: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+def update_lot(lot_id: int, description: Optional[str], quantity: Optional[float], expiry_date: Optional[str], address: Optional[str], category: Optional[str] = None, comment: Optional[str] = None, requires_cold: Optional[bool] = None, unit: Optional[str] = None, unit_weight_kg: Optional[float] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         lot = cur.fetchone()
@@ -310,16 +332,18 @@ def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int],
             return None
 
         new_description = description if description is not None else lot['description']
-        new_quantity = quantity if quantity is not None else lot['quantity']
+        new_quantity = float(quantity) if quantity is not None else lot['quantity']
         new_expiry = expiry_date if expiry_date is not None else lot['expiry_date']
         new_address = address if address is not None else lot['address']
         new_category = category if category is not None else lot.get('category')
         new_comment = comment if comment is not None else lot.get('comment')
         new_cold = requires_cold if requires_cold is not None else lot.get('requires_cold')
+        new_unit = unit if unit is not None else lot.get('unit', 'кг')
+        new_weight = float(unit_weight_kg) if unit_weight_kg is not None else lot.get('unit_weight_kg', 1.0)
 
         cur.execute(
-            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s, category = %s, comment = %s, requires_cold = %s WHERE id = %s",
-            (new_description, new_quantity, new_expiry, new_address, new_category, new_comment, new_cold, lot_id),
+            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s, category = %s, comment = %s, requires_cold = %s, unit = %s, unit_weight_kg = %s WHERE id = %s",
+            (new_description, new_quantity, new_expiry, new_address, new_category, new_comment, new_cold, new_unit, new_weight, lot_id),
         )
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         updated = cur.fetchone()
