@@ -161,6 +161,25 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
         if cur.fetchone():
             raise TicketCreateError("active_ticket_exists")
 
+        # A ticket must point at real, still-available food: an invented or
+        # already claimed/expired lot_id produces a request nobody can serve
+        # (and lets a recipient «занять» food that does not exist).
+        if self_pickup and lot_id is None:
+            # Self-pickup is confirmed by the shop against the ticket's lot —
+            # without a lot the QR can never be matched to a shop.
+            raise TicketCreateError("lot_required")
+        if lot_id is not None:
+            cur.execute(
+                """
+                SELECT 1 FROM lots
+                WHERE id = %s AND status = 'active'
+                  AND (expiry_date IS NULL OR expiry_date::date >= CURRENT_DATE)
+                """,
+                (lot_id,),
+            )
+            if not cur.fetchone():
+                raise TicketCreateError("lot_unavailable")
+
         try:
             cur.execute(
                 "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, qr_secret, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
@@ -350,6 +369,28 @@ def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
             (needy_id,),
         )
         photos = [r["delivery_photo"] for r in cur.fetchall()]
+
+        # Close live tickets first: a scrubbed row must not hang in the queue as
+        # an eternal 'open' request with NULL coordinates (nobody can serve it),
+        # and an assigned volunteer must learn the stop is gone.
+        cur.execute(
+            "SELECT id, assigned_volunteer_id FROM tickets WHERE needy_id = %s AND status IN ('open', 'assigned')",
+            (needy_id,),
+        )
+        live = cur.fetchall()
+        if live:
+            cur.execute(
+                "UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, assigned_volunteer_id = NULL "
+                "WHERE needy_id = %s AND status IN ('open', 'assigned')",
+                (needy_id,),
+            )
+            for crow in live:
+                if crow.get("assigned_volunteer_id"):
+                    cur.execute(
+                        "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 0)",
+                        (crow["assigned_volunteer_id"], "ticket_cancelled",
+                         f"Заявка #{crow['id']} отменена (аккаунт получателя удалён) — точка снята с маршрута."),
+                    )
 
         # Scrub PII from tickets, keep status/timestamps for aggregates.
         cur.execute(

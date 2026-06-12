@@ -9,7 +9,7 @@ import psycopg2.errors
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.needy import db as needydb
-from backend.utils import ensure_aware_utc, build_qr_code
+from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
@@ -27,10 +27,42 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Server-side delivery verification thresholds (§13)
 GPS_RADIUS_METERS = 100
+# Shop pickup zone is wider: building footprint + parking, not a doorway.
+SHOP_GPS_RADIUS_METERS = 150
+# Payload coordinates are client-supplied; cross-check them against the latest
+# geolocation ping (§27). A fresh ping a kilometre away from where the client
+# *claims* to stand means the coordinates are fabricated.
+PING_FRESH_SECONDS = 10 * 60
+PING_MISMATCH_METERS = 1000
 MAX_DELIVERY_ATTEMPTS = 3  # §8: after 3 attempts the ticket is released
 LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
 
 router = APIRouter()
+
+
+def _verify_position_against_pings(volunteer_id: int, lat: float, lon: float):
+    """Reject payload coordinates that contradict the volunteer's last
+    geolocation ping. Only a FRESH ping is compared — punishing honest
+    volunteers whose tracker went quiet an hour ago would be worse than
+    the fraud this catches. No ping history → nothing to compare."""
+    loc = vdb.get_volunteer_location(volunteer_id)
+    if not loc or loc.get("lat") is None or loc.get("lon") is None or not loc.get("updated_at"):
+        return
+    try:
+        age = (datetime.now(timezone.utc) - ensure_aware_utc(loc["updated_at"])).total_seconds()
+    except Exception:
+        return
+    if age > PING_FRESH_SECONDS:
+        return
+    dist_m = haversine((lat, lon), (loc["lat"], loc["lon"])) * 1000.0
+    if dist_m > PING_MISMATCH_METERS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Координаты подтверждения расходятся с вашей геолокацией на {int(dist_m)} м — "
+                "обновите положение в приложении и попробуйте снова"
+            ),
+        )
 
 
 def _require_route_owner(route_id: int, current_user: dict, require_active: bool = False):
@@ -119,8 +151,14 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
                 'needy_id': r['needy_id'],
                 'items': r['items'],
                 'available_time': r['available_time'],
-                'lat': r['lat'],
-                'lon': r['lon']
+                # Anyone can self-register as a volunteer, so the open-requests
+                # layer must not leak exact home addresses of vulnerable people:
+                # coordinates are snapped to a ~500 m grid. The precise point is
+                # disclosed only in route points after start_route assigns the
+                # ticket to this volunteer.
+                'lat': coarsen_coord(r['lat']),
+                'lon': coarsen_coord(r['lon']),
+                'approx': True,
             })
 
     return {'shops': shops, 'tickets': tickets}
@@ -263,20 +301,20 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             detail="Этот лот требует холодильник — отметьте «есть термосумка» в профиле, чтобы взять его",
         )
 
-    # collect open delivery tickets for THIS shop's lots only (§3.2: the recipient
-    # picked a concrete shop/lot, so the volunteer must go where the chosen goods are).
+    # collect open delivery tickets for THIS lot only (§3.2: the recipient picked
+    # a concrete lot — assembling the route shop-wide would hand a dairy request
+    # whatever lot the volunteer happened to claim, even an expired one).
     # Read-only here; the actual claim happens later inside the transactional block.
     with get_db_cursor() as cur:
         cur.execute(
             """
             SELECT t.* FROM tickets t
-            JOIN lots l ON l.id = t.lot_id
             WHERE t.status = 'open'
               AND t.lat IS NOT NULL AND t.lon IS NOT NULL
               AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)
-              AND l.shop_id = %s
+              AND t.lot_id = %s
             """,
-            (lot['shop_id'],),
+            (payload.lot_id,),
         )
         tickets = [dict(r) for r in cur.fetchall()]
 
@@ -424,6 +462,20 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
              f'Волонтёр {vol_name} забрал лот #{payload.lot_id}', now),
         )
 
+        # The lot physically leaves the shop with this volunteer — an open
+        # self-pickup ticket on it would send its recipient to an empty shelf.
+        # Cancel them now, with an explanation; their weekly window stays free.
+        cur.execute(
+            "UPDATE tickets SET status = 'cancelled' WHERE lot_id = %s AND status = 'open' AND self_pickup = TRUE RETURNING id, needy_id",
+            (payload.lot_id,),
+        )
+        for row in cur.fetchall():
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                (row['needy_id'], 'self_pickup_cancelled',
+                 f'Заявка #{row["id"]} на самовывоз отменена: лот забрал волонтёр. Выберите другой лот — лимит не потрачен.', now),
+            )
+
         assigned_ids = set()
         assigned_needy = []  # (needy_id, ticket_id) — Telegram pings after commit
         for t in order:
@@ -562,6 +614,7 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
                     status_code=400,
                     detail=f"Вы слишком далеко от точки доставки ({int(dist_m)} м, лимит {GPS_RADIUS_METERS} м)",
                 )
+        _verify_position_against_pings(route_volunteer_id, payload.lat, payload.lon)
         with get_db_cursor() as cur:
             cur.execute("SELECT * FROM tickets WHERE id = %s", (point['ticket_id'],))
             t = cur.fetchone()
@@ -590,6 +643,20 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
     if point.get('kind') == 'shop':
         shop_lat = point.get('lat')
         shop_lon = point.get('lon')
+        # «Я забрал» switches OFF the GPS drift monitor (§27: antifraud_tick
+        # skips routes with a done shop point), so it must itself prove
+        # presence at the shop — otherwise one tap from home both fakes the
+        # pickup and disarms the antifraud for the whole route.
+        if payload.lat is None or payload.lon is None:
+            raise HTTPException(status_code=400, detail="Координаты волонтёра обязательны для подтверждения получения лота")
+        if shop_lat is not None and shop_lon is not None:
+            dist_m = haversine((payload.lat, payload.lon), (shop_lat, shop_lon)) * 1000.0
+            if dist_m > SHOP_GPS_RADIUS_METERS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Вы слишком далеко от магазина ({int(dist_m)} м, лимит {SHOP_GPS_RADIUS_METERS} м)",
+                )
+        _verify_position_against_pings(route_volunteer_id, payload.lat, payload.lon)
         # use the route's volunteer id (verified above), not the client payload
         vol = vdb.get_volunteer_by_id(route_volunteer_id)
         vol_name = vol.get('name') if vol else f"volunteer_{route_volunteer_id}"

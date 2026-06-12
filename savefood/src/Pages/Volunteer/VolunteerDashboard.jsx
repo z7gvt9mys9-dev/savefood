@@ -360,18 +360,19 @@ const VolunteerDashboard = () => {
   const handleCompletePoint = async (ticketId = null, { qrCode = null } = {}) => {
     if (!activeRoute) return;
     const body = { volunteer_id: volunteerId, ticket_id: ticketId };
-    // Ticket points require server-side GPS+QR verification (§13). Shop point
-    // completion needs neither — it's just a hand-off confirmation by the volunteer.
+    // Every point completion is GPS-verified server-side (§13): ticket points
+    // additionally require the recipient's QR, shop point requires presence
+    // at the shop (otherwise «Я забрал» from home would disarm the §27 antifraud).
     if (ticketId != null) {
       body.qr_code = qrCode;
-      const pos = await getCurrentPosition();
-      if (!pos) {
-        alert(t('volunteer.gps_no_location'));
-        return;
-      }
-      body.lat = pos.lat;
-      body.lon = pos.lon;
     }
+    const pos = await getCurrentPosition();
+    if (!pos) {
+      alert(t('volunteer.gps_no_location'));
+      return;
+    }
+    body.lat = pos.lat;
+    body.lon = pos.lon;
     try {
       const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
         method: 'POST',

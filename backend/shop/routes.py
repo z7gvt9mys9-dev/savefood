@@ -299,6 +299,10 @@ def confirm_receipt(
 ):
     """The shop confirmed (possibly edited) the lot drafts — create the lots."""
     ensure_owner_or_admin(current_user, "shop", shop_id)
+    # Re-gate here, not only at upload: between OCR upload and confirmation the
+    # plan may have been downgraded — confirm must not mint lots past billing.
+    billing.require_feature(shop_id, "ocr")
+    billing.check_lot_quota(shop_id)
     receipt = db.get_receipt_by_id(receipt_id)
     if not receipt or receipt["shop_id"] != shop_id:
         raise HTTPException(status_code=404, detail="Чек не найден")

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.database import get_db_cursor
+from backend.utils import haversine
 from backend import telegram_service, push_service
 
 # lot category → preference keywords that signal the recipient wants it
@@ -31,6 +32,7 @@ CATEGORY_KEYWORDS = {
 RESTRICTION_WORDS = ["аллергия", "нельзя", "не ем", "без ", "непереносимость", "не могу", "запрет"]
 
 MAX_NOTIFIED_PER_LOT = 20
+MAX_VOLUNTEERS_PER_LOT = 10
 
 
 def matches_preferences(category: Optional[str], preferences: Optional[str]) -> bool:
@@ -118,11 +120,76 @@ def notify_matching_needy(lot_id: int):
     )
 
 
+def notify_available_volunteers(lot_id: int):
+    """Push-matching for volunteers (§54): the availability calendar finally
+    decides WHO gets pinged about a new lot, instead of waiting for them to
+    open the map. Same city, window covers now, nearest first."""
+    from backend.volunteer.db import is_available_now
+
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT l.id, l.description, l.category, l.city,
+                   s.name AS shop_name, s.lat AS s_lat, s.lon AS s_lon
+            FROM lots l JOIN shops s ON s.id = l.shop_id
+            WHERE l.id = %s AND l.status = 'active'
+            """,
+            (lot_id,),
+        )
+        lot = cur.fetchone()
+        if not lot:
+            return
+        # Only volunteers who FILLED the calendar are pinged: an empty calendar
+        # means «не беспокоить», not «доступен всегда» — push must be opt-in.
+        cur.execute(
+            """
+            SELECT id, lat, lon, availability FROM volunteers
+            WHERE availability IS NOT NULL AND TRIM(availability) NOT IN ('', '[]')
+              AND city IS NOT NULL AND city = %s
+            """,
+            (lot["city"],),
+        )
+        candidates = [dict(r) for r in cur.fetchall()]
+
+    available = [v for v in candidates if is_available_now(v["availability"])]
+    if lot["s_lat"] is not None and lot["s_lon"] is not None:
+        available.sort(
+            key=lambda v: haversine(v["lat"], v["lon"], lot["s_lat"], lot["s_lon"])
+            if v.get("lat") is not None and v.get("lon") is not None else float("inf")
+        )
+    targets = available[:MAX_VOLUNTEERS_PER_LOT]
+    if not targets:
+        return
+
+    now = datetime.now(timezone.utc)
+    text = (
+        f"Новый лот рядом: «{lot['description']}» в магазине «{lot['shop_name']}». "
+        f"Вы отметили это время как доступное — откройте карту, чтобы взять маршрут."
+    )
+    with get_db_cursor() as cur:
+        for v in targets:
+            cur.execute(
+                "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                (v["id"], "lot_nearby", text, now),
+            )
+    safe = html.escape(text)
+    for v in targets:
+        try:
+            telegram_service.notify_volunteer(v["id"], f"📦 {safe}")
+        except Exception:
+            pass
+    logging.info("[needs_match] lot %s pinged %d available volunteers", lot_id, len(targets))
+
+
 def start_needs_match(lot_id: int):
     def _run():
         try:
             notify_matching_needy(lot_id)
         except Exception as e:
             logging.warning("[needs_match] lot %s failed: %s", lot_id, e)
+        try:
+            notify_available_volunteers(lot_id)
+        except Exception as e:
+            logging.warning("[needs_match] lot %s volunteer push failed: %s", lot_id, e)
 
     threading.Thread(target=_run, daemon=True).start()

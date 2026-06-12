@@ -5,10 +5,14 @@ can publish (social media) or file (annual ESG reporting). The methodology is
 versioned — coefficients must never change silently under an already
 published report.
 
-Methodology v1: category-average emission factors (kg CO2e per kg of food,
+Methodology v1.1: category-average emission factors (kg CO2e per kg of food,
 production+disposal, rounded from FAO «Food Wastage Footprint», 2013) and the
-WFP convention of ~420 g per meal. Rescued = lots in status taken/confirmed,
-dated by the moment a volunteer claimed them (COALESCE(taken_at, created_at)).
+WFP convention of ~420 g per meal. Rescued = lots whose hand-over is actually
+evidenced: the shop confirmed the transfer (status 'confirmed') OR at least
+one ticket on the lot was fulfilled (QR-verified delivery / self-pickup).
+A merely claimed lot ('taken', i.e. «волонтёр нажал кнопку») no longer counts —
+the report feeds the tax CSV (§50), so it must not run ahead of reality.
+Dated by the moment a volunteer claimed the lot (COALESCE(taken_at, created_at)).
 """
 import csv
 import io
@@ -16,7 +20,10 @@ from typing import Any, Dict, List, Optional
 
 from backend.database import get_db_cursor
 
-METHODOLOGY = "SaveFood ESG v1 (FAO Food Wastage Footprint 2013, средние по категориям)"
+METHODOLOGY = (
+    "SaveFood ESG v1.1 (FAO Food Wastage Footprint 2013, средние по категориям; "
+    "спасённым считается лот с подтверждённой передачей)"
+)
 
 # kg CO2e prevented per kg of rescued food, by lot category.
 CO2_PER_KG = {
@@ -28,9 +35,17 @@ CO2_PER_KG = {
 CO2_DEFAULT = 2.5  # uncategorized lots
 KG_PER_MEAL = 0.42
 
-# Lots actually rescued (claimed or hand-over confirmed by the shop).
-_RESCUED = "l.status IN ('taken', 'confirmed')"
-_RESCUED_AT = "COALESCE(l.taken_at, l.created_at)"
+# Lots actually rescued: hand-over confirmed by the shop, or at least one
+# fulfilled (QR-verified) ticket on the lot. 'taken' alone is just a button
+# press — counting it would let the tax CSV report undelivered food.
+# Shared with every other "rescued kg" surface (impact.py, /stats, admin stats)
+# so the public numbers can never drift from the published methodology.
+# Expects the lots table to be aliased as `l` in the enclosing query.
+RESCUED_SQL = (
+    "(l.status = 'confirmed' OR EXISTS "
+    "(SELECT 1 FROM tickets _t WHERE _t.lot_id = l.id AND _t.status = 'fulfilled'))"
+)
+RESCUED_AT_SQL = "COALESCE(l.taken_at, l.created_at)"
 
 
 def _co2(kg: float, category: Optional[str]) -> float:
@@ -92,8 +107,8 @@ def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
             f"""
             SELECT l.category, COALESCE(SUM(l.quantity), 0) AS kg, COUNT(*) AS lots
             FROM lots l
-            WHERE l.shop_id = %s AND {_RESCUED}
-              AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE l.shop_id = %s AND {RESCUED_SQL}
+              AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY l.category
             ORDER BY kg DESC
             """,
@@ -102,12 +117,12 @@ def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
         rows_cat = [dict(r) for r in cur.fetchall()]
         cur.execute(
             f"""
-            SELECT to_char(date_trunc('month', {_RESCUED_AT}), 'YYYY-MM') AS month,
+            SELECT to_char(date_trunc('month', {RESCUED_AT_SQL}), 'YYYY-MM') AS month,
                    COALESCE(SUM(l.quantity), 0) AS kg,
                    COALESCE(SUM(l.quantity * {_co2_sql_case()}), 0) AS co2_kg
             FROM lots l
-            WHERE l.shop_id = %s AND {_RESCUED}
-              AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE l.shop_id = %s AND {RESCUED_SQL}
+              AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY 1 ORDER BY 1
             """,
             (shop_id, months),
@@ -149,7 +164,7 @@ def global_report(months: int = 12) -> Dict[str, Any]:
             f"""
             SELECT l.category, COALESCE(SUM(l.quantity), 0) AS kg, COUNT(*) AS lots
             FROM lots l
-            WHERE {_RESCUED} AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY l.category ORDER BY kg DESC
             """,
             (months,),
@@ -157,11 +172,11 @@ def global_report(months: int = 12) -> Dict[str, Any]:
         rows_cat = [dict(r) for r in cur.fetchall()]
         cur.execute(
             f"""
-            SELECT to_char(date_trunc('month', {_RESCUED_AT}), 'YYYY-MM') AS month,
+            SELECT to_char(date_trunc('month', {RESCUED_AT_SQL}), 'YYYY-MM') AS month,
                    COALESCE(SUM(l.quantity), 0) AS kg,
                    COALESCE(SUM(l.quantity * {_co2_sql_case()}), 0) AS co2_kg
             FROM lots l
-            WHERE {_RESCUED} AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY 1 ORDER BY 1
             """,
             (months,),
@@ -171,7 +186,7 @@ def global_report(months: int = 12) -> Dict[str, Any]:
             f"""
             SELECT s.id, s.name, COALESCE(SUM(l.quantity), 0) AS kg
             FROM lots l JOIN shops s ON s.id = l.shop_id
-            WHERE {_RESCUED} AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE {RESCUED_SQL} AND {RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY s.id, s.name ORDER BY kg DESC LIMIT 10
             """,
             (months,),

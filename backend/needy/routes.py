@@ -17,7 +17,7 @@ MAX_WS_PER_USER = 3
 from backend.needy import db, schemas
 from backend.shop import db as shop_db
 from backend.shop import schemas as shop_schemas
-from backend import auth, kyc_service
+from backend import auth, kyc_service, telegram_service
 from backend.database import create_user, get_db_cursor
 from backend.limiter import limiter
 from backend.utils import validate_and_save_upload, UploadValidationError
@@ -80,6 +80,10 @@ def create_ticket(needy_id: int, payload: schemas.TicketCreate, current_user: di
             raise HTTPException(status_code=400, detail="Помощь можно получать не чаще раза в неделю")
         if exc.reason == "active_ticket_exists":
             raise HTTPException(status_code=400, detail="У вас уже есть активная заявка — дождитесь её завершения")
+        if exc.reason == "lot_required":
+            raise HTTPException(status_code=400, detail="Для самовывоза нужно выбрать конкретный лот")
+        if exc.reason == "lot_unavailable":
+            raise HTTPException(status_code=400, detail="Этот лот уже разобран или просрочен — выберите другой на карте")
         raise HTTPException(status_code=400, detail=str(exc))
     return {"id": ticket_id}
 
@@ -306,14 +310,66 @@ def cancel_ticket(needy_id: int, ticket_id: int, current_user: dict = Depends(au
         raise HTTPException(status_code=403, detail="Forbidden")
     if current_user["role"] == "needy" and current_user.get("related_id") != needy_id:
         raise HTTPException(status_code=403, detail="Forbidden")
+    notify_vol_id = None
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM tickets WHERE id = %s AND needy_id = %s", (ticket_id, needy_id))
         ticket = cur.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        if ticket["status"] != "open":
-            raise HTTPException(status_code=400, detail="Можно отменить только открытую заявку")
-        cur.execute("DELETE FROM tickets WHERE id = %s", (ticket_id,))
+        if ticket["status"] == "open":
+            cur.execute("DELETE FROM tickets WHERE id = %s", (ticket_id,))
+        elif ticket["status"] == "assigned":
+            # Plans change on the recipient's side too — without this branch the
+            # only way out of an assigned ticket was «не открыть дверь» три раза.
+            vol_id = ticket.get("assigned_volunteer_id")
+            cur.execute(
+                "UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, assigned_volunteer_id = NULL "
+                "WHERE id = %s AND status = 'assigned'",
+                (ticket_id,),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=409, detail="Заявка уже изменила статус — обновите страницу")
+            if vol_id:
+                # Drop the stop from the volunteer's active route so they don't
+                # drive to a recipient who is no longer waiting.
+                cur.execute(
+                    "SELECT id, points FROM volunteer_routes WHERE volunteer_id = %s AND status = 'in_progress'",
+                    (vol_id,),
+                )
+                route = cur.fetchone()
+                if route:
+                    try:
+                        points = json_mod.loads(route["points"] or "[]")
+                    except Exception:
+                        points = []
+                    changed = False
+                    for p in points:
+                        if p.get("kind") == "ticket" and p.get("ticket_id") == ticket_id and not p.get("done"):
+                            p["done"] = True
+                            p["cancelled"] = True
+                            changed = True
+                    if changed:
+                        cur.execute(
+                            "UPDATE volunteer_routes SET points = %s WHERE id = %s",
+                            (json_mod.dumps(points, ensure_ascii=False), route["id"]),
+                        )
+                cur.execute(
+                    "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                    (vol_id, "ticket_cancelled",
+                     f"Получатель отменил заявку #{ticket_id} — точка снята с вашего маршрута.",
+                     datetime.now(timezone.utc)),
+                )
+                notify_vol_id = vol_id
+        else:
+            raise HTTPException(status_code=400, detail="Можно отменить только открытую или назначенную заявку")
+    if notify_vol_id:
+        try:
+            telegram_service.notify_volunteer(
+                notify_vol_id,
+                f"❌ Получатель отменил заявку #{ticket_id} — точка снята с вашего маршрута.",
+            )
+        except Exception:
+            pass
     return {"ok": True}
 
 
@@ -429,6 +485,11 @@ def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: Optional[
             raise HTTPException(status_code=404, detail="Ticket not found")
         if ticket["status"] != "fulfilled":
             raise HTTPException(status_code=400, detail="Can only rate fulfilled deliveries")
+        # Self-pickup has no courier: a rating row with volunteer_id NULL is
+        # invisible to every rating query (all filter by volunteer_id) — reject
+        # instead of silently swallowing the recipient's feedback.
+        if ticket.get("assigned_volunteer_id") is None:
+            raise HTTPException(status_code=400, detail="Оценка доступна только для доставок волонтёром")
         # comment is optional: when omitted (e.g. user only re-taps a star) keep
         # any thank-you note already on file instead of wiping it to ''.
         cur.execute(

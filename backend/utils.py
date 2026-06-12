@@ -33,6 +33,17 @@ def build_qr_code(ticket_id: int, qr_secret: Optional[str]) -> str:
     form for any pre-migration ticket whose secret was never set."""
     return f"SF-{ticket_id}-{qr_secret}" if qr_secret else f"SF-{ticket_id}"
 
+
+# ~550 m of latitude: enough to pick a direction on the map, not enough to
+# identify the building. Recipients' exact homes are revealed only to the
+# volunteer whose route was actually assigned to them.
+COARSE_GRID_DEG = 0.005
+
+
+def coarsen_coord(value: float, grid: float = COARSE_GRID_DEG) -> float:
+    """Snap a coordinate to a coarse grid (anti-doxxing for open requests)."""
+    return round(round(value / grid) * grid, 6)
+
 # Allowed MIME types and file extensions for uploaded files.
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}
 ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
