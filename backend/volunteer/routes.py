@@ -379,7 +379,9 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 
     # §14: priority decides WHO is served (selection), distance decides the
     # visiting ORDER (nearest-neighbour + 2-opt) — see _optimize_stop_order.
-    max_stops = payload.max_stops or 10
+    # Clamp: a negative max_stops would silently slice the HIGHEST-priority
+    # tickets off the end; >20 makes the 2-opt loop needlessly slow.
+    max_stops = max(1, min(20, payload.max_stops or 10))
     selected = sorted(tickets, key=lambda t: -compute_score(t))[:max_stops]
     order = _optimize_stop_order(selected, (shop['lat'], shop['lon']))
 
@@ -407,7 +409,8 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     # On any failure the cursor rolls back, so we cannot end up with a 'taken'
     # lot dangling without a route or with half-assigned tickets.
     now = datetime.now(timezone.utc)
-    with get_db_cursor() as cur:
+    try:
+      with get_db_cursor() as cur:
         cur.execute(
             "UPDATE lots SET status = 'taken', taken_at = %s, taken_by = %s WHERE id = %s AND status = 'active'",
             (now, vol_name, payload.lot_id),
@@ -464,6 +467,11 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             (volunteer_id, 'route_created',
              f'Маршрут #{route_id} построен — посмотрите вкладку «Маршрут»', now),
         )
+    except psycopg2.errors.UniqueViolation:
+        # uq_routes_one_active_per_volunteer: a parallel start_route won the race
+        # after our early check. Its transaction owns the lot and the route; this
+        # one rolled back, so nothing is half-claimed.
+        raise HTTPException(status_code=400, detail="Volunteer already has an active route")
 
     # Enterprise webhooks (ERP integration) — fire-and-forget, outside the tx.
     try:
@@ -554,7 +562,19 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
             if not t:
                 raise HTTPException(status_code=404, detail="Ticket not found")
             t_row = dict(t)
-            cur.execute("UPDATE tickets SET status = 'fulfilled', fulfilled_at = %s WHERE id = %s", (datetime.now(timezone.utc), point['ticket_id']))
+            # Guard on status+owner: the reassign watchdog may have released this
+            # ticket (and another volunteer claimed it) while we were validating —
+            # a stale route must not fulfil someone else's assignment.
+            cur.execute(
+                "UPDATE tickets SET status = 'fulfilled', fulfilled_at = %s "
+                "WHERE id = %s AND status = 'assigned' AND assigned_volunteer_id = %s",
+                (datetime.now(timezone.utc), point['ticket_id'], route_volunteer_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)",
+                )
             try:
                 needydb.set_profile_last_received(t_row['needy_id'], datetime.now(timezone.utc))
             except Exception:

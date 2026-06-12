@@ -145,6 +145,22 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_notifications_volunteer_id ON notifications (volunteer_id) WHERE volunteer_id IS NOT NULL")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_routes_volunteer_status ON volunteer_routes (volunteer_id, status)")
 
+    # One in-progress route per volunteer, enforced by the DB so two parallel
+    # start_route calls (double-click on two lots) can't both pass the
+    # SELECT-then-INSERT check. Separate cursor: if legacy data already violates
+    # the constraint, log and keep booting (same pattern as tickets).
+    try:
+        with get_db_cursor() as cur:
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_routes_one_active_per_volunteer
+                ON volunteer_routes (volunteer_id)
+                WHERE status = 'in_progress'
+                """
+            )
+    except Exception as e:
+        print(f"Warning: could not create uq_routes_one_active_per_volunteer (duplicate active routes in DB?): {e}")
+
 def create_notification(volunteer_id: int, notification_type: str, payload: str, created_at: Optional[datetime] = None):
     with get_db_cursor() as cur:
         if created_at is None:
