@@ -136,7 +136,7 @@ def reject_delivery_photo(ticket_id: int, _user: dict = Depends(require_admin)):
 @router.get("/stats")
 def admin_stats(_user: dict = Depends(require_admin)):
     with get_db_cursor() as cur:
-        cur.execute("SELECT COALESCE(SUM(quantity),0) as kg_saved FROM lots WHERE status IN ('taken','confirmed')")
+        cur.execute(f"SELECT COALESCE(SUM(l.quantity),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
         kg_saved = cur.fetchone()['kg_saved']
         cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'fulfilled'")
         deliveries_completed = cur.fetchone()['count']

@@ -17,7 +17,7 @@ import os
 from backend.shop import db, routes as shop_routes
 from backend.needy import db as needy_db, routes as needy_routes
 from backend.volunteer import db as vol_db, routes as vol_routes
-from backend import auth_routes, oauth_routes, background, database, telegram_routes, proxy_service
+from backend import auth_routes, oauth_routes, background, database, esg, telegram_routes, proxy_service
 from backend import impact as impact_routes
 from backend import push_routes, partner_api, chat_routes
 from backend.admin import routes as admin_routes
@@ -126,7 +126,7 @@ def stats():
 
 def _compute_stats():
     with get_db_cursor() as cur:
-        cur.execute("SELECT COALESCE(SUM(quantity),0) as kg_saved FROM lots WHERE status IN ('taken','confirmed')")
+        cur.execute(f"SELECT COALESCE(SUM(l.quantity),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
         kg_saved = cur.fetchone()['kg_saved']
 
         cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'fulfilled'")

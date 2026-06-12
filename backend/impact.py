@@ -15,9 +15,8 @@ from backend.database import get_db_cursor
 
 router = APIRouter(prefix="/impact", tags=["impact"])
 
-# Same "rescued" definition as the ESG methodology (§32.5).
-_RESCUED = "l.status IN ('taken', 'confirmed')"
-_RESCUED_AT = "COALESCE(l.taken_at, l.created_at)"
+# Single source of truth for "rescued" lives in esg.py (methodology v1.1,
+# §56): confirmed hand-over or a fulfilled ticket — never a bare 'taken'.
 
 
 @router.get("/summary")
@@ -65,7 +64,7 @@ def city_leaderboard(months: int = 12):
                    COALESCE(SUM(l.quantity), 0) AS kg,
                    COUNT(*) AS lots
             FROM lots l
-            WHERE {_RESCUED} AND {_RESCUED_AT} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
+            WHERE {esg.RESCUED_SQL} AND {esg.RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
             GROUP BY 1 ORDER BY kg DESC LIMIT 10
             """,
             (months,),
