@@ -114,6 +114,7 @@ const NeedyDashboard = () => {
         if (!active) return;
         setActiveOrder(prev => prev || {
           ticketId: active.id,
+          qrCode: active.qr_code,
           selfPickup: !!active.self_pickup,
           description: active.items,
           address: active.address,
@@ -574,7 +575,7 @@ const NeedyDashboard = () => {
               <div className="qr-section">
                 <p>{t('needy.show_qr_shop')}</p>
                 {activeOrder.ticketId && (
-                  <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+                  <QRCode value={activeOrder.qrCode || `SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
                 )}
                 <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
               </div>
@@ -625,7 +626,7 @@ const NeedyDashboard = () => {
               <div className="qr-section">
                 <p>{t('needy.show_qr_volunteer')}</p>
                 {activeOrder.ticketId && (
-                  <QRCode value={`SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+                  <QRCode value={activeOrder.qrCode || `SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
                 )}
                 <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
               </div>

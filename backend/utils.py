@@ -4,6 +4,7 @@ import secrets
 import uuid
 import io
 from datetime import datetime, timezone
+from typing import Optional
 from PIL import Image, ImageOps
 
 # Unambiguous alphabet for human-typed codes: no 0/O, 1/I/L.
@@ -14,6 +15,23 @@ JOIN_CODE_LENGTH = 6
 def generate_join_code(length: int = JOIN_CODE_LENGTH) -> str:
     """Team invite code — short enough to dictate over the phone."""
     return "".join(secrets.choice(JOIN_CODE_ALPHABET) for _ in range(length))
+
+
+def generate_qr_secret() -> str:
+    """Per-ticket secret baked into the delivery QR (SF-{id}-{secret}).
+
+    The whole point is that it is NOT derivable from the ticket id: only the
+    recipient (who shows the QR) and an admin ever learn it, so a volunteer
+    can't mark a delivery fulfilled — or a shop close a self-pickup — without
+    the recipient physically presenting the code. ~10 url-safe chars ≈ 60 bits.
+    """
+    return secrets.token_urlsafe(8)
+
+
+def build_qr_code(ticket_id: int, qr_secret: Optional[str]) -> str:
+    """Canonical QR payload for a ticket. Falls back to the legacy secret-less
+    form for any pre-migration ticket whose secret was never set."""
+    return f"SF-{ticket_id}-{qr_secret}" if qr_secret else f"SF-{ticket_id}"
 
 # Allowed MIME types and file extensions for uploaded files.
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp"}

@@ -3,7 +3,7 @@ import psycopg2.errors
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from backend.database import get_db_cursor
-from backend.utils import ensure_aware_utc
+from backend.utils import ensure_aware_utc, generate_qr_secret, build_qr_code
 
 def init_db():
     with get_db_cursor() as cur:
@@ -51,6 +51,11 @@ def init_db():
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS floor_num TEXT")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS entrance TEXT")
         cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS self_pickup BOOLEAN DEFAULT FALSE")
+        # Unguessable per-ticket secret for the delivery/self-pickup QR
+        # (SF-{id}-{secret}). Backfill existing rows so in-flight tickets keep
+        # working; the value is random enough to not be derivable from the id.
+        cur.execute("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS qr_secret TEXT")
+        cur.execute("UPDATE tickets SET qr_secret = substr(md5(random()::text || id::text), 1, 12) WHERE qr_secret IS NULL")
 
         cur.execute(
             """
@@ -158,8 +163,8 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
 
         try:
             cur.execute(
-                "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
-                (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, datetime.now(timezone.utc)),
+                "INSERT INTO tickets (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, qr_secret, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'open', %s) RETURNING id",
+                (needy_id, items, address, lat, lon, available_time, lot_id, apartment, floor_num, entrance, self_pickup, generate_qr_secret(), datetime.now(timezone.utc)),
             )
         except psycopg2.errors.UniqueViolation:
             # uq_tickets_one_active_per_needy: a parallel request won the race
@@ -167,11 +172,19 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
         tid = cur.fetchone()['id']
         return tid
 
+def _with_qr_code(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Attach the full QR payload so the recipient's app can render it. Only
+    owner/admin-gated endpoints return this — the volunteer never sees the
+    secret, which is what makes the delivery confirmation meaningful."""
+    row["qr_code"] = build_qr_code(row["id"], row.get("qr_secret"))
+    return row
+
+
 def get_tickets_by_needy_id(needy_id: int) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM tickets WHERE needy_id = %s ORDER BY created_at DESC", (needy_id,))
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [_with_qr_code(dict(r)) for r in rows]
 
 def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:
@@ -188,7 +201,7 @@ def get_history(needy_id: int, limit: int = 20, offset: int = 0) -> List[Dict[st
             (needy_id, limit, offset)
         )
         rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [_with_qr_code(dict(r)) for r in rows]
 
 def get_notifications(needy_id: int) -> List[Dict[str, Any]]:
     with get_db_cursor() as cur:

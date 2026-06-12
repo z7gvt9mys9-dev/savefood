@@ -397,15 +397,22 @@ def get_esg_report_csv(shop_id: int, months: int = 12, current_user: dict = Depe
 
 
 @router.post("/shops/{shop_id}/self_pickup/confirm")
-def confirm_self_pickup(shop_id: int, payload: schemas.SelfPickupConfirm, current_user: dict = Depends(get_current_user)):
-    """The shop scans/types the recipient's QR code (SF-{ticket_id}) to close a
-    self-pickup ticket. Without this, self-pickup tickets stay 'open' forever and
-    block the recipient from creating any new ticket."""
+@limiter.limit("20/minute")
+def confirm_self_pickup(shop_id: int, payload: schemas.SelfPickupConfirm, request: Request, current_user: dict = Depends(get_current_user)):
+    """The shop scans/types the recipient's QR code (SF-{ticket_id}-{secret}) to
+    close a self-pickup ticket. Without this, self-pickup tickets stay 'open'
+    forever and block the recipient from creating any new ticket.
+
+    The QR secret + the rate limit stop a shop from brute-forcing SF-{id} codes
+    to mark its own lots' tickets as picked up (which would burn the recipient's
+    weekly limit and inflate the shop's ESG)."""
     ensure_owner_or_admin(current_user, "shop", shop_id)
-    match = re.fullmatch(r"SF-(\d+)", (payload.code or "").strip().upper())
+    # Case-sensitive secret (url-safe base64) — only the "SF" prefix is lenient.
+    match = re.fullmatch(r"SF-(\d+)(?:-([A-Za-z0-9_-]+))?", (payload.code or "").strip(), re.IGNORECASE)
     if not match:
-        raise HTTPException(status_code=400, detail="Неверный формат кода (ожидается SF-<номер>)")
+        raise HTTPException(status_code=400, detail="Неверный формат кода (ожидается SF-<номер>-<код>)")
     ticket_id = int(match.group(1))
+    provided_secret = match.group(2)
 
     with get_db_cursor() as cur:
         cur.execute(
@@ -419,6 +426,10 @@ def confirm_self_pickup(shop_id: int, payload: schemas.SelfPickupConfirm, curren
         ticket = cur.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Заявка не найдена или относится к другому магазину")
+        # A ticket with a secret can only be closed by presenting that secret —
+        # the bare SF-{id} form is accepted only for legacy secret-less tickets.
+        if ticket.get("qr_secret") and provided_secret != ticket["qr_secret"]:
+            raise HTTPException(status_code=400, detail="Код не совпадает — отсканируйте QR получателя")
         if not ticket["self_pickup"]:
             raise HTTPException(status_code=400, detail="Эта заявка доставляется волонтёром, а не самовывозом")
         if ticket["status"] != "open":

@@ -49,6 +49,7 @@ class TicketOut(BaseModel):
     floor_num: Optional[str]
     entrance: Optional[str]
     self_pickup: Optional[bool] = None
+    qr_code: Optional[str] = None  # full SF-{id}-{secret} payload for the recipient's QR
     delivery_photo: Optional[str] = None
     delivery_photo_status: Optional[str] = None  # pending/approved/rejected (moderation §36.1)
     rating: Optional[int] = None  # joined from delivery_ratings in history

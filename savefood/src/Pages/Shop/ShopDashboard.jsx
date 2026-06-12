@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-qr-code';
+import { Html5Qrcode } from 'html5-qrcode';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
@@ -35,6 +36,8 @@ const ShopDashboard = () => {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [pickupCode, setPickupCode] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
+  const [pickupScanning, setPickupScanning] = useState(false);
+  const pickupScannerRef = useRef(null);
   const [plan, setPlan] = useState(null);
   const [forecast, setForecast] = useState(null);
   // OCR receipt flow: upload photo → review parsed lot drafts → confirm
@@ -363,6 +366,34 @@ const ShopDashboard = () => {
     }
   };
 
+  const stopPickupScanner = useCallback(() => {
+    if (pickupScannerRef.current) {
+      pickupScannerRef.current.stop()
+        .then(() => { pickupScannerRef.current.clear(); pickupScannerRef.current = null; })
+        .catch(() => { pickupScannerRef.current = null; });
+    }
+  }, []);
+
+  // Camera scan for the recipient's QR (SF-{id}-{secret}) — the secret is too
+  // long to type, so scanning is the primary path; the text field is a fallback.
+  useEffect(() => {
+    if (!pickupScanning) { stopPickupScanner(); return; }
+    const scanner = new Html5Qrcode('pickup-qr-reader');
+    pickupScannerRef.current = scanner;
+    scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: 250 },
+      (decodedText) => {
+        if (/^SF-\d+(?:-[A-Za-z0-9_-]+)?$/.test(decodedText.trim())) {
+          setPickupCode(decodedText.trim());
+          setPickupScanning(false);
+        }
+      },
+      () => {},
+    ).catch(() => { setPickupScanning(false); });
+    return stopPickupScanner;
+  }, [pickupScanning, stopPickupScanner]);
+
   const handleConfirmTransfer = async (lotId) => {
     try {
       const res = await fetch(`${API_URL}/lots/${lotId}/confirm_transfer`, {
@@ -481,10 +512,14 @@ const ShopDashboard = () => {
             onChange={(e) => setPickupCode(e.target.value)}
             style={{ flex: 1, minWidth: 160 }}
           />
+          <button type="button" className="btn btn-secondary" onClick={() => setPickupScanning(s => !s)}>
+            {pickupScanning ? t('common.cancel') : `📷 ${t('shop.self_pickup_scan')}`}
+          </button>
           <button type="submit" className="btn btn-primary" disabled={pickupBusy || !pickupCode.trim()}>
             {pickupBusy ? t('common.loading') : t('shop.self_pickup_confirm')}
           </button>
         </form>
+        {pickupScanning && <div id="pickup-qr-reader" style={{ width: '100%', maxWidth: 320, marginTop: 10 }} />}
       </div>
       <AccountLinks dashboardPath="/shop" />
       <PushToggle />

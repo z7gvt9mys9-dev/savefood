@@ -9,7 +9,7 @@ import psycopg2.errors
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.needy import db as needydb
-from backend.utils import ensure_aware_utc
+from backend.utils import ensure_aware_utc, build_qr_code
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
@@ -544,7 +544,13 @@ def complete_point(route_id: int, payload: vschemas.CompletePointRequest, curren
 
     # if ticket point — verify QR + GPS server-side (§13), then mark ticket fulfilled
     if point.get('kind') == 'ticket' and point.get('ticket_id'):
-        expected_qr = f"SF-{point['ticket_id']}"
+        # The QR carries a per-ticket secret only the recipient knows, so a
+        # volunteer can't fabricate a delivery without meeting them (the route
+        # points never include the secret). Read it fresh from the DB.
+        with get_db_cursor() as cur:
+            cur.execute("SELECT qr_secret FROM tickets WHERE id = %s", (point['ticket_id'],))
+            srow = cur.fetchone()
+        expected_qr = build_qr_code(point['ticket_id'], (srow or {}).get('qr_secret'))
         if (payload.qr_code or "").strip() != expected_qr:
             raise HTTPException(status_code=400, detail="QR-код не совпадает с тикетом")
         if payload.lat is None or payload.lon is None:

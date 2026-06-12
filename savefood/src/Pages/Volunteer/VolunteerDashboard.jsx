@@ -160,7 +160,9 @@ const VolunteerDashboard = () => {
       async (decodedText) => {
         stopScanner();
         const current = nextTicketRef.current;
-        const match = decodedText.match(/^SF-(\d+)$/);
+        // SF-{id} or SF-{id}-{secret}; the full string (incl. secret) goes to
+        // the server for verification, match[1] only routes it to the right stop.
+        const match = decodedText.match(/^SF-(\d+)(?:-[A-Za-z0-9_-]+)?$/);
         if (match && current && parseInt(match[1]) === current.ticket_id) {
           await handleCompletePoint(current.ticket_id, { qrCode: decodedText });
           setScanning(false);
