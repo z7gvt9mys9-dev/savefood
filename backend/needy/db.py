@@ -96,6 +96,9 @@ def init_db():
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS city TEXT")
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS lat REAL")
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS lon REAL")
+        # Geo-push subscription (§48): opt-out toggle for «рядом появился
+        # подходящий лот» Web Push pings sent by needs_match.py (default on).
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS geo_push_enabled BOOLEAN NOT NULL DEFAULT TRUE")
 
     # One active (open/assigned) ticket per needy, enforced by the DB so two
     # parallel create_ticket calls can't both pass the SELECT-then-INSERT check.
@@ -253,6 +256,101 @@ def get_profile(needy_id: int) -> Optional[Dict[str, Any]]:
         cur.execute("SELECT * FROM needy_profile WHERE needy_id = %s", (needy_id,))
         row = cur.fetchone()
         return dict(row) if row else None
+
+
+def set_geo_push_enabled(needy_id: int, enabled: bool) -> bool:
+    """Toggle the geo-push subscription (§48). Creates a bare profile row if the
+    recipient has none yet so the preference can be stored independently."""
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE needy_profile SET geo_push_enabled = %s WHERE needy_id = %s", (bool(enabled), needy_id))
+        if cur.rowcount == 0:
+            cur.execute("SELECT 1 FROM needy WHERE id = %s", (needy_id,))
+            if not cur.fetchone():
+                return False
+            cur.execute(
+                "INSERT INTO needy_profile (needy_id, geo_push_enabled) VALUES (%s, %s)",
+                (needy_id, bool(enabled)),
+            )
+        return True
+
+
+def export_account(needy_id: int) -> Optional[Dict[str, Any]]:
+    """GDPR-style data export (§49): everything the platform holds about one
+    recipient, as a single JSON-serialisable dict. Owner/admin only."""
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id, name, contact, status, created_at FROM needy WHERE id = %s", (needy_id,))
+        n = cur.fetchone()
+        if not n:
+            return None
+        cur.execute("SELECT * FROM needy_profile WHERE needy_id = %s", (needy_id,))
+        profile = cur.fetchone()
+        cur.execute("SELECT * FROM tickets WHERE needy_id = %s ORDER BY created_at", (needy_id,))
+        tickets = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT id, type, payload, created_at, read FROM notifications WHERE needy_id = %s ORDER BY created_at",
+            (needy_id,),
+        )
+        notifications = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            "SELECT dr.* FROM delivery_ratings dr JOIN tickets t ON t.id = dr.ticket_id WHERE t.needy_id = %s",
+            (needy_id,),
+        )
+        ratings = [dict(r) for r in cur.fetchall()]
+    return {
+        "account": dict(n),
+        "profile": dict(profile) if profile else None,
+        "tickets": tickets,
+        "ratings": ratings,
+        "notifications": notifications,
+    }
+
+
+def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
+    """«Право на забвение» (§49). Returns the on-disk file paths the caller must
+    delete (document + delivery photos), having already anonymised the row.
+
+    Personal data is scrubbed but the ticket rows survive (status/timestamps
+    only) so platform aggregates — deliveries completed, rescued kg via lots —
+    stay correct. The login is removed, so the account can never be used again.
+    """
+    with get_db_cursor() as cur:
+        cur.execute("SELECT id FROM needy WHERE id = %s", (needy_id,))
+        if not cur.fetchone():
+            return None
+
+        # Collect file paths to remove on disk (caller handles the FS).
+        cur.execute("SELECT document FROM needy_profile WHERE needy_id = %s", (needy_id,))
+        prow = cur.fetchone()
+        document = prow["document"] if prow else None
+        cur.execute(
+            "SELECT delivery_photo FROM tickets WHERE needy_id = %s AND delivery_photo IS NOT NULL",
+            (needy_id,),
+        )
+        photos = [r["delivery_photo"] for r in cur.fetchall()]
+
+        # Scrub PII from tickets, keep status/timestamps for aggregates.
+        cur.execute(
+            """
+            UPDATE tickets SET items = NULL, address = NULL, lat = NULL, lon = NULL,
+                   apartment = NULL, floor_num = NULL, entrance = NULL, available_time = NULL,
+                   assigned_volunteer = NULL,
+                   delivery_photo = NULL, delivery_photo_status = NULL,
+                   delivery_photo_ai_verdict = NULL, delivery_photo_ai_notes = NULL
+             WHERE needy_id = %s
+            """,
+            (needy_id,),
+        )
+        cur.execute("DELETE FROM notifications WHERE needy_id = %s", (needy_id,))
+        cur.execute("DELETE FROM needy_profile WHERE needy_id = %s", (needy_id,))
+        # Remove the login (cascades to push_subscriptions / link tokens).
+        cur.execute("DELETE FROM users WHERE role = 'needy' AND related_id = %s", (needy_id,))
+        # Anonymise the needy row itself; status 'deleted' hides it everywhere.
+        cur.execute(
+            "UPDATE needy SET name = 'Удалённый аккаунт', contact = NULL, status = 'deleted', "
+            "document = NULL, kyc_notes = NULL WHERE id = %s",
+            (needy_id,),
+        )
+    return {"document": document, "photos": photos}
 
 def set_needy_status(needy_id: int, status: str) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:

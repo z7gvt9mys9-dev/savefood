@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.database import get_db_cursor
-from backend import telegram_service
+from backend import telegram_service, push_service
 
 # lot category → preference keywords that signal the recipient wants it
 CATEGORY_KEYWORDS = {
@@ -68,7 +68,7 @@ def notify_matching_needy(lot_id: int):
         # about food they cannot reach is noise, not help).
         cur.execute(
             """
-            SELECT n.id AS needy_id, np.preferences
+            SELECT n.id AS needy_id, np.preferences, COALESCE(np.geo_push_enabled, TRUE) AS geo_push_enabled
             FROM needy n JOIN needy_profile np ON np.needy_id = n.id
             WHERE n.status = 'approved'
               AND np.preferences IS NOT NULL AND TRIM(np.preferences) <> ''
@@ -78,10 +78,14 @@ def notify_matching_needy(lot_id: int):
         )
         candidates = cur.fetchall()
 
-    matched = [
-        c["needy_id"] for c in candidates
+    matched_rows = [
+        c for c in candidates
         if matches_preferences(lot["category"], c["preferences"])
     ][:MAX_NOTIFIED_PER_LOT]
+    matched = [c["needy_id"] for c in matched_rows]
+    # Geo-push subscription (§48): in-app feed + Telegram reach every match, but
+    # the browser/PWA Web Push only goes to recipients who kept the toggle on.
+    push_targets = [c["needy_id"] for c in matched_rows if c["geo_push_enabled"]]
     if not matched:
         return
 
@@ -103,7 +107,15 @@ def notify_matching_needy(lot_id: int):
             telegram_service.notify_needy(needy_id, f"🛒 {safe}")
         except Exception:
             pass
-    logging.info("[needs_match] lot %s matched %d recipients", lot_id, len(matched))
+    for needy_id in push_targets:
+        try:
+            push_service.notify_role("needy", needy_id, text, url="/")
+        except Exception:
+            pass
+    logging.info(
+        "[needs_match] lot %s matched %d recipients (%d web-push)",
+        lot_id, len(matched), len(push_targets),
+    )
 
 
 def start_needs_match(lot_id: int):

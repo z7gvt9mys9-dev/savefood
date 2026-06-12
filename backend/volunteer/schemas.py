@@ -19,6 +19,7 @@ class VolunteerUpdate(BaseModel):
     lat: Optional[float] = None
     lon: Optional[float] = None
     city: Optional[str] = None
+    has_thermal_bag: Optional[bool] = None
 
 
 class VolunteerOut(BaseModel):
@@ -28,6 +29,7 @@ class VolunteerOut(BaseModel):
     lat: Optional[float]
     lon: Optional[float]
     city: Optional[str] = None
+    has_thermal_bag: Optional[bool] = False
     created_at: datetime
 
 

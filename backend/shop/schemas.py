@@ -35,6 +35,7 @@ class LotCreate(BaseModel):
     time_slot: Optional[str] = None
     category: Optional[str] = None
     comment: Optional[str] = None
+    requires_cold: Optional[bool] = False
 
 
 class LotOut(BaseModel):
@@ -52,6 +53,7 @@ class LotOut(BaseModel):
     taken_by: Optional[str]
     category: Optional[str]
     comment: Optional[str]
+    requires_cold: Optional[bool] = False
     shop_name: Optional[str] = None
     shop_lat: Optional[float] = None
     shop_lon: Optional[float] = None
@@ -65,6 +67,7 @@ class LotUpdate(BaseModel):
     address: Optional[str] = None
     category: Optional[str] = None
     comment: Optional[str] = None
+    requires_cold: Optional[bool] = None
 
 
 class TakeLotRequest(BaseModel):

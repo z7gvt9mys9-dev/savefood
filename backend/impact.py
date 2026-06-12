@@ -5,7 +5,10 @@ PR/transparency surface (media, city administrations, sponsors). No personal
 data leaves the API: the feed strips names/addresses, leaderboards expose
 only volunteer first names they registered with and aggregate numbers.
 """
+import html as _html
+
 from fastapi import APIRouter
+from fastapi.responses import Response
 
 from backend import cache, esg, gamification
 from backend.database import get_db_cursor
@@ -128,6 +131,65 @@ def team_leaderboard():
     for r in rows:
         r["kg"] = float(r["kg"])
     return rows
+
+
+def _fmt_kg(kg: float) -> str:
+    kg = float(kg or 0)
+    if kg >= 1000:
+        return f"{kg / 1000:.1f} т".replace(".0 т", " т")
+    return f"{int(round(kg))} кг"
+
+
+def _badge_svg(title: str, kg: float, meals: int, co2: float) -> str:
+    """A self-contained embeddable badge — no external fonts or images, so it
+    renders identically wherever a partner drops it via <img> or <iframe>."""
+    title = _html.escape(title[:40])
+    kg_s = _html.escape(_fmt_kg(kg))
+    meals_s = f"{int(meals):,}".replace(",", " ")
+    co2_s = _html.escape(_fmt_kg(co2))
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="320" height="120" viewBox="0 0 320 120" role="img" aria-label="SaveFood impact">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2e7d32"/><stop offset="1" stop-color="#66bb6a"/>
+    </linearGradient>
+  </defs>
+  <rect width="320" height="120" rx="14" fill="url(#g)"/>
+  <text x="20" y="34" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#fff">🌱 {title}</text>
+  <text x="20" y="74" font-family="Arial, sans-serif" font-size="30" font-weight="800" fill="#fff">{kg_s}</text>
+  <text x="20" y="96" font-family="Arial, sans-serif" font-size="12" fill="#e8f5e9">спасено еды · {meals_s} порций · −{co2_s} CO₂e</text>
+  <text x="300" y="113" text-anchor="end" font-family="Arial, sans-serif" font-size="10" fill="#c8e6c9">SaveFood</text>
+</svg>"""
+
+
+_SVG_HEADERS = {"Cache-Control": "public, max-age=3600"}
+
+
+@router.get("/widget.svg")
+def global_widget():
+    """Embeddable «Мы спасли N кг еды» badge for the whole platform (§52).
+    Public, cacheable — partners drop it via <img src=".../impact/widget.svg">."""
+    def _build():
+        r = esg.global_report(months=12)
+        t = r["totals"]
+        return _badge_svg("Вместе с SaveFood", t["kg"], t["meals"], t["co2_kg"])
+    svg = cache.cached_json("impact:widget:global", cache.TTL_STATS, _build)
+    return Response(content=svg, media_type="image/svg+xml", headers=_SVG_HEADERS)
+
+
+@router.get("/widget/{shop_id}.svg")
+def shop_widget(shop_id: int):
+    """Per-shop embeddable impact badge (§52). Public by design — it only shows
+    aggregate rescued kg, never any personal data."""
+    def _build():
+        with get_db_cursor() as cur:
+            cur.execute("SELECT name FROM shops WHERE id = %s", (shop_id,))
+            row = cur.fetchone()
+        name = (row["name"] if row else None) or "Наш магазин"
+        r = esg.shop_report(shop_id, months=12)
+        t = r["totals"]
+        return _badge_svg(name, t["kg"], t["meals"], t["co2_kg"])
+    svg = cache.cached_json(f"impact:widget:shop:{shop_id}", cache.TTL_STATS, _build)
+    return Response(content=svg, media_type="image/svg+xml", headers=_SVG_HEADERS)
 
 
 @router.get("/feed")

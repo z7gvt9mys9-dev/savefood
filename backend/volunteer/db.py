@@ -19,6 +19,9 @@ def init_db():
         )
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE")
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS city TEXT")
+        # Cold chain (§47): only a volunteer with a thermal bag may claim a
+        # refrigerated (requires_cold) lot.
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS has_thermal_bag BOOLEAN NOT NULL DEFAULT FALSE")
 
         # Corporate volunteering: a team is just a named group with a join
         # code; impact aggregates roll up via volunteers.team_id.
@@ -127,7 +130,7 @@ def get_volunteer_by_id(vol_id: int) -> Optional[Dict[str, Any]]:
         row = cur.fetchone()
         return dict(row) if row else None
 
-def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None, has_thermal_bag: Optional[bool] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         v = cur.fetchone()
@@ -138,7 +141,8 @@ def update_volunteer(vol_id: int, name: Optional[str], contact: Optional[str], l
         new_lat = lat if lat is not None else v['lat']
         new_lon = lon if lon is not None else v['lon']
         new_city = city if city is not None else v.get('city')
-        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s, city = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, new_city, vol_id))
+        new_bag = has_thermal_bag if has_thermal_bag is not None else v.get('has_thermal_bag')
+        cur.execute("UPDATE volunteers SET name = %s, contact = %s, lat = %s, lon = %s, city = %s, has_thermal_bag = %s WHERE id = %s", (new_name, new_contact, new_lat, new_lon, new_city, new_bag, vol_id))
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         updated = cur.fetchone()
         return dict(updated)

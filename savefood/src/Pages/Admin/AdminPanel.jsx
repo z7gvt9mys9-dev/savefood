@@ -20,6 +20,7 @@ const AdminPanel = () => {
   const [kycRechecking, setKycRechecking] = useState({});
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
+  const [heatmap, setHeatmap] = useState(null);
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -77,6 +78,12 @@ const AdminPanel = () => {
       fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
         .then(data => data && setEsgGlobal(data))
+        .catch(() => {});
+    }
+    if (activeTab === 'analytics' && !heatmap) {
+      fetch(`${API_URL}/admin/heatmap`, { headers: authHeader })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => data && setHeatmap(data))
         .catch(() => {});
     }
   }, [activeTab]);
@@ -432,6 +439,38 @@ const AdminPanel = () => {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {heatmap && heatmap.length > 0 && (
+          <>
+            <h3 style={{ marginTop: 24 }}>{t('admin.heatmap')}</h3>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>{t('admin.heatmap_city')}</th>
+                  <th>{t('admin.heatmap_lots')}</th>
+                  <th>{t('admin.heatmap_tickets')}</th>
+                  <th>{t('admin.heatmap_needy')}</th>
+                  <th>{t('admin.heatmap_vols')}</th>
+                  <th>{t('admin.heatmap_gap')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {heatmap.map(r => (
+                  <tr key={r.city}>
+                    <td>{r.city}</td>
+                    <td>{r.active_lots}</td>
+                    <td>{r.open_tickets}</td>
+                    <td>{r.approved_needy}</td>
+                    <td>{r.volunteers}</td>
+                    <td style={{ fontWeight: 700, color: r.gap > 0 ? '#f44336' : (r.gap < 0 ? '#4CAF50' : '#aaa') }}>
+                      {r.gap > 0 ? `+${r.gap}` : r.gap}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
       </div>
     );
   };

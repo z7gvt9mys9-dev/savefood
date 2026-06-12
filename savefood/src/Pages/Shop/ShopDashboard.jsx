@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import QRCode from 'react-qr-code';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
@@ -28,6 +29,8 @@ const ShopDashboard = () => {
   const [shopInfo, setShopInfo] = useState({});
   const [photoFile, setPhotoFile] = useState(null);
   const [editLot, setEditLot] = useState(null);
+  const [labelLot, setLabelLot] = useState(null);
+  const [embedCopied, setEmbedCopied] = useState(false);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [pickupCode, setPickupCode] = useState('');
@@ -255,6 +258,51 @@ const ShopDashboard = () => {
     }
   };
 
+  const widgetUrl = `${API_URL}/impact/widget/${shopId}.svg`;
+  const embedCode = `<a href="https://savefood.kz" target="_blank" rel="noopener">\n  <img src="${widgetUrl}" alt="SaveFood impact" width="320" height="120" />\n</a>`;
+
+  const copyEmbed = () => {
+    try {
+      navigator.clipboard.writeText(embedCode);
+      setEmbedCopied(true);
+      setTimeout(() => setEmbedCopied(false), 2000);
+    } catch { /* clipboard unavailable */ }
+  };
+
+  const downloadEsgCsv = async () => {
+    try {
+      const res = await fetch(`${API_URL}/shops/${shopId}/esg/report.csv?months=12`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (!res.ok) { alert(t('common.connection_error')); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `savefood_donations_${shopId}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert(t('common.connection_error'));
+    }
+  };
+
+  // Print just the label block (QR + lot details) in a clean popup window.
+  const printLabel = () => {
+    const node = document.getElementById('lot-label-printable');
+    if (!node) return;
+    const win = window.open('', '_blank', 'width=420,height=520');
+    if (!win) return;
+    win.document.write(
+      `<!doctype html><html><head><title>SaveFood label</title>` +
+      `<style>body{font-family:Arial,sans-serif;margin:0;padding:24px;text-align:center}` +
+      `@media print{@page{margin:8mm}}</style></head><body>` +
+      node.innerHTML +
+      `<script>window.onload=function(){window.print();}<\/script></body></html>`
+    );
+    win.document.close();
+  };
+
   const handleCreateLot = async (e) => {
     e.preventDefault();
     if (!shopId) { alert(t('shop.error_no_shop')); return; }
@@ -265,6 +313,7 @@ const ShopDashboard = () => {
     if (newLot.expiry_date) fd.append('expiry_date', newLot.expiry_date.split('T')[0]);
     if (newLot.address) fd.append('address', newLot.address);
     if (newLot.time_slot) fd.append('time_slot', newLot.time_slot);
+    fd.append('requires_cold', String(!!newLot.requires_cold));
     if (photoFile) fd.append('file', photoFile);
 
     try {
@@ -279,7 +328,7 @@ const ShopDashboard = () => {
         return;
       }
       alert(t('shop.lot_created'));
-      setNewLot({ description: '', quantity: 1, category: 'Выпечка', expiry_date: '', address: '', time_slot: '18:00 - 20:00' });
+      setNewLot({ description: '', quantity: 1, category: 'Выпечка', expiry_date: '', address: '', time_slot: '18:00 - 20:00', requires_cold: false });
       setPhotoFile(null);
       fetchShopData();
       setActiveTab('active');
@@ -511,6 +560,18 @@ const ShopDashboard = () => {
           {shopInfo.kind === 'private' && (
             <p style={{ fontSize: '0.78rem', color: '#FFB74D', margin: '4px 0 0' }}>{t('donor.photo_required')}</p>
           )}
+        </div>
+
+        <div className="form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={!!newLot.requires_cold}
+              onChange={(e) => setNewLot({ ...newLot, requires_cold: e.target.checked })}
+              style={{ width: 'auto' }}
+            />
+            {t('shop.cold_chain')}
+          </label>
         </div>
 
         <div className="warning-box">
@@ -782,6 +843,21 @@ const ShopDashboard = () => {
             </table>
           )}
           <p style={{ marginTop: 16, fontSize: '0.85rem', opacity: 0.7 }}>{t('shop.esg_methodology')}: {esgReport.methodology}</p>
+          <button className="btn-small" style={{ marginTop: 8 }} onClick={downloadEsgCsv}>⬇ {t('shop.download_csv')}</button>
+
+          <div style={{ marginTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
+            <h4>{t('shop.embed_title')}</h4>
+            <img src={`${API_URL}/impact/widget/${shopId}.svg`} alt="SaveFood widget" style={{ maxWidth: 320, display: 'block', margin: '8px 0' }} />
+            <p style={{ fontSize: '0.85rem', opacity: 0.8 }}>{t('shop.embed_hint')}</p>
+            <textarea
+              readOnly
+              rows={3}
+              onFocus={e => e.target.select()}
+              style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.75rem' }}
+              value={embedCode}
+            />
+            <button className="btn-small" style={{ marginTop: 6 }} onClick={copyEmbed}>{embedCopied ? t('shop.embed_copied') : t('shop.embed_copy')}</button>
+          </div>
         </>
       )}
     </div>
@@ -795,7 +871,7 @@ const ShopDashboard = () => {
           : lots.map(lot => (
           <div key={lot.id} className="lot-item">
             <div className="lot-info">
-              <h4>{lot.description}</h4>
+              <h4>{lot.description} {lot.requires_cold && <span className="cold-badge">{t('shop.cold_badge')}</span>}</h4>
               <p>{t('common.status')}: <span className={`status-${lot.status}`}>{lot.status === 'active' ? t('shop.status_waiting') : t('shop.status_taken')}</span></p>
               {lot.time_slot && <p>{t('shop.time_slot')}: {lot.time_slot}</p>}
               <p>{t('shop.expiry')}: {lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString() : '—'}</p>
@@ -807,6 +883,7 @@ const ShopDashboard = () => {
               {lot.status === 'active' && (
                 <button className="btn-small" onClick={() => setEditLot({ ...lot, expiry_date: lot.expiry_date ? lot.expiry_date.slice(0,10) : '' })}>{t('common.edit')}</button>
               )}
+              <button className="btn-small" onClick={() => setLabelLot(lot)}>{t('shop.print_label')}</button>
               <button className="btn-small btn-danger" onClick={() => handleDeleteLot(lot.id)}>{t('common.delete')}</button>
             </div>
           </div>
@@ -913,6 +990,26 @@ const ShopDashboard = () => {
                 <button type="button" className="btn btn-secondary" onClick={() => setEditLot(null)}>{t('common.cancel')}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {labelLot && (
+        <div className="modal-overlay" onClick={() => setLabelLot(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h3>{t('shop.label_title')}</h3>
+            <div id="lot-label-printable" style={{ background: '#fff', color: '#000', padding: 20, textAlign: 'center', borderRadius: 8 }}>
+              <div style={{ background: '#fff', padding: 8, display: 'inline-block' }}>
+                <QRCode value={`SF-LOT-${labelLot.id}`} size={160} />
+              </div>
+              <p style={{ fontWeight: 700, margin: '10px 0 2px' }}>{labelLot.description}</p>
+              <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>SaveFood · лот #{labelLot.id}</p>
+              {labelLot.requires_cold && <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>{t('shop.cold_badge')}</p>}
+              {labelLot.expiry_date && <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>{t('shop.expiry')}: {new Date(labelLot.expiry_date).toLocaleDateString()}</p>}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button type="button" className="btn btn-primary" onClick={() => printLabel()}>{t('shop.print_label')}</button>
+              <button type="button" className="btn btn-secondary" onClick={() => setLabelLot(null)}>{t('common.cancel')}</button>
+            </div>
           </div>
         </div>
       )}

@@ -30,7 +30,7 @@ const CAT_KEYS = {
 const CATEGORIES = ['Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
 
 const NeedyDashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { t } = useTranslation();
   const needyId = user?.relatedId;
 
@@ -43,7 +43,7 @@ const NeedyDashboard = () => {
   const [history, setHistory] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
-  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '', lat: null, lon: null });
+  const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '', lat: null, lon: null, geo_push_enabled: true });
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [ratings, setRatings] = useState({});
@@ -319,6 +319,55 @@ const NeedyDashboard = () => {
     }
   };
 
+  const toggleGeoPush = async (enabled) => {
+    if (!needyId) return;
+    setProfile(p => ({ ...p, geo_push_enabled: enabled }));
+    try {
+      await fetch(`${API_URL}/needy/${needyId}/geo_push`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch {
+      setProfile(p => ({ ...p, geo_push_enabled: !enabled }));
+    }
+  };
+
+  const exportData = async () => {
+    if (!needyId) return;
+    try {
+      const res = await fetch(`${API_URL}/needy/${needyId}/export`, {
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (!res.ok) { alert(t('common.connection_error')); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `savefood_data_${needyId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert(t('common.connection_error'));
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!needyId) return;
+    if (!window.confirm(t('needy.delete_confirm'))) return;
+    try {
+      const res = await fetch(`${API_URL}/needy/${needyId}/account`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${user?.token}` },
+      });
+      if (!res.ok) { alert(t('common.connection_error')); return; }
+      alert(t('needy.deleted'));
+      logout();
+    } catch {
+      alert(t('common.connection_error'));
+    }
+  };
+
   const renderProfile = () => (
     <div className="tab-content">
       <form className="admin-form" onSubmit={handleSaveProfile}>
@@ -350,11 +399,30 @@ const NeedyDashboard = () => {
           <label>{t('needy.dietary_label')}</label>
           <textarea placeholder={t('needy.dietary_placeholder')} value={profile.preferences} onChange={(e) => setProfile({ ...profile, preferences: e.target.value })} />
         </div>
+        <div className="form-group">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={profile.geo_push_enabled !== false}
+              onChange={(e) => toggleGeoPush(e.target.checked)}
+              style={{ width: 'auto' }}
+            />
+            🔔 {t('needy.geo_push')}
+          </label>
+        </div>
         <button type="submit" className="btn btn-primary">{t('needy.save_profile')}</button>
       </form>
 
       <AccountLinks dashboardPath="/needy" />
       <PushToggle />
+
+      <div className="admin-form" style={{ marginTop: 16 }}>
+        <h3>{t('needy.privacy_title')}</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-secondary" onClick={exportData}>⬇ {t('needy.export_data')}</button>
+          <button type="button" className="btn btn-danger" onClick={deleteAccount}>{t('needy.delete_account')}</button>
+        </div>
+      </div>
     </div>
   );
 
@@ -449,6 +517,11 @@ const NeedyDashboard = () => {
                   {lot.shop_kind === 'private' && (
                     <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
                       🏠 {t('donor.badge')}
+                    </span>
+                  )}
+                  {lot.requires_cold && (
+                    <span className="category-badge" style={{ background: '#4fc3f722', color: '#4fc3f7', borderColor: '#4fc3f744', marginLeft: 4 }}>
+                      {t('shop.cold_badge')}
                     </span>
                   )}
                   <h4>{lot.description}</h4>

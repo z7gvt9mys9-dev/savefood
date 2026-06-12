@@ -124,6 +124,7 @@ const VolunteerDashboard = () => {
   const [gpsStatus, setGpsStatus] = useState('unknown');
   const [volunteerRating, setVolunteerRating] = useState(null);
   const [stats, setStats] = useState(null);
+  const [volunteerInfo, setVolunteerInfo] = useState(null);
   const [thanks, setThanks] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
@@ -207,11 +208,29 @@ const VolunteerDashboard = () => {
     return () => clearInterval(locationIntervalRef.current);
   }, [volunteerId, activeRoute?.id]);
 
+  const toggleThermalBag = async (checked) => {
+    if (!volunteerId) return;
+    setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: checked }));
+    try {
+      await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ has_thermal_bag: checked }),
+      });
+    } catch {
+      setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: !checked }));
+    }
+  };
+
   const fetchStats = async () => {
     if (!volunteerId) return;
     try {
       const res = await fetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
       if (res.ok) setStats(await res.json());
+    } catch {}
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
+      if (res.ok) setVolunteerInfo(await res.json());
     } catch {}
     // Leaderboards are public impact endpoints — no auth header needed.
     try {
@@ -584,6 +603,15 @@ const VolunteerDashboard = () => {
         {activeTab === 'stats' && (
           <div className="volunteer-tab">
             <h3>{t('volunteer.stats')}</h3>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!volunteerInfo?.has_thermal_bag}
+                onChange={(e) => toggleThermalBag(e.target.checked)}
+              />
+              <span>❄️ {t('volunteer.thermal_bag')}</span>
+            </label>
+            <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
             {!stats ? (
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (

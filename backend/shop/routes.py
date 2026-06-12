@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from typing import List, Optional
 from datetime import datetime, timezone
 import json
@@ -72,7 +72,7 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
     if (shop.get("kind") == "private") and not payload.photo:
         raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment)
+    lot_id = db.create_lot(shop_id, payload.description, payload.quantity, expiry, payload.photo, payload.address, payload.time_slot, payload.category, payload.comment, requires_cold=bool(payload.requires_cold))
     # «Карта потребностей»: ping recipients whose preferences match the category.
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
@@ -88,6 +88,7 @@ def create_lot_upload(
     time_slot: Optional[str] = Form(None),
     category: Optional[str] = Form(None),
     comment: Optional[str] = Form(None),
+    requires_cold: bool = Form(False),
     file: Optional[UploadFile] = File(None),
     current_user: dict = Depends(get_current_user),
 ):
@@ -107,7 +108,7 @@ def create_lot_upload(
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         photo_url = f"/uploads/{filename}"
 
-    lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment)
+    lot_id = db.create_lot(shop_id, description, int(quantity), expiry_date, photo_url, address, time_slot, category, comment, requires_cold=bool(requires_cold))
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 
@@ -135,7 +136,7 @@ def delete_lot(lot_id: int, current_user: dict = Depends(get_current_user)):
 def patch_lot(lot_id: int, payload: schemas.LotUpdate, current_user: dict = Depends(get_current_user)):
     _require_lot_owner(lot_id, current_user)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address, payload.category, payload.comment)
+    updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address, payload.category, payload.comment, requires_cold=payload.requires_cold)
     if not updated:
         raise HTTPException(status_code=404, detail="Lot not found or cannot be updated")
     return updated
@@ -372,6 +373,27 @@ def get_esg_report(shop_id: int, months: int = 12, current_user: dict = Depends(
         raise HTTPException(status_code=404, detail="Shop not found")
     billing.require_feature(shop_id, "esg")
     return esg.shop_report(shop_id, months=months)
+
+
+@router.get("/shops/{shop_id}/esg/report.csv")
+def get_esg_report_csv(shop_id: int, months: int = 12, current_user: dict = Depends(get_current_user)):
+    """«Налоговый помощник» (§50): the ESG report as a CSV the shop can attach to
+    a charitable-donation tax filing (specific to KZ). Same data and gating as
+    the JSON ESG endpoint; the CSV format is dependency-free and Excel-friendly."""
+    ensure_owner_or_admin(current_user, "shop", shop_id)
+    shop = db.get_shop_by_id(shop_id)
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    billing.require_feature(shop_id, "esg")
+    report = esg.shop_report(shop_id, months=months)
+    csv_text = esg.report_to_csv(report, shop_name=shop.get("name") or f"shop-{shop_id}")
+    filename = f"savefood_donations_shop{shop_id}_{months}m.csv"
+    # UTF-8 BOM so Excel opens Cyrillic correctly.
+    return Response(
+        content="﻿" + csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/shops/{shop_id}/self_pickup/confirm")

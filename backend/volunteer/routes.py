@@ -137,7 +137,7 @@ def get_volunteer(volunteer_id: int, current_user: dict = Depends(get_current_us
 @router.patch("/volunteers/{volunteer_id}")
 def patch_volunteer(volunteer_id: int, payload: vschemas.VolunteerUpdate, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
-    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city)
+    updated = vdb.update_volunteer(volunteer_id, payload.name, payload.contact, payload.lat, payload.lon, payload.city, has_thermal_bag=payload.has_thermal_bag)
     if not updated:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     return updated
@@ -250,6 +250,14 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 
     if shop['lat'] is None or shop['lon'] is None:
         raise HTTPException(status_code=400, detail="Shop has no coordinates")
+
+    # Cold chain (§47): a refrigerated lot may only be carried by a volunteer
+    # with a thermal bag, otherwise the food spoils en route.
+    if lot.get('requires_cold') and not vol.get('has_thermal_bag'):
+        raise HTTPException(
+            status_code=400,
+            detail="Этот лот требует холодильник — отметьте «есть термосумка» в профиле, чтобы взять его",
+        )
 
     # collect open delivery tickets for THIS shop's lots only (§3.2: the recipient
     # picked a concrete shop/lot, so the volunteer must go where the chosen goods are).

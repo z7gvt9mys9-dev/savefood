@@ -43,6 +43,9 @@ def init_db():
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS time_slot TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS category TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS comment TEXT")
+        # Cold chain (§47): the lot must be kept refrigerated, so only a
+        # volunteer with a thermal bag may claim it (see volunteer/routes.py).
+        cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS requires_cold BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("ALTER TABLE shops ADD COLUMN IF NOT EXISTS city TEXT")
         cur.execute("ALTER TABLE lots ADD COLUMN IF NOT EXISTS city TEXT")
         # SaaS plan: 'basic' | 'pro' | 'enterprise' (see backend/billing.py).
@@ -146,14 +149,14 @@ def create_shop(name: str, contact: Optional[str], lat: Optional[float] = None, 
         shop_id = cur.fetchone()['id']
         return shop_id
 
-def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None) -> int:
+def create_lot(shop_id: int, description: str, quantity: int, expiry_date: str, photo: Optional[str], address: Optional[str], time_slot: Optional[str] = None, category: Optional[str] = None, comment: Optional[str] = None, requires_cold: bool = False) -> int:
     with get_db_cursor() as cur:
         cur.execute("SELECT city FROM shops WHERE id = %s", (shop_id,))
         row = cur.fetchone()
         city = row['city'] if row else None
         cur.execute(
-            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
-            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, datetime.now(timezone.utc)),
+            "INSERT INTO lots (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, requires_cold, status, created_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'active', %s) RETURNING id",
+            (shop_id, description, quantity, expiry_date, photo, address, time_slot, category, comment, city, bool(requires_cold), datetime.now(timezone.utc)),
         )
         lot_id = cur.fetchone()['id']
         return lot_id
@@ -297,7 +300,7 @@ def update_shop(shop_id: int, name: Optional[str], contact: Optional[str], lat: 
         updated = cur.fetchone()
         return dict(updated)
 
-def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int], expiry_date: Optional[str], address: Optional[str], category: Optional[str] = None, comment: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int], expiry_date: Optional[str], address: Optional[str], category: Optional[str] = None, comment: Optional[str] = None, requires_cold: Optional[bool] = None) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         lot = cur.fetchone()
@@ -312,10 +315,11 @@ def update_lot(lot_id: int, description: Optional[str], quantity: Optional[int],
         new_address = address if address is not None else lot['address']
         new_category = category if category is not None else lot.get('category')
         new_comment = comment if comment is not None else lot.get('comment')
+        new_cold = requires_cold if requires_cold is not None else lot.get('requires_cold')
 
         cur.execute(
-            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s, category = %s, comment = %s WHERE id = %s",
-            (new_description, new_quantity, new_expiry, new_address, new_category, new_comment, lot_id),
+            "UPDATE lots SET description = %s, quantity = %s, expiry_date = %s, address = %s, category = %s, comment = %s, requires_cold = %s WHERE id = %s",
+            (new_description, new_quantity, new_expiry, new_address, new_category, new_comment, new_cold, lot_id),
         )
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
         updated = cur.fetchone()

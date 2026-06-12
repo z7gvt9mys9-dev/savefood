@@ -290,7 +290,16 @@
     "api_hook_delete_confirm": "Удалить вебхук?",
     "api_all_events": "Все события",
     "api_col_events": "События",
-    "api_col_last": "Последняя доставка"
+    "api_col_last": "Последняя доставка",
+    "cold_chain": "Требует холодильник ❄️",
+    "cold_badge": "❄️ Холодная цепь",
+    "download_csv": "Скачать CSV для налоговой",
+    "print_label": "Печать этикетки",
+    "label_title": "QR-этикетка лота",
+    "embed_title": "Виджет «Мы спасли еду»",
+    "embed_hint": "Вставьте этот код на сайт магазина:",
+    "embed_copy": "Скопировать код",
+    "embed_copied": "Скопировано!"
   },
   "volunteer": {
     "dashboard": "Дашборд волонтёра",
@@ -368,7 +377,9 @@
     "team_join": "Вступить",
     "team_create": "Создать",
     "team_leave": "Покинуть команду",
-    "team_leave_confirm": "Покинуть команду? Ваши прошлые доставки останутся в её зачёте."
+    "team_leave_confirm": "Покинуть команду? Ваши прошлые доставки останутся в её зачёте.",
+    "thermal_bag": "У меня есть термосумка",
+    "thermal_bag_hint": "Нужна, чтобы брать лоты, требующие холодильник"
   },
   "needy": {
     "dashboard": "Дашборд получателя",
@@ -445,7 +456,13 @@
     "rate_label": "Оценить:",
     "thanks_placeholder": "Сказать спасибо волонтёру…",
     "thanks_send": "Отправить",
-    "shop_name_default": "Магазин"
+    "shop_name_default": "Магазин",
+    "geo_push": "Уведомлять о подходящих лотах рядом",
+    "privacy_title": "Мои данные",
+    "export_data": "Скачать мои данные (JSON)",
+    "delete_account": "Удалить аккаунт",
+    "delete_confirm": "Удалить аккаунт и все личные данные? Это действие необратимо.",
+    "deleted": "Аккаунт удалён"
   },
   "admin": {
     "dashboard": "Панель администратора",
@@ -523,7 +540,14 @@
     "photo_food": "еда",
     "photo_review": "проверить",
     "photo_not_food": "не еда",
-    "photo_inappropriate": "недопустимо"
+    "photo_inappropriate": "недопустимо",
+    "heatmap": "Карта спроса/предложения",
+    "heatmap_city": "Город",
+    "heatmap_lots": "Активные лоты",
+    "heatmap_tickets": "Открытые заявки",
+    "heatmap_needy": "Получателей",
+    "heatmap_vols": "Волонтёров",
+    "heatmap_gap": "Дефицит"
   },
   "footer": {
     "tagline": "Превращаем излишки продуктов в реальную помощь.",

@@ -10,6 +10,8 @@ production+disposal, rounded from FAO «Food Wastage Footprint», 2013) and the
 WFP convention of ~420 g per meal. Rescued = lots in status taken/confirmed,
 dated by the moment a volunteer claimed them (COALESCE(taken_at, created_at)).
 """
+import csv
+import io
 from typing import Any, Dict, List, Optional
 
 from backend.database import get_db_cursor
@@ -112,6 +114,31 @@ def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
         )
         rows_month = [dict(r) for r in cur.fetchall()]
     return _build_report(rows_cat, rows_month, months)
+
+
+def report_to_csv(report: Dict[str, Any], shop_name: str = "") -> str:
+    """Render a shop_report() dict as a tax-filing-friendly CSV: a totals block,
+    a per-category breakdown and a per-month series. Semicolon-separated (the
+    KZ/RU Excel locale default) so it opens without an import wizard."""
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    totals = report.get("totals", {})
+    w.writerow(["SaveFood — отчёт о переданной на благотворительность еде"])
+    w.writerow(["Организация", shop_name])
+    w.writerow(["Период, мес.", report.get("period_months", "")])
+    w.writerow(["Методология", report.get("methodology", "")])
+    w.writerow([])
+    w.writerow(["Итого, кг", "Итого, порций", "Итого, кг CO2e", "Лотов"])
+    w.writerow([totals.get("kg", 0), totals.get("meals", 0), totals.get("co2_kg", 0), totals.get("lots", 0)])
+    w.writerow([])
+    w.writerow(["Категория", "Кг", "Кг CO2e", "Лотов"])
+    for c in report.get("by_category", []):
+        w.writerow([c.get("category", ""), c.get("kg", 0), c.get("co2_kg", 0), c.get("lots", 0)])
+    w.writerow([])
+    w.writerow(["Месяц", "Кг", "Кг CO2e"])
+    for m in report.get("by_month", []):
+        w.writerow([m.get("month", ""), m.get("kg", 0), m.get("co2_kg", 0)])
+    return buf.getvalue()
 
 
 def global_report(months: int = 12) -> Dict[str, Any]:

@@ -279,7 +279,16 @@
     "api_hook_delete_confirm": "Вебхукты жою керек пе?",
     "api_all_events": "Барлық оқиғалар",
     "api_col_events": "Оқиғалар",
-    "api_col_last": "Соңғы жеткізу"
+    "api_col_last": "Соңғы жеткізу",
+    "cold_chain": "Тоңазытқыш қажет ❄️",
+    "cold_badge": "❄️ Суық тізбек",
+    "download_csv": "Салық үшін CSV жүктеу",
+    "print_label": "Затбелгіні басып шығару",
+    "label_title": "Лот QR-затбелгісі",
+    "embed_title": "«Біз тағам сақтадық» виджеті",
+    "embed_hint": "Бұл кодты дүкен сайтына қойыңыз:",
+    "embed_copy": "Кодты көшіру",
+    "embed_copied": "Көшірілді!"
   },
   "volunteer": {
     "dashboard": "Еріктісі панелі",
@@ -357,7 +366,9 @@
     "team_join": "Қосылу",
     "team_create": "Құру",
     "team_leave": "Командадан шығу",
-    "team_leave_confirm": "Командадан шығасыз ба? Өткен жеткізулеріңіз оның есебінде қалады."
+    "team_leave_confirm": "Командадан шығасыз ба? Өткен жеткізулеріңіз оның есебінде қалады.",
+    "thermal_bag": "Менде термосөмке бар",
+    "thermal_bag_hint": "Тоңазытқыш қажет лоттарды алу үшін керек"
   },
   "needy": {
     "dashboard": "Алушы панелі",
@@ -435,7 +446,13 @@
     "rate_label": "Бағалау:",
     "thanks_placeholder": "Еріктіге алғыс айтыңыз…",
     "thanks_send": "Жіберу",
-    "shop_name_default": "Дүкен"
+    "shop_name_default": "Дүкен",
+    "geo_push": "Жақын маңдағы сәйкес лоттар туралы хабарлау",
+    "privacy_title": "Менің деректерім",
+    "export_data": "Деректерімді жүктеу (JSON)",
+    "delete_account": "Аккаунтты жою",
+    "delete_confirm": "Аккаунт пен барлық жеке деректерді жою керек пе? Бұл қайтарылмайды.",
+    "deleted": "Аккаунт жойылды"
   },
   "admin": {
     "dashboard": "Әкімші панелі",
@@ -513,7 +530,14 @@
     "photo_food": "тамақ",
     "photo_review": "тексеру",
     "photo_not_food": "тамақ емес",
-    "photo_inappropriate": "жарамсыз"
+    "photo_inappropriate": "жарамсыз",
+    "heatmap": "Сұраныс/ұсыныс картасы",
+    "heatmap_city": "Қала",
+    "heatmap_lots": "Белсенді лоттар",
+    "heatmap_tickets": "Ашық өтінімдер",
+    "heatmap_needy": "Алушылар",
+    "heatmap_vols": "Еріктілер",
+    "heatmap_gap": "Тапшылық"
   },
   "footer": {
     "tagline": "Артық тамақты нақты көмекке айналдырамыз.",

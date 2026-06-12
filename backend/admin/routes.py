@@ -145,6 +145,65 @@ def admin_stats(_user: dict = Depends(require_admin)):
         'percent_expired_lots': round((expired_lots / total_lots * 100) if total_lots else 0.0, 1),
     }
 
+# ── Supply / demand heatmap (§51) ────────────────────────────────────────────
+
+@router.get("/heatmap")
+def supply_demand_heatmap(_user: dict = Depends(require_admin)):
+    """Per-city supply vs demand so the admin sees where shops/volunteers are
+    missing. Supply = active lots; demand = open delivery tickets + approved
+    recipients. `gap` > 0 means demand outstrips active supply there.
+
+    Built on the «карта потребностей» data (§35.1): a plain aggregation that the
+    AdminPanel renders as colour-coded bars."""
+    lot_city = "COALESCE(NULLIF(TRIM(city), ''), 'Без города')"
+    np_city = "COALESCE(NULLIF(TRIM(np.city), ''), 'Без города')"
+    with get_db_cursor() as cur:
+        cur.execute(f"""
+            SELECT {lot_city} AS city, COUNT(*) AS active_lots,
+                   COALESCE(SUM(quantity), 0) AS active_kg
+            FROM lots WHERE status = 'active' GROUP BY 1
+        """)
+        supply = {r["city"]: r for r in cur.fetchall()}
+        # tickets has no city column — derive it from the recipient profile.
+        cur.execute(f"""
+            SELECT {np_city} AS city, COUNT(*) AS open_tickets
+            FROM tickets t
+            LEFT JOIN needy_profile np ON np.needy_id = t.needy_id
+            WHERE t.status = 'open' GROUP BY 1
+        """)
+        demand_tickets = {r["city"]: r["open_tickets"] for r in cur.fetchall()}
+        cur.execute(f"""
+            SELECT {np_city} AS city, COUNT(*) AS approved_needy
+            FROM needy_profile np
+            JOIN needy n ON n.id = np.needy_id AND n.status = 'approved'
+            GROUP BY 1
+        """)
+        approved = {r["city"]: r["approved_needy"] for r in cur.fetchall()}
+        cur.execute(f"""
+            SELECT {lot_city} AS city, COUNT(*) AS volunteers
+            FROM volunteers GROUP BY 1
+        """)
+        volunteers = {r["city"]: r["volunteers"] for r in cur.fetchall()}
+
+    cities = set(supply) | set(demand_tickets) | set(approved) | set(volunteers)
+    rows = []
+    for c in cities:
+        active_lots = int(supply.get(c, {}).get("active_lots", 0) or 0)
+        open_tickets = int(demand_tickets.get(c, 0) or 0)
+        rows.append({
+            "city": c,
+            "active_lots": active_lots,
+            "active_kg": float(supply.get(c, {}).get("active_kg", 0) or 0),
+            "open_tickets": open_tickets,
+            "approved_needy": int(approved.get(c, 0) or 0),
+            "volunteers": int(volunteers.get(c, 0) or 0),
+            # >0 = unmet demand (more open requests than lots on the shelf).
+            "gap": open_tickets - active_lots,
+        })
+    rows.sort(key=lambda r: r["gap"], reverse=True)
+    return rows
+
+
 # ── Routes dispatcher ────────────────────────────────────────────────────────
 
 @router.get("/routes")

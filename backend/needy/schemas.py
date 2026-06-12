@@ -93,6 +93,11 @@ class NeedyProfileOut(BaseModel):
     city: Optional[str] = None
     lat: Optional[float] = None
     lon: Optional[float] = None
+    geo_push_enabled: Optional[bool] = True
+
+
+class GeoPushUpdate(BaseModel):
+    enabled: bool
 
 
 class NeedyProfileUpdate(BaseModel):

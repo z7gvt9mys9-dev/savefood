@@ -157,6 +157,62 @@ def get_profile(needy_id: int, current_user: dict = Depends(auth.get_current_use
     return p
 
 
+@router.patch("/needy/{needy_id}/geo_push")
+def set_geo_push(needy_id: int, payload: schemas.GeoPushUpdate, current_user: dict = Depends(auth.get_current_user)):
+    """Geo-push subscription toggle (§48): opt in/out of «рядом появился
+    подходящий лот» Web Push pings driven by needs_match.py."""
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
+    if not db.set_geo_push_enabled(needy_id, payload.enabled):
+        raise HTTPException(status_code=404, detail="Needy not found")
+    return {"geo_push_enabled": payload.enabled}
+
+
+@router.get("/needy/{needy_id}/export")
+def export_account(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    """Data export (§49 «право на доступ»): a JSON dump of everything stored
+    about this recipient. Owner or admin only."""
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
+    data = db.export_account(needy_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Needy not found")
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content=json_mod.loads(json_mod.dumps(data, default=str, ensure_ascii=False)),
+        headers={"Content-Disposition": f'attachment; filename="savefood_data_{needy_id}.json"'},
+    )
+
+
+@router.delete("/needy/{needy_id}/account")
+def delete_account(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
+    """«Право на забвение» (§49): erase personal data, anonymise tickets (keeping
+    aggregates), delete uploaded files and the login. Owner or admin only."""
+    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
+    result = db.erase_account(needy_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Needy not found")
+
+    # Delete the ID document from disk (lives in this module's UPLOAD_DIR).
+    doc = result.get("document")
+    if doc:
+        doc_path = os.path.join(UPLOAD_DIR, os.path.basename(doc))
+        try:
+            if os.path.isfile(doc_path):
+                os.remove(doc_path)
+        except OSError:
+            pass
+    # Delete any delivery photos (live in the volunteer uploads dir).
+    from backend.volunteer.routes import UPLOAD_DIR as VOL_UPLOAD_DIR
+    for photo in result.get("photos", []):
+        if photo and photo.startswith("/volunteer_uploads/"):
+            p = os.path.join(VOL_UPLOAD_DIR, os.path.basename(photo))
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+            except OSError:
+                pass
+    return {"ok": True, "deleted": True}
+
+
 @router.get("/needy/{needy_id}/document")
 def download_needy_document(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
     """Owner or admin-only download for a needy's uploaded ID document.

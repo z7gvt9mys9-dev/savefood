@@ -279,7 +279,16 @@
     "api_hook_delete_confirm": "Delete this webhook?",
     "api_all_events": "All events",
     "api_col_events": "Events",
-    "api_col_last": "Last delivery"
+    "api_col_last": "Last delivery",
+    "cold_chain": "Requires refrigeration ❄️",
+    "cold_badge": "❄️ Cold chain",
+    "download_csv": "Download CSV for taxes",
+    "print_label": "Print label",
+    "label_title": "Lot QR label",
+    "embed_title": "\"We saved food\" widget",
+    "embed_hint": "Paste this code on your shop website:",
+    "embed_copy": "Copy code",
+    "embed_copied": "Copied!"
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",
@@ -357,7 +366,9 @@
     "team_join": "Join",
     "team_create": "Create",
     "team_leave": "Leave team",
-    "team_leave_confirm": "Leave the team? Your past deliveries stay in its score."
+    "team_leave_confirm": "Leave the team? Your past deliveries stay in its score.",
+    "thermal_bag": "I have a thermal bag",
+    "thermal_bag_hint": "Needed to take lots that require refrigeration"
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -434,7 +445,13 @@
     "rate_label": "Rate:",
     "thanks_placeholder": "Thank your volunteer…",
     "thanks_send": "Send",
-    "shop_name_default": "Shop"
+    "shop_name_default": "Shop",
+    "geo_push": "Notify me about matching lots nearby",
+    "privacy_title": "My data",
+    "export_data": "Download my data (JSON)",
+    "delete_account": "Delete account",
+    "delete_confirm": "Delete your account and all personal data? This cannot be undone.",
+    "deleted": "Account deleted"
   },
   "admin": {
     "dashboard": "Admin Panel",
@@ -512,7 +529,14 @@
     "photo_food": "food",
     "photo_review": "review",
     "photo_not_food": "not food",
-    "photo_inappropriate": "inappropriate"
+    "photo_inappropriate": "inappropriate",
+    "heatmap": "Supply / demand map",
+    "heatmap_city": "City",
+    "heatmap_lots": "Active lots",
+    "heatmap_tickets": "Open requests",
+    "heatmap_needy": "Recipients",
+    "heatmap_vols": "Volunteers",
+    "heatmap_gap": "Gap"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",
