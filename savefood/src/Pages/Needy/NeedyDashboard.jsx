@@ -277,9 +277,9 @@ const NeedyDashboard = () => {
   }, [filterCategory, filterSearch]);
 
   const handleRateDelivery = async (ticketId, rating, comment) => {
-    if (!needyId) return;
+    if (!needyId) return false;
     const stars = rating ?? ratings[ticketId];
-    if (!stars) return;
+    if (!stars) return false;
     try {
       const params = new URLSearchParams({ rating: String(stars) });
       if (comment != null) params.set('comment', comment);
@@ -287,9 +287,10 @@ const NeedyDashboard = () => {
         `${API_URL}/needy/${needyId}/ticket/${ticketId}/rate?${params.toString()}`,
         { method: 'POST', headers: { Authorization: `Bearer ${user?.token}` } }
       );
-      if (res.ok) setRatings(prev => ({ ...prev, [ticketId]: stars }));
-      else alert(t('needy.error_rate'));
+      if (res.ok) { setRatings(prev => ({ ...prev, [ticketId]: stars })); return true; }
+      alert(t('needy.error_rate'));
     } catch { alert(t('common.connection_error')); }
+    return false;
   };
 
   const handleSaveProfile = async (e) => {
@@ -753,9 +754,14 @@ const NeedyDashboard = () => {
                           disabled={!(thankNotes[item.id] || '').trim()}
                           onClick={async () => {
                             const note = (thankNotes[item.id] || '').trim();
-                            await handleRateDelivery(item.id, null, note);
-                            setSentNotes(prev => ({ ...prev, [item.id]: note }));
-                            setThankNotes(prev => ({ ...prev, [item.id]: '' }));
+                            // After a reload the stars live in item.rating (server),
+                            // not in the session `ratings` state — pass them through,
+                            // and only mark the note as sent if the POST succeeded.
+                            const ok = await handleRateDelivery(item.id, ratings[item.id] || item.rating, note);
+                            if (ok) {
+                              setSentNotes(prev => ({ ...prev, [item.id]: note }));
+                              setThankNotes(prev => ({ ...prev, [item.id]: '' }));
+                            }
                           }}
                         >
                           {t('needy.thanks_send')}

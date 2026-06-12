@@ -24,8 +24,14 @@ const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data) && data.length) {
-        lastIdRef.current = data[data.length - 1].id;
-        setMessages(prev => [...prev, ...data]);
+        lastIdRef.current = Math.max(lastIdRef.current, data[data.length - 1].id);
+        // A poll that left with a stale after_id can return a message `send`
+        // already appended — dedupe by id so it doesn't show twice.
+        setMessages(prev => {
+          const have = new Set(prev.map(m => m.id));
+          const fresh = data.filter(m => !have.has(m.id));
+          return fresh.length ? [...prev, ...fresh] : prev;
+        });
       }
     } catch { /* offline — keep what we have */ }
   }, [ticketId, token]);
@@ -55,8 +61,8 @@ const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
       });
       if (res.ok) {
         const msg = await res.json();
-        lastIdRef.current = msg.id;
-        setMessages(prev => [...prev, msg]);
+        lastIdRef.current = Math.max(lastIdRef.current, msg.id);
+        setMessages(prev => (prev.some(m => m.id === msg.id) ? prev : [...prev, msg]));
         setDraft('');
       } else {
         const err = await res.json().catch(() => ({}));

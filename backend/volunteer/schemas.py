@@ -15,8 +15,8 @@ class VolunteerCreate(BaseModel):
 
 class AvailabilityWindow(BaseModel):
     day: int = Field(..., ge=0, le=6)   # 0=Mon … 6=Sun
-    start: str = Field(..., pattern=r"^\d{2}:\d{2}$")
-    end: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    start: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    end: str = Field(..., pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class VolunteerUpdate(BaseModel):

@@ -386,6 +386,7 @@ const ShopDashboard = () => {
         address: editLot.address,
         category: editLot.category,
         comment: editLot.comment,
+        requires_cold: !!editLot.requires_cold,
       };
       if (editLot.expiry_date) body.expiry_date = editLot.expiry_date;
       const res = await fetch(`${API_URL}/lots/${editLot.id}`, {
@@ -984,6 +985,17 @@ const ShopDashboard = () => {
               <div className="form-group">
                 <label>{t('shop.comment')}</label>
                 <input value={editLot.comment || ''} onChange={e => setEditLot({...editLot, comment: e.target.value})} />
+              </div>
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!editLot.requires_cold}
+                    onChange={e => setEditLot({...editLot, requires_cold: e.target.checked})}
+                    style={{ width: 'auto' }}
+                  />
+                  {t('shop.cold_chain')}
+                </label>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                 <button type="submit" className="btn btn-primary">{t('common.save')}</button>

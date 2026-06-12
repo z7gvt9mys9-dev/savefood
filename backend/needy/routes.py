@@ -418,6 +418,10 @@ def rate_delivery(needy_id: int, ticket_id: int, rating: int, comment: Optional[
         raise HTTPException(status_code=403, detail="Forbidden")
     if not (1 <= rating <= 5):
         raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+    # The note lands in the volunteer's thanks feed — cap it server-side (the
+    # frontend's maxLength=300 is advisory only for direct API callers).
+    if comment is not None:
+        comment = comment[:500]
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM tickets WHERE id = %s AND needy_id = %s", (ticket_id, needy_id))
         ticket = cur.fetchone()

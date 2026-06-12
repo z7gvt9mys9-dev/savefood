@@ -159,12 +159,14 @@ def decide(result: Dict[str, Any], enabled: bool = None, threshold: float = None
     return None
 
 
-def _save_result(ticket_id: int, status: str, verdict: Optional[str],
-                 score: Optional[float], notes: str, reviewed: bool):
+def _save_result(ticket_id: int, photo_url: str, status: str, verdict: Optional[str],
+                 score: Optional[float], notes: str, reviewed: bool) -> bool:
     reviewed_at = datetime.now(timezone.utc) if reviewed else None
     with get_db_cursor() as cur:
-        # Only touch a row that is still 'pending' — never overwrite a decision
-        # a human (or a later upload) made while the AI call was in flight.
+        # Only touch a row that is still 'pending' AND still points at the photo
+        # this check analysed: a human decision must never be overwritten, and a
+        # re-upload resets the status to 'pending' for a *different* file — the
+        # stale verdict must not land on (or auto-reject) the new photo.
         cur.execute(
             """
             UPDATE tickets
@@ -174,9 +176,11 @@ def _save_result(ticket_id: int, status: str, verdict: Optional[str],
                    delivery_photo_ai_notes = %s,
                    delivery_photo_reviewed_at = %s
              WHERE id = %s AND delivery_photo_status = 'pending'
+               AND delivery_photo = %s
             """,
-            (status, verdict, score, notes, reviewed_at, ticket_id),
+            (status, verdict, score, notes, reviewed_at, ticket_id, photo_url),
         )
+        return cur.rowcount > 0
 
 
 def run_photo_check(ticket_id: int, photo_path: str):
@@ -184,6 +188,7 @@ def run_photo_check(ticket_id: int, photo_path: str):
     try:
         if not os.path.isfile(photo_path):
             return
+        photo_url = f"/volunteer_uploads/{os.path.basename(photo_path)}"
         ext = os.path.splitext(photo_path)[1].lower()
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                 "webp": "image/webp"}.get(ext.lstrip("."), "image/jpeg")
@@ -192,7 +197,7 @@ def run_photo_check(ticket_id: int, photo_path: str):
         parsed = _analyze(content, mime)
         if parsed is None:
             # AI unavailable → stays pending for fully manual review.
-            _save_result(ticket_id, "pending", "unchecked", None,
+            _save_result(ticket_id, photo_url, "pending", "unchecked", None,
                          "ИИ-проверка недоступна, проверьте вручную", reviewed=False)
             return
         result = score_photo(parsed)
@@ -202,30 +207,20 @@ def run_photo_check(ticket_id: int, photo_path: str):
             notes = f"[авто-одобрено ИИ] {notes}"[:1000]
         elif auto == "rejected":
             notes = f"[авто-отклонено ИИ] {notes}"[:1000]
-        _save_result(ticket_id, auto or "pending", result["verdict"],
-                     result["score"], notes, reviewed=auto is not None)
-        if auto == "rejected":
-            _remove_photo_file(ticket_id)
-        logging.info("[photo] ticket %s: %s (%.2f) → %s",
-                     ticket_id, result["verdict"], result["score"], auto or "pending")
+        applied = _save_result(ticket_id, photo_url, auto or "pending", result["verdict"],
+                               result["score"], notes, reviewed=auto is not None)
+        if applied and auto == "rejected":
+            # Drop the analysed file (we know its exact path) so it never leaks;
+            # the row keeps the verdict for the admin's rejected queue.
+            try:
+                os.remove(photo_path)
+            except OSError:
+                pass
+        logging.info("[photo] ticket %s: %s (%.2f) → %s%s",
+                     ticket_id, result["verdict"], result["score"], auto or "pending",
+                     "" if applied else " (stale, not applied)")
     except Exception as e:
         logging.warning("[photo] check for ticket %s failed: %s", ticket_id, e)
-
-
-def _remove_photo_file(ticket_id: int):
-    """Auto-rejected photo: drop the file so it can never leak; keep the row."""
-    from backend.volunteer.routes import UPLOAD_DIR as VOL_UPLOAD_DIR
-    with get_db_cursor() as cur:
-        cur.execute("SELECT delivery_photo FROM tickets WHERE id = %s", (ticket_id,))
-        row = cur.fetchone()
-    photo = (row or {}).get("delivery_photo")
-    if photo and photo.startswith("/volunteer_uploads/"):
-        path = os.path.join(VOL_UPLOAD_DIR, os.path.basename(photo))
-        try:
-            if os.path.isfile(path):
-                os.remove(path)
-        except OSError:
-            pass
 
 
 def start_photo_check(ticket_id: int, photo_path: str):

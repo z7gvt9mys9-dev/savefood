@@ -296,12 +296,22 @@ def export_account(needy_id: int) -> Optional[Dict[str, Any]]:
             (needy_id,),
         )
         ratings = [dict(r) for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT tm.id, tm.ticket_id, tm.sender_role, tm.body, tm.created_at
+            FROM ticket_messages tm JOIN tickets t ON t.id = tm.ticket_id
+            WHERE t.needy_id = %s ORDER BY tm.id
+            """,
+            (needy_id,),
+        )
+        messages = [dict(r) for r in cur.fetchall()]
     return {
         "account": dict(n),
         "profile": dict(profile) if profile else None,
         "tickets": tickets,
         "ratings": ratings,
         "notifications": notifications,
+        "messages": messages,
     }
 
 
@@ -338,6 +348,18 @@ def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
                    delivery_photo_ai_verdict = NULL, delivery_photo_ai_notes = NULL
              WHERE needy_id = %s
             """,
+            (needy_id,),
+        )
+        # Chat threads and thank-you notes are the recipient's words (often with
+        # addresses/phones inside) — erase them too; the numeric rating survives
+        # so volunteer averages don't shift retroactively.
+        cur.execute(
+            "DELETE FROM ticket_messages WHERE ticket_id IN (SELECT id FROM tickets WHERE needy_id = %s)",
+            (needy_id,),
+        )
+        cur.execute(
+            "UPDATE delivery_ratings SET comment = NULL "
+            "WHERE ticket_id IN (SELECT id FROM tickets WHERE needy_id = %s)",
             (needy_id,),
         )
         cur.execute("DELETE FROM notifications WHERE needy_id = %s", (needy_id,))
