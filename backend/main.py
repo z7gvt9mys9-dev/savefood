@@ -126,7 +126,7 @@ def stats():
 
 def _compute_stats():
     with get_db_cursor() as cur:
-        cur.execute(f"SELECT COALESCE(SUM(l.quantity),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
+        cur.execute(f"SELECT COALESCE(SUM({esg.RESCUED_KG_SQL}),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
         kg_saved = cur.fetchone()['kg_saved']
 
         cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'fulfilled'")

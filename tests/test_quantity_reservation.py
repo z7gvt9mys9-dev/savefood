@@ -3,7 +3,17 @@ from datetime import datetime, timezone
 from backend.shop import db as shop_db
 from backend.needy.db import create_ticket, TicketCreateError, create_needy, create_or_update_profile, init_db as needy_init
 from backend.shop.db import init_db as shop_init
-from backend.database import get_db_cursor, init_common_db
+from backend.database import get_db_cursor, init_common_db, get_conn
+
+def is_db_reachable():
+    try:
+        conn = get_conn()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+pytestmark = pytest.mark.skipif(not is_db_reachable(), reason="Database not reachable")
 
 @pytest.fixture(autouse=True)
 def db_setup():
