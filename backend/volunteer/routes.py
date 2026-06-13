@@ -138,8 +138,8 @@ def upload_volunteer_document(volunteer_id: int, request: Request, file: UploadF
     vdb.set_volunteer_document(volunteer_id, f"/volunteer_kyc/{filename}")
     # Re-checking is allowed while pending: a rejected volunteer can re-upload and
     # is moved back into the queue. An already-approved volunteer is left alone.
-    if vol.get("status") == "rejected":
-        vdb.set_volunteer_status(volunteer_id, "pending")
+    if vol.get("status") == kyc_service.STATUS_REJECTED:
+        vdb.set_volunteer_status(volunteer_id, kyc_service.STATUS_PENDING)
     kyc_service.start_volunteer_kyc_check(
         volunteer_id, os.path.join(KYC_UPLOAD_DIR, filename), vol.get("name") or ""
     )
@@ -168,14 +168,14 @@ def moderate_volunteer(volunteer_id: int, status: str, current_user: dict = Depe
     document is deleted from disk to protect personal data (§5)."""
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
-    if status not in ("pending", "approved", "rejected"):
+    if status not in (kyc_service.STATUS_PENDING, kyc_service.STATUS_APPROVED, kyc_service.STATUS_REJECTED):
         raise HTTPException(status_code=400, detail="Invalid status")
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail="Volunteer not found")
     doc_path = vol.get("document")
     updated = vdb.set_volunteer_status(volunteer_id, status)
-    if status in ("approved", "rejected") and doc_path:
+    if status in (kyc_service.STATUS_APPROVED, kyc_service.STATUS_REJECTED) and doc_path:
         real_path = os.path.realpath(os.path.join(KYC_UPLOAD_DIR, os.path.basename(doc_path)))
         if real_path.startswith(os.path.realpath(KYC_UPLOAD_DIR) + os.sep) and os.path.isfile(real_path):
             try:
@@ -365,7 +365,7 @@ def enforce_volunteer_kyc(vol: dict, current_user: dict):
     their hands). Admins bypass (they act on behalf of trusted staff). Call this
     from EVERY path that hands a lot to a volunteer, so the gate cannot be
     forgotten when a new custody route is added."""
-    if VOLUNTEER_KYC_REQUIRED and current_user.get("role") != "admin" and vol.get("status") != "approved":
+    if VOLUNTEER_KYC_REQUIRED and current_user.get("role") != "admin" and vol.get("status") != kyc_service.STATUS_APPROVED:
         raise HTTPException(
             status_code=403,
             detail="Аккаунт волонтёра ещё не верифицирован — загрузите удостоверение личности и дождитесь проверки, чтобы брать маршруты",

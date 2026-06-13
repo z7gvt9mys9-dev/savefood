@@ -31,6 +31,18 @@ KYC_OK_THRESHOLD = 0.7
 # score <= threshold → verdict 'likely_fraud' (red hint)
 KYC_FRAUD_THRESHOLD = 0.3
 
+# ── Single source of truth for KYC labels (shared by needy + volunteer) ──────
+# AI verdict labels (stored in *.kyc_verdict, rendered by the admin badge).
+VERDICT_OK = "likely_ok"
+VERDICT_REVIEW = "review"
+VERDICT_FRAUD = "likely_fraud"
+VERDICT_UNCHECKED = "unchecked"  # AI unavailable → fall back to manual review
+
+# Moderation lifecycle statuses (stored in needy.status / volunteers.status).
+STATUS_PENDING = "pending"
+STATUS_APPROVED = "approved"
+STATUS_REJECTED = "rejected"
+
 # ── Auto-KYC v2 (роадмап v2.2): auto-approve at high confidence ──────────────
 # Opt-in via env. Only 'likely_ok' AT OR ABOVE the (stricter) auto-approve
 # score skips the human; 'review' and 'likely_fraud' always stay in the queue.
@@ -119,7 +131,7 @@ def _score(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic scoring of the AI's structured answer (0=fraud, 1=ok)."""
     notes = []
     if not parsed.get("is_document"):
-        return {"score": 0.0, "verdict": "likely_fraud",
+        return {"score": 0.0, "verdict": VERDICT_FRAUD,
                 "notes": "На фото не распознан документ. " + (parsed.get("summary") or "")}
 
     score = 0.5
@@ -142,11 +154,11 @@ def _score(parsed: Dict[str, Any]) -> Dict[str, Any]:
 
     score = max(0.0, min(1.0, round(score, 2)))
     if score >= KYC_OK_THRESHOLD:
-        verdict = "likely_ok"
+        verdict = VERDICT_OK
     elif score <= KYC_FRAUD_THRESHOLD:
-        verdict = "likely_fraud"
+        verdict = VERDICT_FRAUD
     else:
-        verdict = "review"
+        verdict = VERDICT_REVIEW
 
     summary = parsed.get("summary") or ""
     doc_type = parsed.get("document_type")
@@ -168,7 +180,7 @@ def should_auto_approve(verdict: str, score, enabled: bool = None, threshold: fl
     """Pure decision: auto-approve only confident 'likely_ok' verdicts."""
     enabled = KYC_AUTO_APPROVE if enabled is None else enabled
     threshold = KYC_AUTO_APPROVE_SCORE if threshold is None else threshold
-    return bool(enabled and verdict == "likely_ok" and score is not None and score >= threshold)
+    return bool(enabled and verdict == VERDICT_OK and score is not None and score >= threshold)
 
 
 def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
@@ -180,7 +192,7 @@ def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
     from backend.needy import db as needy_db
     from backend import telegram_service
 
-    if needy_db.set_needy_status(needy_id, "approved", expected_status="pending") is None:
+    if needy_db.set_needy_status(needy_id, STATUS_APPROVED, expected_status=STATUS_PENDING) is None:
         logging.info("[kyc] needy %s no longer pending; skipping auto-approve", needy_id)
         return False
     try:
@@ -217,7 +229,7 @@ def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
         parsed = _analyze(content, mime, applicant_name)
         if parsed is None:
             # AI unavailable → the queue falls back to fully manual review.
-            _save_result(needy_id, None, "unchecked", "ИИ-проверка недоступна, проверьте вручную")
+            _save_result(needy_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
             return
         result = _score(parsed)
         # Attempt the auto-approve first (it atomically claims the row only if
@@ -276,7 +288,7 @@ VOLUNTEER_SYSTEM_PROMPT = """\
 def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic scoring of the AI's structured answer for an identity doc."""
     if not parsed.get("is_document") or not parsed.get("is_id_document"):
-        return {"score": 0.0, "verdict": "likely_fraud",
+        return {"score": 0.0, "verdict": VERDICT_FRAUD,
                 "notes": "На фото не распознано удостоверение личности. " + (parsed.get("summary") or "")}
 
     notes = []
@@ -295,11 +307,11 @@ def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
 
     score = max(0.0, min(1.0, round(score, 2)))
     if score >= KYC_OK_THRESHOLD:
-        verdict = "likely_ok"
+        verdict = VERDICT_OK
     elif score <= KYC_FRAUD_THRESHOLD:
-        verdict = "likely_fraud"
+        verdict = VERDICT_FRAUD
     else:
-        verdict = "review"
+        verdict = VERDICT_REVIEW
 
     summary = parsed.get("summary") or ""
     doc_type = parsed.get("document_type")
@@ -312,7 +324,7 @@ def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
 def should_auto_approve_volunteer(verdict: str, score, enabled: bool = None, threshold: float = None) -> bool:
     enabled = VOLUNTEER_KYC_AUTO_APPROVE if enabled is None else enabled
     threshold = VOLUNTEER_KYC_AUTO_APPROVE_SCORE if threshold is None else threshold
-    return bool(enabled and verdict == "likely_ok" and score is not None and score >= threshold)
+    return bool(enabled and verdict == VERDICT_OK and score is not None and score >= threshold)
 
 
 def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bool:
@@ -323,7 +335,7 @@ def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bo
     from backend.volunteer import db as vol_db
     from backend import telegram_service
 
-    if vol_db.set_volunteer_status(vol_id, "approved", expected_status="pending") is None:
+    if vol_db.set_volunteer_status(vol_id, STATUS_APPROVED, expected_status=STATUS_PENDING) is None:
         logging.info("[kyc] volunteer %s no longer pending; skipping auto-approve", vol_id)
         return False
     try:
@@ -359,7 +371,7 @@ def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str
             content = f.read()
         parsed = _analyze(content, mime, applicant_name, system_prompt=VOLUNTEER_SYSTEM_PROMPT)
         if parsed is None:
-            vol_db.save_volunteer_kyc(vol_id, None, "unchecked", "ИИ-проверка недоступна, проверьте вручную")
+            vol_db.save_volunteer_kyc(vol_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
             return
         result = _score_volunteer(parsed)
         # Attempt the auto-approve first (it atomically claims the row only if
