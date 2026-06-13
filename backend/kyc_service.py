@@ -127,6 +127,27 @@ def _analyze(content: bytes, mime_type: str, applicant_name: str,
         return None
 
 
+def _finalize_score(score: float, notes: list, parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Shared tail of both scorers: clamp the score, pick the verdict from the
+    thresholds, and assemble the moderator note. Kept in one place so needy and
+    volunteer verdicts always mean the same thing (they share kyc_score/verdict
+    columns and the same admin badge)."""
+    score = max(0.0, min(1.0, round(score, 2)))
+    if score >= KYC_OK_THRESHOLD:
+        verdict = VERDICT_OK
+    elif score <= KYC_FRAUD_THRESHOLD:
+        verdict = VERDICT_FRAUD
+    else:
+        verdict = VERDICT_REVIEW
+
+    summary = parsed.get("summary") or ""
+    doc_type = parsed.get("document_type")
+    prefix = f"[{doc_type}] " if doc_type else ""
+    tail = ("; ".join(notes)) if notes else ""
+    note_text = (prefix + summary + ((" — " + tail) if tail else "")).strip()
+    return {"score": score, "verdict": verdict, "notes": note_text[:1000]}
+
+
 def _score(parsed: Dict[str, Any]) -> Dict[str, Any]:
     """Deterministic scoring of the AI's structured answer (0=fraud, 1=ok)."""
     notes = []
@@ -152,20 +173,7 @@ def _score(parsed: Dict[str, Any]) -> Dict[str, Any]:
         score -= 0.4
         notes.append(f"признаки редактирования: {parsed.get('tampering_reason') or 'без деталей'}")
 
-    score = max(0.0, min(1.0, round(score, 2)))
-    if score >= KYC_OK_THRESHOLD:
-        verdict = VERDICT_OK
-    elif score <= KYC_FRAUD_THRESHOLD:
-        verdict = VERDICT_FRAUD
-    else:
-        verdict = VERDICT_REVIEW
-
-    summary = parsed.get("summary") or ""
-    doc_type = parsed.get("document_type")
-    prefix = f"[{doc_type}] " if doc_type else ""
-    tail = ("; ".join(notes)) if notes else ""
-    note_text = (prefix + summary + ((" — " + tail) if tail else "")).strip()
-    return {"score": score, "verdict": verdict, "notes": note_text[:1000]}
+    return _finalize_score(score, notes, parsed)
 
 
 def _save_result(needy_id: int, score: Optional[float], verdict: str, notes: str):
@@ -217,8 +225,14 @@ def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
     return True
 
 
-def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
-    """Blocking analysis — call via start_kyc_check (thread) from endpoints."""
+def _run_kyc_pipeline(entity_id, document_path, applicant_name, *,
+                      system_prompt, scorer, saver, auto_gate, approver, label):
+    """Shared KYC orchestration for both entity types: read the document, run the
+    AI analysis, score it, atomically auto-approve when confident, and persist the
+    verdict. The needy and volunteer flows differ only in the system prompt, the
+    scorer and the db/auto-approve callables — keeping the sequence here means a
+    fix to the AI-unavailable fallback or the auto-approve ordering applies to
+    both at once."""
     try:
         if not os.path.isfile(document_path):
             return
@@ -226,24 +240,33 @@ def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
         mime = _MIME_BY_EXT.get(ext, "image/jpeg")
         with open(document_path, "rb") as f:
             content = f.read()
-        parsed = _analyze(content, mime, applicant_name)
+        parsed = _analyze(content, mime, applicant_name, system_prompt=system_prompt)
         if parsed is None:
             # AI unavailable → the queue falls back to fully manual review.
-            _save_result(needy_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
+            saver(entity_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
             return
-        result = _score(parsed)
+        result = scorer(parsed)
         # Attempt the auto-approve first (it atomically claims the row only if
         # still pending) so the notes reflect whether it actually happened.
         approved = False
-        if should_auto_approve(result["verdict"], result["score"]):
-            approved = _auto_approve(needy_id, document_path, result["score"])
+        if auto_gate(result["verdict"], result["score"]):
+            approved = approver(entity_id, document_path, result["score"])
         notes = result["notes"]
         if approved:
             notes = f"[авто-одобрено ИИ] {notes}"[:1000]
-        _save_result(needy_id, result["score"], result["verdict"], notes)
-        logging.info("[kyc] needy %s: %s (%.2f)", needy_id, result["verdict"], result["score"])
+        saver(entity_id, result["score"], result["verdict"], notes)
+        logging.info("[kyc] %s %s: %s (%.2f)", label, entity_id, result["verdict"], result["score"])
     except Exception as e:
-        logging.warning("[kyc] check for needy %s failed: %s", needy_id, e)
+        logging.warning("[kyc] %s check for %s failed: %s", label, entity_id, e)
+
+
+def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
+    """Blocking analysis — call via start_kyc_check (thread) from endpoints."""
+    _run_kyc_pipeline(
+        needy_id, document_path, applicant_name,
+        system_prompt=SYSTEM_PROMPT, scorer=_score, saver=_save_result,
+        auto_gate=should_auto_approve, approver=_auto_approve, label="needy",
+    )
 
 
 def start_kyc_check(needy_id: int, document_path: str, applicant_name: str):
@@ -305,20 +328,7 @@ def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
         score -= 0.5
         notes.append(f"признаки редактирования: {parsed.get('tampering_reason') or 'без деталей'}")
 
-    score = max(0.0, min(1.0, round(score, 2)))
-    if score >= KYC_OK_THRESHOLD:
-        verdict = VERDICT_OK
-    elif score <= KYC_FRAUD_THRESHOLD:
-        verdict = VERDICT_FRAUD
-    else:
-        verdict = VERDICT_REVIEW
-
-    summary = parsed.get("summary") or ""
-    doc_type = parsed.get("document_type")
-    prefix = f"[{doc_type}] " if doc_type else ""
-    tail = ("; ".join(notes)) if notes else ""
-    note_text = (prefix + summary + ((" — " + tail) if tail else "")).strip()
-    return {"score": score, "verdict": verdict, "notes": note_text[:1000]}
+    return _finalize_score(score, notes, parsed)
 
 
 def should_auto_approve_volunteer(verdict: str, score, enabled: bool = None, threshold: float = None) -> bool:
@@ -362,30 +372,12 @@ def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bo
 def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
     """Blocking analysis — call via start_volunteer_kyc_check (thread)."""
     from backend.volunteer import db as vol_db
-    try:
-        if not os.path.isfile(document_path):
-            return
-        ext = os.path.splitext(document_path)[1].lower()
-        mime = _MIME_BY_EXT.get(ext, "image/jpeg")
-        with open(document_path, "rb") as f:
-            content = f.read()
-        parsed = _analyze(content, mime, applicant_name, system_prompt=VOLUNTEER_SYSTEM_PROMPT)
-        if parsed is None:
-            vol_db.save_volunteer_kyc(vol_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
-            return
-        result = _score_volunteer(parsed)
-        # Attempt the auto-approve first (it atomically claims the row only if
-        # still pending) so the notes reflect whether it actually happened.
-        approved = False
-        if should_auto_approve_volunteer(result["verdict"], result["score"]):
-            approved = _auto_approve_volunteer(vol_id, document_path, result["score"])
-        notes = result["notes"]
-        if approved:
-            notes = f"[авто-одобрено ИИ] {notes}"[:1000]
-        vol_db.save_volunteer_kyc(vol_id, result["score"], result["verdict"], notes)
-        logging.info("[kyc] volunteer %s: %s (%.2f)", vol_id, result["verdict"], result["score"])
-    except Exception as e:
-        logging.warning("[kyc] volunteer check for %s failed: %s", vol_id, e)
+    _run_kyc_pipeline(
+        vol_id, document_path, applicant_name,
+        system_prompt=VOLUNTEER_SYSTEM_PROMPT, scorer=_score_volunteer,
+        saver=vol_db.save_volunteer_kyc, auto_gate=should_auto_approve_volunteer,
+        approver=_auto_approve_volunteer, label="volunteer",
+    )
 
 
 def start_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
