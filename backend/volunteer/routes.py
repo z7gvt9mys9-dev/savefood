@@ -359,20 +359,26 @@ def is_available_now(available_time: str) -> bool:
         return True
 
 
+def enforce_volunteer_kyc(vol: dict, current_user: dict):
+    """KYC gate (§58): an unverified volunteer must not take custody of food —
+    that is the whole point of identity verification (food leaves the shop in
+    their hands). Admins bypass (they act on behalf of trusted staff). Call this
+    from EVERY path that hands a lot to a volunteer, so the gate cannot be
+    forgotten when a new custody route is added."""
+    if VOLUNTEER_KYC_REQUIRED and current_user.get("role") != "admin" and vol.get("status") != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail="Аккаунт волонтёра ещё не верифицирован — загрузите удостоверение личности и дождитесь проверки, чтобы брать маршруты",
+        )
+
+
 @router.post("/volunteers/{volunteer_id}/start_route")
 def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail="Volunteer not found")
-    # KYC gate (§58): an unverified volunteer must not be able to claim a lot —
-    # that is the whole point of identity verification (food leaves the shop in
-    # their hands). Admins bypass (they act on behalf of trusted staff).
-    if VOLUNTEER_KYC_REQUIRED and current_user.get("role") != "admin" and vol.get("status") != "approved":
-        raise HTTPException(
-            status_code=403,
-            detail="Аккаунт волонтёра ещё не верифицирован — загрузите удостоверение личности и дождитесь проверки, чтобы брать маршруты",
-        )
+    enforce_volunteer_kyc(vol, current_user)
     # prevent multiple active routes for the same volunteer
     existing = vdb.get_active_route(volunteer_id)
     if existing:
