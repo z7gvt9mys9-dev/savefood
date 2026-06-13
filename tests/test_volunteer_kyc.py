@@ -152,6 +152,32 @@ def test_set_status_conditional_guard_blocks_stale_flip():
     assert vdb.get_volunteer_by_id(vid)["status"] == "rejected"
 
 
+def test_kyc_doc_retention_purges_stale_pending_doc():
+    """§5/§58: a document on a still-'pending' account older than the retention
+    window is purged by the sweep (file deleted, reference cleared)."""
+    from backend import background
+    vid = vdb.create_volunteer("V", "+7", 43.2, 76.9, "Almaty")  # pending
+    vdb.set_volunteer_document(vid, "/volunteer_kyc/stale.jpg")
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE volunteers SET kyc_checked_at = CURRENT_TIMESTAMP - INTERVAL '100 hours' WHERE id = %s", (vid,))
+    purged = background.kyc_doc_retention_tick(retention_hours=72)
+    assert purged >= 1
+    assert vdb.get_volunteer_by_id(vid)["document"] is None
+    # Still pending so the banner keeps asking for a re-upload.
+    assert vdb.get_volunteer_by_id(vid)["status"] == "pending"
+
+
+def test_kyc_doc_retention_keeps_fresh_doc():
+    """A document checked within the window must NOT be purged."""
+    from backend import background
+    vid = vdb.create_volunteer("V2", "+7", 43.2, 76.9, "Almaty")
+    vdb.set_volunteer_document(vid, "/volunteer_kyc/fresh.jpg")
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE volunteers SET kyc_checked_at = CURRENT_TIMESTAMP WHERE id = %s", (vid,))
+    background.kyc_doc_retention_tick(retention_hours=72)
+    assert vdb.get_volunteer_by_id(vid)["document"] == "/volunteer_kyc/fresh.jpg"
+
+
 def test_set_status_clears_document_reference():
     vid = vdb.create_volunteer("V", "+7", 43.2, 76.9, "Almaty")
     vdb.set_volunteer_document(vid, "/volunteer_kyc/abc.jpg")

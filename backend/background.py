@@ -25,6 +25,8 @@ from datetime import datetime, timezone
 from backend import telegram_service
 from backend.database import get_db_cursor
 from backend.shop import db as shop_db
+from backend.needy import db as needy_db
+from backend.volunteer import db as volunteer_db
 from backend.utils import haversine as haversine_m
 
 # Tick intervals (seconds) — same cadence the in-process loops always had.
@@ -32,8 +34,21 @@ EXPIRE_INTERVAL = 60 * 30
 REASSIGN_INTERVAL = 60 * 10
 ANTIFRAUD_INTERVAL = 60 * 3
 RESERVATION_TTL_INTERVAL = 60 * 5
+KYC_DOC_RETENTION_INTERVAL = 60 * 60  # hourly is plenty for a slow-moving sweep
 
 REASSIGN_TIMEOUT_MINUTES = 60
+
+# KYC document retention (§5/§58): identity & eligibility documents must not
+# live on disk indefinitely. A doc is normally deleted on a final moderation
+# decision, but an account that stays 'pending' (never moderated, or AI
+# 'unchecked') would otherwise keep its document forever — so a time-based sweep
+# purges them after this many hours. Keyed on kyc_checked_at (set seconds after
+# upload), NOT created_at (which is the account date).
+KYC_DOC_RETENTION_HOURS = int(os.getenv("KYC_DOC_RETENTION_HOURS", "72"))
+
+# Upload dirs, derived the same way the route modules build them.
+_VOL_KYC_DIR = os.path.join(os.path.dirname(volunteer_db.__file__), "kyc_uploads")
+_NEEDY_UPLOAD_DIR = os.path.join(os.path.dirname(needy_db.__file__), "uploads")
 
 # Anti-fraud tuning (§27)
 ANTIFRAUD_CHECK_AFTER_MINUTES = 15  # silence window after claiming the lot
@@ -249,6 +264,90 @@ def reservation_ttl_tick() -> int:
     return cancelled
 
 
+def _safe_doc_path(upload_dir: str, doc) -> str | None:
+    """Resolve a stored document reference to an on-disk path INSIDE upload_dir,
+    or None. Same realpath traversal guard the route handlers use, so a crafted
+    basename can't escape the directory."""
+    if not doc:
+        return None
+    real = os.path.realpath(os.path.join(upload_dir, os.path.basename(doc)))
+    if real.startswith(os.path.realpath(upload_dir) + os.sep) and os.path.isfile(real):
+        return real
+    return None
+
+
+def kyc_doc_retention_tick(retention_hours: int = KYC_DOC_RETENTION_HOURS) -> int:
+    """Purge KYC documents that have sat unmoderated past the retention window
+    (§5). A time-based sweep instead of relying on a moderator eventually acting:
+    a still-'pending' account older than the window has its document file deleted
+    and its document reference cleared, and is asked to re-upload. No moderation
+    state is lost beyond the now-deleted file; the account stays 'pending' so the
+    verification banner keeps prompting. Covers volunteers and needy."""
+    purged = 0
+    with get_db_cursor() as cur:
+        # ── Volunteers (document column on volunteers) ──
+        cur.execute(
+            """
+            SELECT id, document FROM volunteers
+            WHERE document IS NOT NULL AND status = 'pending'
+              AND kyc_checked_at IS NOT NULL
+              AND kyc_checked_at < CURRENT_TIMESTAMP - make_interval(hours => %s)
+            """,
+            (retention_hours,),
+        )
+        for row in cur.fetchall():
+            real = _safe_doc_path(_VOL_KYC_DIR, row["document"])
+            if real:
+                try:
+                    os.remove(real)
+                except OSError:
+                    pass
+            cur.execute("UPDATE volunteers SET document = NULL WHERE id = %s", (row["id"],))
+            msg = ("Срок хранения вашего удостоверения истёк, и оно удалено. "
+                   "Загрузите документ заново, чтобы пройти верификацию.")
+            cur.execute(
+                "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 0)",
+                (row["id"], "kyc_doc_purged", msg),
+            )
+            try:
+                telegram_service.notify_volunteer(row["id"], f"⏳ {msg}")
+            except Exception:
+                pass
+            purged += 1
+
+        # ── Needy (document lives on needy_profile, kyc_checked_at on needy) ──
+        cur.execute(
+            """
+            SELECT n.id AS id, p.document AS document FROM needy n
+            JOIN needy_profile p ON p.needy_id = n.id
+            WHERE p.document IS NOT NULL AND n.status = 'pending'
+              AND n.kyc_checked_at IS NOT NULL
+              AND n.kyc_checked_at < CURRENT_TIMESTAMP - make_interval(hours => %s)
+            """,
+            (retention_hours,),
+        )
+        for row in cur.fetchall():
+            real = _safe_doc_path(_NEEDY_UPLOAD_DIR, row["document"])
+            if real:
+                try:
+                    os.remove(real)
+                except OSError:
+                    pass
+            cur.execute("UPDATE needy_profile SET document = NULL WHERE needy_id = %s", (row["id"],))
+            msg = ("Срок хранения вашего документа истёк, и он удалён. "
+                   "Загрузите документ заново, чтобы подтвердить право на помощь.")
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 0)",
+                (row["id"], "kyc_doc_purged", msg),
+            )
+            try:
+                telegram_service.notify_needy(row["id"], f"⏳ {msg}")
+            except Exception:
+                pass
+            purged += 1
+    return purged
+
+
 # ── Scheduling ───────────────────────────────────────────────────────────────
 
 TASKS = (
@@ -256,6 +355,7 @@ TASKS = (
     ("reassign", reassign_tick, REASSIGN_INTERVAL),
     ("antifraud", antifraud_tick, ANTIFRAUD_INTERVAL),
     ("reservation_ttl", reservation_ttl_tick, RESERVATION_TTL_INTERVAL),
+    ("kyc_doc_retention", kyc_doc_retention_tick, KYC_DOC_RETENTION_INTERVAL),
 )
 
 

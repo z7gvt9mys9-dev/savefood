@@ -14,8 +14,10 @@ a timestamped, gzip-compressed plain-SQL dump to `BACKUP_DIR`. It:
 
 Uploaded files (delivery photos, shop logos) live in separate Docker volumes
 (`shop_uploads`, `needy_uploads`, `volunteer_uploads`). Identity/KYC documents
-are deliberately **not** backed up — they are deleted after moderation by design
-(§5). Back up the upload volumes separately if photo history matters.
+are deliberately **not** backed up — they are deleted after a moderation
+decision, or purged by the `kyc_doc_retention` background sweep after
+`KYC_DOC_RETENTION_HOURS` (default 72) if never moderated (§5). Back up the
+other upload volumes separately if photo history matters.
 
 ## Schedule (cron)
 
