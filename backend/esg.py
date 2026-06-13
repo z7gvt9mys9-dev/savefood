@@ -46,7 +46,22 @@ RESCUED_SQL = (
     "(SELECT 1 FROM tickets _t WHERE _t.lot_id = l.id AND _t.status = 'fulfilled'))"
 )
 RESCUED_AT_SQL = "COALESCE(l.taken_at, l.created_at)"
-RESCUED_KG_SQL = "(l.initial_quantity * l.unit_weight_kg)"
+# Rescued kg must not run ahead of what was actually handed over (the tax CSV
+# §50 reads this). Two evidenced cases, never overlapping:
+#   • status='confirmed' — the shop confirmed transfer of the WHOLE lot to the
+#     charity logistics (delivery flow): the entire initial_quantity is donated.
+#   • otherwise — only the units with a fulfilled (QR-verified) ticket count.
+#     This is the self-pickup case: a 50-unit lot with one picked-up unit must
+#     report 1 unit, NOT 50. (A self-pickup lot is never 'confirmed', because
+#     confirm_lot_transfer requires status='taken', so the branches can't double
+#     count.) Per-ticket quantity × unit weight keeps mixed units (шт/кг) honest.
+RESCUED_KG_SQL = (
+    "(CASE WHEN l.status = 'confirmed' "
+    "THEN l.initial_quantity * l.unit_weight_kg "
+    "ELSE (SELECT COALESCE(SUM(_ft.quantity), 0) FROM tickets _ft "
+    "WHERE _ft.lot_id = l.id AND _ft.status = 'fulfilled') * l.unit_weight_kg "
+    "END)"
+)
 
 
 def _co2(kg: float, category: Optional[str]) -> float:

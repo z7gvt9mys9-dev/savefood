@@ -81,7 +81,7 @@ def volunteer_leaderboard():
             SELECT v.id, v.name,
                    COUNT(t.id) AS deliveries,
                    COALESCE((
-                       SELECT SUM(l.initial_quantity * l.unit_weight_kg)
+                       SELECT SUM(""" + esg.RESCUED_KG_SQL + """)
                        FROM volunteer_routes vr JOIN lots l ON l.id = vr.lot_id
                        WHERE vr.volunteer_id = v.id AND vr.status = 'finished'
                    ), 0) AS kg
@@ -112,7 +112,7 @@ def team_leaderboard():
                    COUNT(DISTINCT v.id) AS members,
                    COUNT(t.id) AS deliveries,
                    COALESCE((
-                       SELECT SUM(l.initial_quantity * l.unit_weight_kg)
+                       SELECT SUM(""" + esg.RESCUED_KG_SQL + """)
                        FROM volunteer_routes vr
                        JOIN lots l ON l.id = vr.lot_id
                        JOIN volunteers v2 ON v2.id = vr.volunteer_id
