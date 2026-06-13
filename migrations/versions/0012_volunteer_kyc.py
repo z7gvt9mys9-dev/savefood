@@ -33,9 +33,12 @@ def upgrade() -> None:
     op.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_verdict TEXT")
     op.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_notes TEXT")
     op.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMP WITH TIME ZONE")
+    # The moderation queue and the start_route gate both filter on status.
+    op.execute("CREATE INDEX IF NOT EXISTS idx_volunteers_status ON volunteers (status)")
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS idx_volunteers_status")
     op.execute("ALTER TABLE volunteers DROP COLUMN IF EXISTS kyc_checked_at")
     op.execute("ALTER TABLE volunteers DROP COLUMN IF EXISTS kyc_notes")
     op.execute("ALTER TABLE volunteers DROP COLUMN IF EXISTS kyc_verdict")

@@ -105,6 +105,9 @@ def init_db():
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_verdict TEXT")
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_notes TEXT")
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMP WITH TIME ZONE")
+        # The admin moderation queue and the start_route gate both filter on
+        # status; index it so the lookup stays cheap as the table grows.
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_volunteers_status ON volunteers (status)")
 
         # Corporate volunteering: a team is just a named group with a join
         # code; impact aggregates roll up via volunteers.team_id.
@@ -238,11 +241,13 @@ def set_volunteer_status(vol_id: int, status: str) -> Optional[Dict[str, Any]]:
         if not v:
             return None
         doc_path = v.get("document")
-        cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
-        # Drop the document reference after a final decision; the file itself is
-        # removed by the route (it owns the upload dir).
+        # Drop the document reference after a final decision (the file itself is
+        # removed by the route, which owns the upload dir) — done in the same
+        # UPDATE as the status flip to avoid a second round-trip on the row.
         if status in ("approved", "rejected") and doc_path:
-            cur.execute("UPDATE volunteers SET document = NULL WHERE id = %s", (vol_id,))
+            cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s", (status, vol_id))
+        else:
+            cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         return _parse_availability(dict(cur.fetchone()))
 
