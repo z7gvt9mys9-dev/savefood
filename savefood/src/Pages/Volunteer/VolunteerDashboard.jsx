@@ -176,6 +176,17 @@ const VolunteerDashboard = () => {
     return stopScanner;
   }, [scanning]);
 
+  // Single place that (re)loads the volunteer account into volunteerInfo —
+  // used by the initial load, the KYC upload, and the stats refresh so the
+  // fetch+set isn't copy-pasted (and can't diverge in error handling).
+  const refreshVolunteerInfo = async () => {
+    if (!volunteerId) return;
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
+      if (res.ok) setVolunteerInfo(await res.json());
+    } catch { /* offline */ }
+  };
+
   useEffect(() => {
     fetchMapData();
     if (volunteerId) {
@@ -190,10 +201,7 @@ const VolunteerDashboard = () => {
         .catch(() => {});
       // KYC (§58): load the account so the verification banner can show when
       // the volunteer is not yet 'approved' and routes are blocked.
-      fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader })
-        .then(res => res.ok ? res.json() : null)
-        .then(data => { if (data) setVolunteerInfo(data); })
-        .catch(() => {});
+      refreshVolunteerInfo();
     }
   }, [volunteerId]);
 
@@ -212,8 +220,7 @@ const VolunteerDashboard = () => {
         alert(err.detail || t('volunteer.kyc_upload_error'));
       } else {
         alert(t('volunteer.kyc_uploaded'));
-        const v = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
-        if (v.ok) setVolunteerInfo(await v.json());
+        await refreshVolunteerInfo();
       }
     } catch {
       alert(t('volunteer.kyc_upload_error'));
@@ -289,10 +296,7 @@ const VolunteerDashboard = () => {
       const res = await fetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
       if (res.ok) setStats(await res.json());
     } catch {}
-    try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
-      if (res.ok) setVolunteerInfo(await res.json());
-    } catch {}
+    await refreshVolunteerInfo();
     // Leaderboards are public impact endpoints — no auth header needed.
     try {
       const [citiesRes, volsRes] = await Promise.all([
