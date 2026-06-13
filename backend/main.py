@@ -117,6 +117,26 @@ def metrics(request: Request):
     return Response(content=monitoring.metrics_payload(), media_type=monitoring.CONTENT_TYPE_LATEST)
 
 
+@app.get("/healthz")
+def healthz():
+    """Liveness probe — the process is up and serving. Deliberately checks no
+    dependencies so a transient DB blip doesn't get a healthy app restarted."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readyz():
+    """Readiness probe — verifies the DB is reachable before the container is
+    declared healthy / sent traffic by the deploy. 503 = don't route here yet."""
+    try:
+        with get_db_cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+    except Exception:
+        return JSONResponse(status_code=503, content={"status": "db_unavailable"})
+    return {"status": "ready"}
+
+
 @app.get("/stats")
 def stats():
     # Public landing-page counters — polled by every visitor, cached briefly.

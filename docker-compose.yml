@@ -74,6 +74,18 @@ services:
       # Auto-KYC v2 (optional)
       KYC_AUTO_APPROVE: ${KYC_AUTO_APPROVE:-false}
       KYC_AUTO_APPROVE_SCORE: ${KYC_AUTO_APPROVE_SCORE:-0.85}
+      # Volunteer identity KYC (§58). Gate ON by default; auto-approve OFF.
+      VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
+      VOLUNTEER_KYC_AUTO_APPROVE: ${VOLUNTEER_KYC_AUTO_APPROVE:-false}
+      VOLUNTEER_KYC_AUTO_APPROVE_SCORE: ${VOLUNTEER_KYC_AUTO_APPROVE_SCORE:-0.85}
+    healthcheck:
+      # /readyz also checks DB reachability, so the container only reports
+      # healthy once it can actually serve requests (curl is in the image).
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - shop_uploads:/app/backend/shop/uploads
       - needy_uploads:/app/backend/needy/uploads
@@ -152,8 +164,10 @@ services:
     ports:
       - "${APP_PORT:-80}:80"
     depends_on:
-      - backend
-      - geows
+      backend:
+        condition: service_healthy
+      geows:
+        condition: service_started
 
 volumes:
   postgres_data:
