@@ -37,10 +37,22 @@ $COMPOSE exec -T postgres pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-own
 
 # Guard against keeping a truncated/empty file as "the backup" — a silent
 # failure here is exactly how teams discover their backups were useless.
-if ! gzip -dc "$tmp" | head -n 20 | grep -q "PostgreSQL database dump"; then
-  echo "ERROR: dump did not contain a valid pg_dump header — aborting" >&2
+# gzip -t validates the whole stream (catches truncation/empty/corruption);
+# the header check confirms it's actually a pg_dump. We capture the head into a
+# variable (with `|| true`) so the producer's SIGPIPE under `set -o pipefail`
+# can't false-fail the check.
+if ! gzip -t "$tmp" 2>/dev/null; then
+  echo "ERROR: backup failed gzip integrity check (truncated/empty?) — aborting" >&2
   exit 1
 fi
+header="$(gzip -dc "$tmp" 2>/dev/null | head -n 20 || true)"
+case "$header" in
+  *"PostgreSQL database dump"*) : ;;
+  *)
+    echo "ERROR: dump did not contain a valid pg_dump header — aborting" >&2
+    exit 1
+    ;;
+esac
 
 mv "$tmp" "$out"
 trap - EXIT

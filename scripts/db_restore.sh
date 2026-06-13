@@ -23,6 +23,18 @@ if [ "${CONFIRM:-}" != "yes" ]; then
   exit 2
 fi
 
+# Validate BEFORE streaming into psql, so a truncated/corrupt dump can't
+# half-apply (DROP/CREATE/COPY part-way) into the target database.
+if ! gzip -t "$DUMP" 2>/dev/null; then
+  echo "ERROR: $DUMP failed gzip integrity check — refusing to restore" >&2
+  exit 1
+fi
+header="$(gzip -dc "$DUMP" 2>/dev/null | head -n 20 || true)"
+case "$header" in
+  *"PostgreSQL database dump"*) : ;;
+  *) echo "ERROR: $DUMP is not a pg_dump backup — refusing to restore" >&2; exit 1 ;;
+esac
+
 echo "restoring $DUMP into database '$POSTGRES_DB' ..."
 # ON_ERROR_STOP=1 so a broken dump fails loudly instead of half-applying.
 gzip -dc "$DUMP" | $COMPOSE exec -T postgres \
