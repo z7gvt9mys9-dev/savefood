@@ -171,14 +171,18 @@ def should_auto_approve(verdict: str, score, enabled: bool = None, threshold: fl
     return bool(enabled and verdict == "likely_ok" and score is not None and score >= threshold)
 
 
-def _auto_approve(needy_id: int, document_path: str, score: float):
+def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
     """Approve without a human: same effects as the moderation endpoint (§5) —
-    status flip, document removal, notification — plus an audit trail."""
+    status flip, document removal, notification — plus an audit trail. The flip
+    is conditional on the row still being 'pending', so a moderator who decided
+    during the AI call is not overwritten. Returns True only if we approved."""
     from backend.database import log_action
     from backend.needy import db as needy_db
     from backend import telegram_service
 
-    needy_db.set_needy_status(needy_id, "approved")
+    if needy_db.set_needy_status(needy_id, "approved", expected_status="pending") is None:
+        logging.info("[kyc] needy %s no longer pending; skipping auto-approve", needy_id)
+        return False
     try:
         if os.path.isfile(document_path):
             os.remove(document_path)
@@ -198,6 +202,7 @@ def _auto_approve(needy_id: int, document_path: str, score: float):
     except Exception:
         pass
     logging.info("[kyc] needy %s auto-approved (score %.2f)", needy_id, score)
+    return True
 
 
 def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
@@ -215,19 +220,15 @@ def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
             _save_result(needy_id, None, "unchecked", "ИИ-проверка недоступна, проверьте вручную")
             return
         result = _score(parsed)
+        # Attempt the auto-approve first (it atomically claims the row only if
+        # still pending) so the notes reflect whether it actually happened.
+        approved = False
+        if should_auto_approve(result["verdict"], result["score"]):
+            approved = _auto_approve(needy_id, document_path, result["score"])
         notes = result["notes"]
-        auto = should_auto_approve(result["verdict"], result["score"])
-        if auto:
+        if approved:
             notes = f"[авто-одобрено ИИ] {notes}"[:1000]
         _save_result(needy_id, result["score"], result["verdict"], notes)
-        if auto:
-            # Only auto-approve while still pending — a moderator may have
-            # already made a manual decision during the AI call.
-            with get_db_cursor() as cur:
-                cur.execute("SELECT status FROM needy WHERE id = %s", (needy_id,))
-                row = cur.fetchone()
-            if row and row["status"] == "pending":
-                _auto_approve(needy_id, document_path, result["score"])
         logging.info("[kyc] needy %s: %s (%.2f)", needy_id, result["verdict"], result["score"])
     except Exception as e:
         logging.warning("[kyc] check for needy %s failed: %s", needy_id, e)
@@ -314,12 +315,17 @@ def should_auto_approve_volunteer(verdict: str, score, enabled: bool = None, thr
     return bool(enabled and verdict == "likely_ok" and score is not None and score >= threshold)
 
 
-def _auto_approve_volunteer(vol_id: int, document_path: str, score: float):
+def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bool:
+    """Approve a volunteer without a human. The flip is conditional on the row
+    still being 'pending' so a concurrent manual decision is not overwritten.
+    Returns True only if we approved."""
     from backend.database import log_action
     from backend.volunteer import db as vol_db
     from backend import telegram_service
 
-    vol_db.set_volunteer_status(vol_id, "approved")
+    if vol_db.set_volunteer_status(vol_id, "approved", expected_status="pending") is None:
+        logging.info("[kyc] volunteer %s no longer pending; skipping auto-approve", vol_id)
+        return False
     try:
         if document_path and os.path.isfile(document_path):
             os.remove(document_path)
@@ -338,6 +344,7 @@ def _auto_approve_volunteer(vol_id: int, document_path: str, score: float):
     except Exception:
         pass
     logging.info("[kyc] volunteer %s auto-approved (score %.2f)", vol_id, score)
+    return True
 
 
 def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
@@ -355,15 +362,15 @@ def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str
             vol_db.save_volunteer_kyc(vol_id, None, "unchecked", "ИИ-проверка недоступна, проверьте вручную")
             return
         result = _score_volunteer(parsed)
+        # Attempt the auto-approve first (it atomically claims the row only if
+        # still pending) so the notes reflect whether it actually happened.
+        approved = False
+        if should_auto_approve_volunteer(result["verdict"], result["score"]):
+            approved = _auto_approve_volunteer(vol_id, document_path, result["score"])
         notes = result["notes"]
-        auto = should_auto_approve_volunteer(result["verdict"], result["score"])
-        if auto:
+        if approved:
             notes = f"[авто-одобрено ИИ] {notes}"[:1000]
         vol_db.save_volunteer_kyc(vol_id, result["score"], result["verdict"], notes)
-        if auto:
-            v = vol_db.get_volunteer_by_id(vol_id)
-            if v and v.get("status") == "pending":
-                _auto_approve_volunteer(vol_id, document_path, result["score"])
         logging.info("[kyc] volunteer %s: %s (%.2f)", vol_id, result["verdict"], result["score"])
     except Exception as e:
         logging.warning("[kyc] volunteer check for %s failed: %s", vol_id, e)

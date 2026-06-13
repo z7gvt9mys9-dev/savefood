@@ -231,23 +231,37 @@ def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lo
         return vid
 
 
-def set_volunteer_status(vol_id: int, status: str) -> Optional[Dict[str, Any]]:
-    """Admin/auto-KYC decision (§58). Returns the on-disk document path the caller
-    must delete after a final decision (approve/reject) — the identity document is
-    only needed during moderation, same lifecycle as the needy document (§5)."""
+def set_volunteer_status(vol_id: int, status: str, expected_status: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Admin/auto-KYC decision (§58). The identity document reference is dropped
+    after a final decision (approve/reject) — the file itself is only needed
+    during moderation, same lifecycle as the needy document (§5).
+
+    When `expected_status` is given the flip is conditional (UPDATE ... WHERE
+    status = expected) and returns None if the row was no longer in that state —
+    used by the auto-KYC thread so it cannot clobber a manual moderation decision
+    made during the AI call (TOCTOU guard)."""
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         v = cur.fetchone()
         if not v:
             return None
-        doc_path = v.get("document")
-        # Drop the document reference after a final decision (the file itself is
-        # removed by the route, which owns the upload dir) — done in the same
-        # UPDATE as the status flip to avoid a second round-trip on the row.
-        if status in ("approved", "rejected") and doc_path:
-            cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s", (status, vol_id))
+        clear_doc = status in ("approved", "rejected") and bool(v.get("document"))
+        # Drop the document reference in the same UPDATE as the status flip to
+        # avoid a second round-trip on the row.
+        if expected_status is None:
+            if clear_doc:
+                cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s", (status, vol_id))
+            else:
+                cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
         else:
-            cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
+            if clear_doc:
+                cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s AND status = %s",
+                            (status, vol_id, expected_status))
+            else:
+                cur.execute("UPDATE volunteers SET status = %s WHERE id = %s AND status = %s",
+                            (status, vol_id, expected_status))
+            if cur.rowcount == 0:
+                return None
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
         return _parse_availability(dict(cur.fetchone()))
 

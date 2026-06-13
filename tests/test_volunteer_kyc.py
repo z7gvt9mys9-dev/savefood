@@ -139,6 +139,19 @@ def test_approved_volunteer_can_start_route():
     assert res["route_id"]
 
 
+def test_set_status_conditional_guard_blocks_stale_flip():
+    """TOCTOU guard (§58): the auto-KYC thread approves only via expected_status.
+    If a moderator rejected during the AI call, the conditional flip must be a
+    no-op (returns None) instead of clobbering the rejection.
+    """
+    vid = vdb.create_volunteer("V", "+7", 43.2, 76.9, "Almaty")  # pending
+    vdb.set_volunteer_status(vid, "rejected")  # moderator decides first
+    # Auto-KYC tries to approve, but only if still 'pending' — must not win.
+    result = vdb.set_volunteer_status(vid, "approved", expected_status="pending")
+    assert result is None
+    assert vdb.get_volunteer_by_id(vid)["status"] == "rejected"
+
+
 def test_set_status_clears_document_reference():
     vid = vdb.create_volunteer("V", "+7", 43.2, 76.9, "Almaty")
     vdb.set_volunteer_document(vid, "/volunteer_kyc/abc.jpg")

@@ -477,13 +477,27 @@ def erase_account(needy_id: int) -> Optional[Dict[str, Any]]:
         )
     return {"document": document, "photos": photos}
 
-def set_needy_status(needy_id: int, status: str) -> Optional[Dict[str, Any]]:
+def set_needy_status(needy_id: int, status: str, expected_status: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Set the moderation status. When `expected_status` is given the flip is
+    conditional (UPDATE ... WHERE status = expected) and returns None if the row
+    was no longer in that state — used by the auto-KYC thread so it cannot clobber
+    a manual decision a moderator made during the AI call (TOCTOU guard)."""
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))
         n = cur.fetchone()
         if not n:
             return None
-        
+
+        # Flip the status first (atomically when guarded) so the document
+        # deletion below only runs once we know the transition actually happened.
+        if expected_status is None:
+            cur.execute("UPDATE needy SET status = %s WHERE id = %s", (status, needy_id))
+        else:
+            cur.execute("UPDATE needy SET status = %s WHERE id = %s AND status = %s",
+                        (status, needy_id, expected_status))
+            if cur.rowcount == 0:
+                return None
+
         if status == 'approved':
             cur.execute("SELECT document FROM needy_profile WHERE needy_id = %s", (needy_id,))
             prof = cur.fetchone()
@@ -498,7 +512,6 @@ def set_needy_status(needy_id: int, status: str) -> Optional[Dict[str, Any]]:
                         print(f"Error deleting sensitive document: {e}")
                 cur.execute("UPDATE needy_profile SET document = NULL WHERE needy_id = %s", (needy_id,))
 
-        cur.execute("UPDATE needy SET status = %s WHERE id = %s", (status, needy_id))
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))
         updated = cur.fetchone()
         return dict(updated)
