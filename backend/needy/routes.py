@@ -316,19 +316,23 @@ def cancel_ticket(needy_id: int, ticket_id: int, current_user: dict = Depends(au
         ticket = cur.fetchone()
         if not ticket:
             raise HTTPException(status_code=404, detail="Ticket not found")
-        if ticket["status"] == "open":
-            cur.execute("DELETE FROM tickets WHERE id = %s", (ticket_id,))
-        elif ticket["status"] == "assigned":
-            # Plans change on the recipient's side too — without this branch the
-            # only way out of an assigned ticket was «не открыть дверь» три раза.
+        if ticket["status"] in ("open", "assigned"):
             vol_id = ticket.get("assigned_volunteer_id")
             cur.execute(
                 "UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, assigned_volunteer_id = NULL "
-                "WHERE id = %s AND status = 'assigned'",
+                "WHERE id = %s AND status IN ('open', 'assigned')",
                 (ticket_id,),
             )
             if cur.rowcount == 0:
                 raise HTTPException(status_code=409, detail="Заявка уже изменила статус — обновите страницу")
+            
+            # Guarded return: return reserved quantity to the lot if it's still active.
+            if ticket['lot_id']:
+                cur.execute(
+                    "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                    (ticket.get('quantity') or 1.0, ticket['lot_id'])
+                )
+
             if vol_id:
                 # Drop the stop from the volunteer's active route so they don't
                 # drive to a recipient who is no longer waiting.

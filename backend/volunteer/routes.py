@@ -116,7 +116,7 @@ def get_map_points(current_user: dict = Depends(get_current_user)):
             SELECT s.id as shop_id, s.name, s.lat, s.lon, s.kind, l.id as lot_id, l.description, l.quantity, l.photo, l.category
             FROM shops s
             JOIN lots l ON s.id = l.shop_id
-            WHERE l.status = 'active'
+            WHERE l.status = 'active' AND l.quantity > 0
             AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')
         """)
         for r in cur.fetchall():
@@ -466,10 +466,17 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         # self-pickup ticket on it would send its recipient to an empty shelf.
         # Cancel them now, with an explanation; their weekly window stays free.
         cur.execute(
-            "UPDATE tickets SET status = 'cancelled' WHERE lot_id = %s AND status = 'open' AND self_pickup = TRUE RETURNING id, needy_id",
+            "UPDATE tickets SET status = 'cancelled' WHERE lot_id = %s AND status = 'open' AND self_pickup = TRUE RETURNING id, needy_id, quantity",
             (payload.lot_id,),
         )
         for row in cur.fetchall():
+            # Attempt to return quantity (guarded: lot must be active).
+            # Since we just set status='taken' above, this will correctly do nothing,
+            # ensuring reserved units don't "resurrect" on the map.
+            cur.execute(
+                "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                (row['quantity'], payload.lot_id)
+            )
             cur.execute(
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
                 (row['needy_id'], 'self_pickup_cancelled',
