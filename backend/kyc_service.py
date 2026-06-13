@@ -246,15 +246,15 @@ def _run_kyc_pipeline(entity_id, document_path, applicant_name, *,
             saver(entity_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
             return
         result = scorer(parsed)
-        # Attempt the auto-approve first (it atomically claims the row only if
-        # still pending) so the notes reflect whether it actually happened.
-        approved = False
-        if auto_gate(result["verdict"], result["score"]):
-            approved = approver(entity_id, document_path, result["score"])
-        notes = result["notes"]
-        if approved:
-            notes = f"[авто-одобрено ИИ] {notes}"[:1000]
-        saver(entity_id, result["score"], result["verdict"], notes)
+        # Persist the verdict FIRST, so an entity is never left auto-approved
+        # with a null KYC record if a later step fails.
+        saver(entity_id, result["score"], result["verdict"], result["notes"])
+        # Then attempt the auto-approve — it atomically claims the row only if
+        # still pending (a moderator may have decided during the AI call). Only
+        # on an actual approval do we re-stamp the note so it reflects reality.
+        if auto_gate(result["verdict"], result["score"]) and approver(entity_id, document_path, result["score"]):
+            saver(entity_id, result["score"], result["verdict"],
+                  f"[авто-одобрено ИИ] {result['notes']}"[:1000])
         logging.info("[kyc] %s %s: %s (%.2f)", label, entity_id, result["verdict"], result["score"])
     except Exception as e:
         logging.warning("[kyc] %s check for %s failed: %s", label, entity_id, e)
