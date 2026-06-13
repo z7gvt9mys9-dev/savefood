@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
-from fastapi.responses import FileResponse
 import html
 import json
 import math
@@ -149,56 +148,10 @@ def upload_volunteer_document(volunteer_id: int, request: Request, file: UploadF
     return {"ok": True, "status": "pending"}
 
 
-@router.get("/volunteers/{volunteer_id}/document")
-def download_volunteer_document(volunteer_id: int, current_user: dict = Depends(get_current_user)):
-    """Owner or admin-only download of the volunteer's identity document — the
-    /volunteer_kyc path is never mounted publicly (mirrors needy documents)."""
-    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
-    vol = vdb.get_volunteer_by_id(volunteer_id)
-    doc_path = vol.get("document") if vol else None
-    if not doc_path:
-        raise HTTPException(status_code=404, detail="Document not found")
-    filename = os.path.basename(doc_path)
-    real_path = os.path.realpath(os.path.join(KYC_UPLOAD_DIR, filename))
-    if not real_path.startswith(os.path.realpath(KYC_UPLOAD_DIR) + os.sep) or not os.path.isfile(real_path):
-        raise HTTPException(status_code=404, detail="Document not found")
-    return FileResponse(real_path)
-
-
-@router.patch("/volunteers/{volunteer_id}/moderation")
-def moderate_volunteer(volunteer_id: int, status: str, current_user: dict = Depends(get_current_user)):
-    """Admin sets the KYC verdict (§58). On a final decision the identity
-    document is deleted from disk to protect personal data (§5)."""
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    if status not in (kyc_service.STATUS_PENDING, kyc_service.STATUS_APPROVED, kyc_service.STATUS_REJECTED):
-        raise HTTPException(status_code=400, detail="Invalid status")
-    vol = vdb.get_volunteer_by_id(volunteer_id)
-    if not vol:
-        raise HTTPException(status_code=404, detail="Volunteer not found")
-    doc_path = vol.get("document")
-    updated = vdb.set_volunteer_status(volunteer_id, status)
-    if status in (kyc_service.STATUS_APPROVED, kyc_service.STATUS_REJECTED) and doc_path:
-        real_path = os.path.realpath(os.path.join(KYC_UPLOAD_DIR, os.path.basename(doc_path)))
-        if real_path.startswith(os.path.realpath(KYC_UPLOAD_DIR) + os.sep) and os.path.isfile(real_path):
-            try:
-                os.remove(real_path)
-            except OSError:
-                pass
-    msg = ("Ваш аккаунт волонтёра подтверждён — можно брать маршруты." if status == "approved"
-           else "Заявка на верификацию отклонена — загрузите корректное удостоверение личности." if status == "rejected"
-           else None)
-    if msg:
-        try:
-            with get_db_cursor() as cur:
-                cur.execute(
-                    "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
-                    (volunteer_id, f"moderation_{status}", msg, datetime.now(timezone.utc)),
-                )
-            telegram_service.notify_volunteer(volunteer_id, ("✅ " if status == "approved" else "⚠️ ") + msg)
-        except Exception:
-            pass
-    return {"id": volunteer_id, "status": updated.get("status") if updated else status}
+# KYC is fully automated (§58): identity documents are verified by AI without any
+# human in the loop. There is deliberately no document-download and no manual
+# approve/reject endpoint — humans never access the document or make the decision.
+# Documents are retained encrypted at rest for break-glass accountability only.
 
 
 @router.get("/volunteers/map")

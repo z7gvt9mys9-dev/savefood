@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import FileResponse
 from typing import List, Optional
 import os
 import json as json_mod
@@ -219,54 +218,9 @@ def delete_account(needy_id: int, current_user: dict = Depends(auth.get_current_
     return {"ok": True, "deleted": True}
 
 
-@router.get("/needy/{needy_id}/document")
-def download_needy_document(needy_id: int, current_user: dict = Depends(auth.get_current_user)):
-    """Owner or admin-only download for a needy's uploaded ID document.
-
-    Replaces the public StaticFiles mount on /needy_uploads so personal
-    documents are not addressable by URL alone.
-    """
-    auth.ensure_owner_or_admin(current_user, "needy", needy_id)
-    profile = db.get_profile(needy_id)
-    doc_path = profile.get("document") if profile else None
-    if not doc_path:
-        raise HTTPException(status_code=404, detail="Document not found")
-    # Stored as "/needy_uploads/<uuid>.<ext>" — collapse to a basename so a
-    # malicious profile value can't traverse out of UPLOAD_DIR.
-    filename = os.path.basename(doc_path)
-    abs_path = os.path.join(UPLOAD_DIR, filename)
-    real_path = os.path.realpath(abs_path)
-    if not real_path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep):
-        raise HTTPException(status_code=404, detail="Document not found")
-    if not os.path.isfile(real_path):
-        raise HTTPException(status_code=404, detail="Document not found")
-    return FileResponse(real_path)
-
-
-@router.patch("/needy/{needy_id}/moderation")
-def moderate_needy(needy_id: int, status: str, current_user: dict = Depends(auth.get_current_user)):
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    if status not in ('pending', 'approved', 'rejected'):
-        raise HTTPException(status_code=400, detail="Invalid status")
-    updated = db.set_needy_status(needy_id, status)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Needy not found")
-    # §5: delete document from disk after approval/rejection to protect personal data
-    if status in ('approved', 'rejected'):
-        profile = db.get_profile(needy_id)
-        doc_path = profile.get('document') if profile else None
-        if doc_path:
-            # doc_path stored as "/needy_uploads/<filename>", resolve to absolute path
-            filename = os.path.basename(doc_path)
-            abs_path = os.path.join(UPLOAD_DIR, filename)
-            try:
-                if os.path.isfile(abs_path):
-                    os.remove(abs_path)
-                db.create_or_update_profile(needy_id, None, None, None, None, document=None)
-            except Exception:
-                pass
-    return updated
+# KYC is fully automated (§58): eligibility documents are verified by AI without
+# any human in the loop, so there is deliberately no document-download and no
+# manual approve/reject endpoint — humans never access the documents or decide.
 
 
 @router.get("/lots", response_model=List[shop_schemas.LotOut])
