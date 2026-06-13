@@ -78,6 +78,9 @@ services:
       VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
       VOLUNTEER_KYC_AUTO_APPROVE: ${VOLUNTEER_KYC_AUTO_APPROVE:-false}
       VOLUNTEER_KYC_AUTO_APPROVE_SCORE: ${VOLUNTEER_KYC_AUTO_APPROVE_SCORE:-0.85}
+      # Fernet key for KYC document encryption-at-rest. Empty = stored
+      # UNENCRYPTED (dev only). Generate: Fernet.generate_key().
+      KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:-}
     healthcheck:
       # /readyz also checks DB reachability, so the container only reports
       # healthy once it can actually serve requests (curl is in the image).
@@ -132,6 +135,9 @@ services:
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENV: ${SENTRY_ENV:-production}
+      # Worker runs the KYC verification/retry tick → must decrypt documents.
+      KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:-}
+      KYC_DOC_RETENTION_HOURS: ${KYC_DOC_RETENTION_HOURS:-0}
 
   # Go-микросервис горячих путей (§31): WebSocket-фанаут уведомлений и
   # приём/чтение геокоординат волонтёров. Делит БД и SECRET_KEY с backend.

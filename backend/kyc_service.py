@@ -22,6 +22,7 @@ from typing import Any, Dict, Optional
 import httpx
 
 from backend.database import get_db_cursor
+from backend import kyc_crypto
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
 KYC_MODEL = os.getenv("KYC_MODEL", os.getenv("AI_MODEL", "gemini-2.5-flash"))
@@ -238,8 +239,8 @@ def _run_kyc_pipeline(entity_id, document_path, applicant_name, *,
             return
         ext = os.path.splitext(document_path)[1].lower()
         mime = _MIME_BY_EXT.get(ext, "image/jpeg")
-        with open(document_path, "rb") as f:
-            content = f.read()
+        # Decrypt in memory only — the file on disk stays encrypted at rest.
+        content = kyc_crypto.read_decrypted(document_path)
         parsed = _analyze(content, mime, applicant_name, system_prompt=system_prompt)
         if parsed is None:
             # AI unavailable → the queue falls back to fully manual review.

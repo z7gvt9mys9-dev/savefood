@@ -14,7 +14,7 @@ from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord, valida
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
-from backend import telegram_service, kyc_service
+from backend import telegram_service, kyc_service, kyc_crypto
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
 
@@ -135,6 +135,9 @@ def upload_volunteer_document(volunteer_id: int, request: Request, file: UploadF
         filename = validate_and_save_upload(file, KYC_UPLOAD_DIR, allow_pdf=True)
     except UploadValidationError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    # Encrypt the identity document at rest immediately (§58): on disk it is only
+    # ever ciphertext; the AI verification decrypts it in memory.
+    kyc_crypto.encrypt_file(os.path.join(KYC_UPLOAD_DIR, filename))
     vdb.set_volunteer_document(volunteer_id, f"/volunteer_kyc/{filename}")
     # Re-checking is allowed while pending: a rejected volunteer can re-upload and
     # is moved back into the queue. An already-approved volunteer is left alone.
