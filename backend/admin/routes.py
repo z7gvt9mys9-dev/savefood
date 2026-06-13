@@ -4,9 +4,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from backend import auth, billing, esg, kyc_service
 from backend.needy import db as needy_db
+from backend.volunteer import db as volunteer_db
 from backend.database import get_db_cursor, log_action
 
 NEEDY_UPLOAD_DIR = os.path.join(os.path.dirname(needy_db.__file__), "uploads")
+VOLUNTEER_KYC_UPLOAD_DIR = os.path.join(os.path.dirname(volunteer_db.__file__), "kyc_uploads")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -41,6 +43,39 @@ def kyc_recheck(needy_id: int, _user: dict = Depends(require_admin)):
     log_action(_user.get("sub"), "kyc_recheck", "needy", needy_id,
                f"Admin requested AI KYC second opinion for needy #{needy_id}")
     updated = needy_db.get_needy_by_id(needy_id) or {}
+    return {
+        "ok": True,
+        "kyc_verdict": updated.get("kyc_verdict"),
+        "kyc_score": updated.get("kyc_score"),
+        "kyc_notes": updated.get("kyc_notes"),
+    }
+
+
+@router.get("/volunteers")
+def list_volunteers(status: str = None, _user: dict = Depends(require_admin)):
+    """Volunteer moderation queue (§58). `?status=pending` shows accounts awaiting
+    identity verification, with their AI KYC verdict for a seconds-long decision."""
+    return volunteer_db.get_all_volunteers(status)
+
+
+@router.post("/volunteers/{volunteer_id}/kyc_recheck")
+def volunteer_kyc_recheck(volunteer_id: int, _user: dict = Depends(require_admin)):
+    """Second opinion on a volunteer's identity verdict — only while the document
+    still exists (deleted after a final decision, §5)."""
+    vol = volunteer_db.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    doc = vol.get("document")
+    path = os.path.join(VOLUNTEER_KYC_UPLOAD_DIR, os.path.basename(doc)) if doc else None
+    if not path or not os.path.isfile(path):
+        raise HTTPException(
+            status_code=400,
+            detail="Документ недоступен (уже удалён после модерации) — перепроверка невозможна",
+        )
+    kyc_service.run_volunteer_kyc_check(volunteer_id, path, vol.get("name") or "")
+    log_action(_user.get("sub"), "kyc_recheck", "volunteer", volunteer_id,
+               f"Admin requested AI KYC second opinion for volunteer #{volunteer_id}")
+    updated = volunteer_db.get_volunteer_by_id(volunteer_id) or {}
     return {
         "ok": True,
         "kyc_verdict": updated.get("kyc_verdict"),

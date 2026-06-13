@@ -188,8 +188,39 @@ const VolunteerDashboard = () => {
         .then(res => res.ok ? res.json() : null)
         .then(data => { if (data) setVolunteerRating(data); })
         .catch(() => {});
+      // KYC (§58): load the account so the verification banner can show when
+      // the volunteer is not yet 'approved' and routes are blocked.
+      fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader })
+        .then(res => res.ok ? res.json() : null)
+        .then(data => { if (data) setVolunteerInfo(data); })
+        .catch(() => {});
     }
   }, [volunteerId]);
+
+  const [kycBusy, setKycBusy] = useState(false);
+  const uploadKycDocument = async (file) => {
+    if (!file || !volunteerId) return;
+    setKycBusy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/document/upload`, {
+        method: 'POST', headers: authHeader, body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || t('volunteer.kyc_upload_error'));
+      } else {
+        alert(t('volunteer.kyc_uploaded'));
+        const v = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
+        if (v.ok) setVolunteerInfo(await v.json());
+      }
+    } catch {
+      alert(t('volunteer.kyc_upload_error'));
+    } finally {
+      setKycBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!volunteerId || !activeRoute) {
@@ -636,9 +667,35 @@ const VolunteerDashboard = () => {
     </div>
   );
 
+  const kycStatus = volunteerInfo?.status;
+  const renderKycBanner = () => {
+    if (!volunteerInfo || kycStatus === 'approved') return null;
+    const rejected = kycStatus === 'rejected';
+    return (
+      <div style={{
+        background: rejected ? '#3a1a1a' : '#2a2416',
+        border: `1px solid ${rejected ? '#5a2a2a' : '#4a4020'}`,
+        borderRadius: 12, padding: 14, margin: '10px 12px',
+      }}>
+        <strong style={{ display: 'block', marginBottom: 6 }}>
+          {rejected ? `⚠️ ${t('volunteer.kyc_rejected_title')}` : `🪪 ${t('volunteer.kyc_pending_title')}`}
+        </strong>
+        <p style={{ fontSize: '0.82rem', color: '#bbb', margin: '0 0 10px' }}>
+          {rejected ? t('volunteer.kyc_rejected_hint') : t('volunteer.kyc_pending_hint')}
+        </p>
+        <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block' }}>
+          {kycBusy ? '…' : t('volunteer.kyc_upload')}
+          <input type="file" accept="image/*,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+            onChange={(e) => uploadKycDocument(e.target.files?.[0])} />
+        </label>
+      </div>
+    );
+  };
+
   return (
     <div className="mobile-container">
       <main className="mobile-content">
+        {renderKycBanner()}
         {activeTab === 'map' && renderMap()}
         {activeTab === 'route' && renderRoute()}
         {activeTab === 'stats' && (

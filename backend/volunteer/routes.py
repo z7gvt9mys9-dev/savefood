@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
+from fastapi.responses import FileResponse
 import html
 import json
 import math
@@ -9,11 +10,11 @@ import psycopg2.errors
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.needy import db as needydb
-from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord
+from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord, validate_and_save_upload, UploadValidationError
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
-from backend import telegram_service
+from backend import telegram_service, kyc_service
 from datetime import datetime, timezone, timedelta
 from datetime import time as dtime
 
@@ -24,6 +25,16 @@ except ImportError:  # py < 3.9 fallback
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Identity documents (§58) live in a SEPARATE dir that is NOT mounted as static
+# (unlike UPLOAD_DIR → /volunteer_uploads). They hold personal data and are
+# served only through the auth-checked download endpoint, then deleted after
+# moderation — same handling as needy documents (§5).
+KYC_UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "kyc_uploads")
+os.makedirs(KYC_UPLOAD_DIR, exist_ok=True)
+
+# Only an 'approved' volunteer may claim routes (§58). Toggle off for trusted
+# deployments / local dev where verification is handled out of band.
+VOLUNTEER_KYC_REQUIRED = os.getenv("VOLUNTEER_KYC_REQUIRED", "true").lower() in ("1", "true", "yes")
 
 # Server-side delivery verification thresholds (§13)
 GPS_RADIUS_METERS = 100
@@ -92,8 +103,12 @@ def register(request: Request, vol: vschemas.VolunteerCreate):
     # too — no orphaned volunteers on 409.
     try:
         with get_db_cursor() as cur:
+            # status='pending' MUST be set explicitly (§58): a freshly registered
+            # volunteer has not cleared KYC yet. Leaving it NULL would make the
+            # init_db grandfather UPDATE (status IS NULL → 'approved') re-approve
+            # the account on the next startup, silently bypassing the KYC gate.
             cur.execute(
-                "INSERT INTO volunteers (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                "INSERT INTO volunteers (name, contact, lat, lon, city, status, created_at) VALUES (%s, %s, %s, %s, %s, 'pending', %s) RETURNING id",
                 (vol.name, vol.contact, vol.lat, vol.lon, vol.city, datetime.now(timezone.utc)),
             )
             vid = cur.fetchone()['id']
@@ -104,6 +119,83 @@ def register(request: Request, vol: vschemas.VolunteerCreate):
     except psycopg2.errors.UniqueViolation:
         raise HTTPException(status_code=409, detail="Username already taken")
     return {"id": vid}
+
+
+@router.post("/volunteers/{volunteer_id}/document/upload")
+@limiter.limit("10/minute")
+def upload_volunteer_document(volunteer_id: int, request: Request, file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+    """Upload an identity document for KYC (§58). Fires the AI pre-check; the
+    verdict lands in the admin moderation queue. The file is stored outside the
+    public static dir and removed once a moderator/auto-KYC decides."""
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    try:
+        filename = validate_and_save_upload(file, KYC_UPLOAD_DIR, allow_pdf=True)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    vdb.set_volunteer_document(volunteer_id, f"/volunteer_kyc/{filename}")
+    # Re-checking is allowed while pending: a rejected volunteer can re-upload and
+    # is moved back into the queue. An already-approved volunteer is left alone.
+    if vol.get("status") == "rejected":
+        vdb.set_volunteer_status(volunteer_id, "pending")
+    kyc_service.start_volunteer_kyc_check(
+        volunteer_id, os.path.join(KYC_UPLOAD_DIR, filename), vol.get("name") or ""
+    )
+    return {"ok": True, "status": "pending"}
+
+
+@router.get("/volunteers/{volunteer_id}/document")
+def download_volunteer_document(volunteer_id: int, current_user: dict = Depends(get_current_user)):
+    """Owner or admin-only download of the volunteer's identity document — the
+    /volunteer_kyc path is never mounted publicly (mirrors needy documents)."""
+    ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    doc_path = vol.get("document") if vol else None
+    if not doc_path:
+        raise HTTPException(status_code=404, detail="Document not found")
+    filename = os.path.basename(doc_path)
+    real_path = os.path.realpath(os.path.join(KYC_UPLOAD_DIR, filename))
+    if not real_path.startswith(os.path.realpath(KYC_UPLOAD_DIR) + os.sep) or not os.path.isfile(real_path):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return FileResponse(real_path)
+
+
+@router.patch("/volunteers/{volunteer_id}/moderation")
+def moderate_volunteer(volunteer_id: int, status: str, current_user: dict = Depends(get_current_user)):
+    """Admin sets the KYC verdict (§58). On a final decision the identity
+    document is deleted from disk to protect personal data (§5)."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if status not in ("pending", "approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    vol = vdb.get_volunteer_by_id(volunteer_id)
+    if not vol:
+        raise HTTPException(status_code=404, detail="Volunteer not found")
+    doc_path = vol.get("document")
+    updated = vdb.set_volunteer_status(volunteer_id, status)
+    if status in ("approved", "rejected") and doc_path:
+        real_path = os.path.realpath(os.path.join(KYC_UPLOAD_DIR, os.path.basename(doc_path)))
+        if real_path.startswith(os.path.realpath(KYC_UPLOAD_DIR) + os.sep) and os.path.isfile(real_path):
+            try:
+                os.remove(real_path)
+            except OSError:
+                pass
+    msg = ("Ваш аккаунт волонтёра подтверждён — можно брать маршруты." if status == "approved"
+           else "Заявка на верификацию отклонена — загрузите корректное удостоверение личности." if status == "rejected"
+           else None)
+    if msg:
+        try:
+            with get_db_cursor() as cur:
+                cur.execute(
+                    "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                    (volunteer_id, f"moderation_{status}", msg, datetime.now(timezone.utc)),
+                )
+            telegram_service.notify_volunteer(volunteer_id, ("✅ " if status == "approved" else "⚠️ ") + msg)
+        except Exception:
+            pass
+    return {"id": volunteer_id, "status": updated.get("status") if updated else status}
 
 
 @router.get("/volunteers/map")
@@ -273,6 +365,14 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
         raise HTTPException(status_code=404, detail="Volunteer not found")
+    # KYC gate (§58): an unverified volunteer must not be able to claim a lot —
+    # that is the whole point of identity verification (food leaves the shop in
+    # their hands). Admins bypass (they act on behalf of trusted staff).
+    if VOLUNTEER_KYC_REQUIRED and current_user.get("role") != "admin" and vol.get("status") != "approved":
+        raise HTTPException(
+            status_code=403,
+            detail="Аккаунт волонтёра ещё не верифицирован — загрузите удостоверение личности и дождитесь проверки, чтобы брать маршруты",
+        )
     # prevent multiple active routes for the same volunteer
     existing = vdb.get_active_route(volunteer_id)
     if existing:
@@ -505,6 +605,30 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
             # Every selected ticket was claimed by a competing route between our
             # SELECT and UPDATE. Raising rolls back the lot claim too.
             raise HTTPException(status_code=409, detail="Заявки уже разобраны другими волонтёрами — попробуйте другой лот")
+
+        # The lot physically leaves with this volunteer, so any delivery ticket
+        # on it that did NOT make this route (over max_stops, or its recipient
+        # was outside their time window at claim) can never be served — the lot
+        # is 'taken' and no second route can claim it. Left as 'open' they would
+        # hang forever, locking the recipient's one-active-ticket slot and their
+        # reserved unit. Cancel them now (same treatment as self-pickup above):
+        # free the slot, return the unit (guarded no-op — lot is 'taken'), notify.
+        cur.execute(
+            "UPDATE tickets SET status = 'cancelled' WHERE lot_id = %s AND status = 'open' "
+            "AND (self_pickup IS NULL OR self_pickup = FALSE) RETURNING id, needy_id, quantity",
+            (payload.lot_id,),
+        )
+        for row in cur.fetchall():
+            cur.execute(
+                "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
+                (row['quantity'], payload.lot_id),
+            )
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+                (row['needy_id'], 'ticket_cancelled',
+                 f'Заявка #{row["id"]} отменена: лот забрал волонтёр для других получателей. '
+                 f'Выберите другой лот — недельный лимит не потрачен.', now),
+            )
 
         filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]
         points_json = json.dumps(filtered_points, ensure_ascii=False)

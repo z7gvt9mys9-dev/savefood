@@ -109,11 +109,16 @@ def _build_report(rows_cat: List[Dict[str, Any]], rows_month: List[Dict[str, Any
 
 
 def _co2_sql_case() -> str:
-    """SQL CASE mirroring CO2_PER_KG so monthly rows are weighted per category."""
+    """SQL CASE mirroring CO2_PER_KG so monthly rows are weighted per category.
+
+    Category names are module constants today, but escape the quotes anyway so a
+    future config-driven CO2_PER_KG can never turn this f-string into an injection
+    point; factors are coerced to float for the same reason."""
     whens = " ".join(
-        f"WHEN l.category = '{cat}' THEN {factor}" for cat, factor in CO2_PER_KG.items()
+        f"WHEN l.category = '{cat.replace(chr(39), chr(39) * 2)}' THEN {float(factor)}"
+        for cat, factor in CO2_PER_KG.items()
     )
-    return f"(CASE {whens} ELSE {CO2_DEFAULT} END)"
+    return f"(CASE {whens} ELSE {float(CO2_DEFAULT)} END)"
 
 
 def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:

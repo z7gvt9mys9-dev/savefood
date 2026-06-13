@@ -90,6 +90,22 @@ def init_db():
         # [{"day":1,"start":"18:00","end":"21:00"}] (day 0=Mon … 6=Sun).
         cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS availability TEXT")
 
+        # Volunteer KYC (§58): identity verification mirrors the needy flow.
+        # `status` is 'pending' | 'approved' | 'rejected'; only 'approved'
+        # volunteers may claim routes (gated in start_route). The column is added
+        # WITHOUT a default so the one-time grandfather below can tell pre-existing
+        # rows (NULL) from new registrations (which set 'pending' explicitly) —
+        # locking out volunteers who were active before KYC existed would be worse
+        # than the fraud it guards against.
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS status TEXT")
+        cur.execute("UPDATE volunteers SET status = 'approved' WHERE status IS NULL")
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS document TEXT")
+        # AI pre-check verdict for the admin moderation queue (same columns as needy).
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_score REAL")
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_verdict TEXT")
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_notes TEXT")
+        cur.execute("ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS kyc_checked_at TIMESTAMP WITH TIME ZONE")
+
         # Corporate volunteering: a team is just a named group with a join
         # code; impact aggregates roll up via volunteers.team_id.
         cur.execute(
@@ -200,12 +216,57 @@ def needy_has_volunteer(needy_id: int, volunteer_id: int) -> bool:
 
 def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lon: Optional[float], city: Optional[str] = None) -> int:
     with get_db_cursor() as cur:
+        # New volunteers start 'pending' (§58): they must upload an identity
+        # document and clear KYC before they can claim routes. 'pending' is set
+        # explicitly so the grandfather UPDATE (status IS NULL → 'approved' in
+        # init_db) never re-approves a fresh account.
         cur.execute(
-            "INSERT INTO volunteers (name, contact, lat, lon, city, created_at) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            "INSERT INTO volunteers (name, contact, lat, lon, city, status, created_at) VALUES (%s, %s, %s, %s, %s, 'pending', %s) RETURNING id",
             (name, contact, lat, lon, city, datetime.now(timezone.utc)),
         )
         vid = cur.fetchone()['id']
         return vid
+
+
+def set_volunteer_status(vol_id: int, status: str) -> Optional[Dict[str, Any]]:
+    """Admin/auto-KYC decision (§58). Returns the on-disk document path the caller
+    must delete after a final decision (approve/reject) — the identity document is
+    only needed during moderation, same lifecycle as the needy document (§5)."""
+    with get_db_cursor() as cur:
+        cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
+        v = cur.fetchone()
+        if not v:
+            return None
+        doc_path = v.get("document")
+        cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
+        # Drop the document reference after a final decision; the file itself is
+        # removed by the route (it owns the upload dir).
+        if status in ("approved", "rejected") and doc_path:
+            cur.execute("UPDATE volunteers SET document = NULL WHERE id = %s", (vol_id,))
+        cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
+        return _parse_availability(dict(cur.fetchone()))
+
+
+def set_volunteer_document(vol_id: int, document: Optional[str]):
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE volunteers SET document = %s WHERE id = %s", (document, vol_id))
+
+
+def save_volunteer_kyc(vol_id: int, score, verdict: str, notes: str):
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteers SET kyc_score = %s, kyc_verdict = %s, kyc_notes = %s, kyc_checked_at = %s WHERE id = %s",
+            (score, verdict, notes, datetime.now(timezone.utc), vol_id),
+        )
+
+
+def get_all_volunteers(status: Optional[str] = None) -> List[Dict[str, Any]]:
+    with get_db_cursor() as cur:
+        if status:
+            cur.execute("SELECT * FROM volunteers WHERE status = %s ORDER BY created_at DESC", (status,))
+        else:
+            cur.execute("SELECT * FROM volunteers ORDER BY created_at DESC")
+        return [_parse_availability(dict(r)) for r in cur.fetchall()]
 
 def get_volunteer_by_id(vol_id: int) -> Optional[Dict[str, Any]]:
     with get_db_cursor() as cur:

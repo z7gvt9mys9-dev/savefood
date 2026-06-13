@@ -189,8 +189,16 @@ def create_ticket(needy_id: int, items: Optional[str], address: Optional[str], l
                 raise TicketCreateError("lot_unavailable")
 
             if self_pickup:
-                # Self-pickup reservation TTL: 2 hours.
+                # Self-pickup reservation TTL: 2 hours (recipient committed to
+                # come now).
                 expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+            else:
+                # Delivery reservation TTL: 48 hours. Without it, a ticket nobody
+                # ever routes locks the reserved unit and the recipient's
+                # one-active-ticket slot indefinitely. reservation_ttl_tick frees
+                # both once it lapses; an 'assigned' ticket is no longer 'open',
+                # so a routed delivery never expires from under the volunteer.
+                expires_at = datetime.now(timezone.utc) + timedelta(hours=48)
 
         try:
             cur.execute(

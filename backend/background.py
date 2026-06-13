@@ -204,14 +204,17 @@ def antifraud_tick() -> dict:
 
 
 def reservation_ttl_tick() -> int:
-    """Cancel expired self-pickup reservations and return quantity to lot."""
+    """Cancel expired reservations (self-pickup AND delivery) and return the
+    reserved quantity to the lot. An 'open' ticket past its expires_at locks the
+    reserved unit and the recipient's one-active-ticket slot; freeing it on lapse
+    keeps the witrine honest. Only 'open' tickets are touched, so an 'assigned'
+    delivery in a volunteer's route never expires from under them."""
     cancelled = 0
     with get_db_cursor() as cur:
-        # Find 'open' self-pickup tickets that passed expires_at
         cur.execute(
             """
-            SELECT id, needy_id, lot_id, quantity FROM tickets
-            WHERE status = 'open' AND self_pickup = TRUE
+            SELECT id, needy_id, lot_id, quantity, self_pickup FROM tickets
+            WHERE status = 'open'
               AND expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
             """
         )
@@ -219,19 +222,24 @@ def reservation_ttl_tick() -> int:
         for t in expired:
             # 1. Cancel ticket
             cur.execute("UPDATE tickets SET status = 'cancelled' WHERE id = %s", (t['id'],))
-            
+
             # 2. Return quantity (guarded: lot must be active)
             if t['lot_id']:
                 cur.execute(
                     "UPDATE lots SET quantity = quantity + %s WHERE id = %s AND status = 'active'",
                     (t['quantity'], t['lot_id'])
                 )
-            
+
             # 3. Notify needy
-            msg = f"⏳ Срок брони лота #{t['lot_id']} (самовывоз) истёк. Заявка отменена, еда вернулась на витрину."
+            if t['self_pickup']:
+                msg = f"⏳ Срок брони лота #{t['lot_id']} (самовывоз) истёк. Заявка отменена, еда вернулась на витрину."
+                ntype = "self_pickup_expired"
+            else:
+                msg = f"⏳ Бронь лота #{t['lot_id']} истекла: волонтёр не взялся за доставку. Заявка отменена, еда вернулась на витрину — лимит не потрачен."
+                ntype = "reservation_expired"
             cur.execute(
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, CURRENT_TIMESTAMP, 0)",
-                (t['needy_id'], "self_pickup_expired", msg)
+                (t['needy_id'], ntype, msg)
             )
             try:
                 telegram_service.notify_needy(t['needy_id'], f"⏳ {msg}")

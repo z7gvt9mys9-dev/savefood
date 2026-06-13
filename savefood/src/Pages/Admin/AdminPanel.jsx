@@ -21,6 +21,7 @@ const AdminPanel = () => {
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
   const [heatmap, setHeatmap] = useState(null);
+  const [pendingVolunteers, setPendingVolunteers] = useState([]);
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -69,11 +70,19 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  const fetchPendingVolunteers = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
+      if (res.ok) setPendingVolunteers(await res.json());
+    } catch {}
+  };
+
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
     if (activeTab === 'plans') fetchShops();
     if (activeTab === 'photos') fetchDeliveryPhotos();
+    if (activeTab === 'vol_kyc') fetchPendingVolunteers();
     if (activeTab === 'analytics' && !esgGlobal) {
       fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
@@ -255,6 +264,82 @@ const AdminPanel = () => {
           ))}
         </tbody>
       </table>
+      )}
+    </div>
+  );
+
+  // ── Volunteer identity KYC (§58): same queue shape as needy moderation ──────
+  const handleVolunteerModerate = async (id, status) => {
+    try {
+      await fetch(`${API_URL}/volunteers/${id}/moderation?status=${status}`, { method: 'PATCH', headers: authHeader });
+      fetchPendingVolunteers();
+    } catch {}
+  };
+
+  const handleViewVolunteerDocument = async (id) => {
+    try {
+      const res = await fetch(`${API_URL}/volunteers/${id}/document`, { headers: authHeader });
+      if (!res.ok) { alert(t('common.error')); return; }
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch { alert(t('common.error')); }
+  };
+
+  const handleVolunteerKycRecheck = async (id) => {
+    setKycRechecking(prev => ({ ...prev, [`v${id}`]: true }));
+    try {
+      const res = await fetch(`${API_URL}/admin/volunteers/${id}/kyc_recheck`, { method: 'POST', headers: authHeader });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        alert(e.detail || t('common.error'));
+        return;
+      }
+      await fetchPendingVolunteers();
+    } catch { alert(t('common.connection_error')); }
+    finally { setKycRechecking(prev => ({ ...prev, [`v${id}`]: false })); }
+  };
+
+  const renderVolunteerKyc = () => (
+    <div className="admin-tab">
+      <h2>{t('admin.vol_kyc_queue')}</h2>
+      {pendingVolunteers.length === 0 ? (
+        <EmptyState icon="✅" title={t('empty.moderation_title')} description={t('admin.vol_kyc_empty')} />
+      ) : (
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>{t('admin.col_user')}</th>
+              <th>{t('admin.col_contact')}</th>
+              <th>{t('admin.col_document')}</th>
+              <th>{t('admin.col_kyc')}</th>
+              <th>{t('admin.col_actions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pendingVolunteers.map(item => (
+              <tr key={item.id}>
+                <td>{item.name}</td>
+                <td>{item.contact || '—'}</td>
+                <td>{item.document ? <button className="btn-small" onClick={() => handleViewVolunteerDocument(item.id)}>{t('admin.view_doc')}</button> : '—'}</td>
+                <td>
+                  {kycBadge(item)}
+                  {item.kyc_notes && <div style={{ fontSize: '0.78rem', opacity: 0.75, maxWidth: 260 }}>{item.kyc_notes}</div>}
+                  {item.document && (
+                    <button className="btn-small" style={{ marginTop: 4 }}
+                      disabled={!!kycRechecking[`v${item.id}`]}
+                      onClick={() => handleVolunteerKycRecheck(item.id)}>
+                      {kycRechecking[`v${item.id}`] ? t('common.loading') : t('admin.kyc_recheck')}
+                    </button>
+                  )}
+                </td>
+                <td>
+                  <button className="btn-small btn-success" onClick={() => handleVolunteerModerate(item.id, 'approved')}>{t('admin.approve')}</button>
+                  <button className="btn-small btn-danger" onClick={() => handleVolunteerModerate(item.id, 'rejected')}>{t('admin.reject')}</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
@@ -558,6 +643,7 @@ const AdminPanel = () => {
         <h2>SaveFood Admin</h2>
         <nav>
           <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.moderation')}</button>
+          <button className={activeTab === 'vol_kyc' ? 'active' : ''} onClick={() => setActiveTab('vol_kyc')}>{t('admin.vol_kyc')}</button>
           <button className={activeTab === 'photos' ? 'active' : ''} onClick={() => setActiveTab('photos')}>{t('admin.photos')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
@@ -569,6 +655,7 @@ const AdminPanel = () => {
 
       <main className="main-content">
         {activeTab === 'moderation' && renderModeration()}
+        {activeTab === 'vol_kyc' && renderVolunteerKyc()}
         {activeTab === 'photos' && renderPhotos()}
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}

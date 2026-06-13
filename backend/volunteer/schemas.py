@@ -38,6 +38,12 @@ class VolunteerOut(BaseModel):
     city: Optional[str] = None
     has_thermal_bag: Optional[bool] = False
     availability: Optional[List[AvailabilityWindow]] = None
+    # KYC (§58): verification state shown in the dashboard so a pending volunteer
+    # knows why routes are blocked; kyc_* are surfaced in the admin queue.
+    status: Optional[str] = "approved"
+    kyc_score: Optional[float] = None
+    kyc_verdict: Optional[str] = None
+    kyc_notes: Optional[str] = None
     created_at: datetime
 
 

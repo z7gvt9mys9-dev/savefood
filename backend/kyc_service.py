@@ -66,7 +66,8 @@ SYSTEM_PROMPT = """\
 """
 
 
-def _analyze(content: bytes, mime_type: str, applicant_name: str) -> Optional[Dict[str, Any]]:
+def _analyze(content: bytes, mime_type: str, applicant_name: str,
+             system_prompt: str = SYSTEM_PROMPT) -> Optional[Dict[str, Any]]:
     if not GEMINI_API_KEY or not content:
         return None
     try:
@@ -78,7 +79,7 @@ def _analyze(content: bytes, mime_type: str, applicant_name: str) -> Optional[Di
                     "content-type": "application/json",
                 },
                 json={
-                    "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+                    "system_instruction": {"parts": [{"text": system_prompt}]},
                     "contents": [{
                         "role": "user",
                         "parts": [
@@ -235,4 +236,140 @@ def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
 def start_kyc_check(needy_id: int, document_path: str, applicant_name: str):
     threading.Thread(
         target=run_kyc_check, args=(needy_id, document_path, applicant_name), daemon=True
+    ).start()
+
+
+# ── Volunteer identity KYC (§58) ─────────────────────────────────────────────
+# A volunteer physically picks food up from shops and carries it to recipients,
+# so the fraud we guard against is identity (anyone grabbing food and vanishing),
+# not eligibility. Same pipeline as the needy check — AI pre-check + human in the
+# loop — but it reads an *identity* document and never persists it (§5).
+
+VOLUNTEER_KYC_AUTO_APPROVE = os.getenv("VOLUNTEER_KYC_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
+VOLUNTEER_KYC_AUTO_APPROVE_SCORE = float(os.getenv("VOLUNTEER_KYC_AUTO_APPROVE_SCORE", "0.85"))
+
+VOLUNTEER_SYSTEM_PROMPT = """\
+Ты — система верификации личности волонтёров платформы SaveFood (Казахстан).
+Волонтёр загрузил документ, удостоверяющий личность (удостоверение личности РК,
+паспорт, водительское удостоверение и т.п.). Цель — убедиться, что это настоящий
+документ реального человека, а не чужое/поддельное/случайное фото.
+
+Верни СТРОГО один JSON-объект:
+{
+  "is_document": true|false,        // на фото вообще документ?
+  "is_id_document": true|false,     // это именно удостоверение личности (а не справка/чек/случайное фото)?
+  "document_type": "краткое название типа документа или null",
+  "holder_name": "ФИО владельца из документа или null",
+  "name_matches": true|false|null,  // совпадает ли с именем волонтёра в анкете (null если не сравнить)
+  "legible": true|false,            // текст и фото читаемы?
+  "tampering_signs": true|false,    // следы редактирования/скриншот/фотошоп?
+  "tampering_reason": "пояснение или null",
+  "summary": "1-2 предложения для модератора на русском"
+}
+
+Имя волонтёра в анкете будет передано отдельной строкой. Сравнивай имена мягко:
+учитывай инициалы, порядок слов, транслитерацию (ru/kk/en).
+"""
+
+
+def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    """Deterministic scoring of the AI's structured answer for an identity doc."""
+    if not parsed.get("is_document") or not parsed.get("is_id_document"):
+        return {"score": 0.0, "verdict": "likely_fraud",
+                "notes": "На фото не распознано удостоверение личности. " + (parsed.get("summary") or "")}
+
+    notes = []
+    score = 0.6
+    if parsed.get("name_matches") is True:
+        score += 0.25
+    elif parsed.get("name_matches") is False:
+        score -= 0.35
+        notes.append("имя в документе не совпадает с анкетой")
+    if not parsed.get("legible"):
+        score -= 0.25
+        notes.append("документ плохо читаем")
+    if parsed.get("tampering_signs"):
+        score -= 0.5
+        notes.append(f"признаки редактирования: {parsed.get('tampering_reason') or 'без деталей'}")
+
+    score = max(0.0, min(1.0, round(score, 2)))
+    if score >= KYC_OK_THRESHOLD:
+        verdict = "likely_ok"
+    elif score <= KYC_FRAUD_THRESHOLD:
+        verdict = "likely_fraud"
+    else:
+        verdict = "review"
+
+    summary = parsed.get("summary") or ""
+    doc_type = parsed.get("document_type")
+    prefix = f"[{doc_type}] " if doc_type else ""
+    tail = ("; ".join(notes)) if notes else ""
+    note_text = (prefix + summary + ((" — " + tail) if tail else "")).strip()
+    return {"score": score, "verdict": verdict, "notes": note_text[:1000]}
+
+
+def should_auto_approve_volunteer(verdict: str, score, enabled: bool = None, threshold: float = None) -> bool:
+    enabled = VOLUNTEER_KYC_AUTO_APPROVE if enabled is None else enabled
+    threshold = VOLUNTEER_KYC_AUTO_APPROVE_SCORE if threshold is None else threshold
+    return bool(enabled and verdict == "likely_ok" and score is not None and score >= threshold)
+
+
+def _auto_approve_volunteer(vol_id: int, document_path: str, score: float):
+    from backend.database import log_action
+    from backend.volunteer import db as vol_db
+    from backend import telegram_service
+
+    vol_db.set_volunteer_status(vol_id, "approved")
+    try:
+        if document_path and os.path.isfile(document_path):
+            os.remove(document_path)
+    except Exception:
+        logging.exception("[kyc] vol auto-approve: document cleanup failed for volunteer %s", vol_id)
+    log_action("auto-kyc", "kyc_auto_approve", "volunteer", vol_id,
+               f"Auto-approved volunteer by AI KYC (score {score:.2f})")
+    msg = "Ваш аккаунт волонтёра подтверждён автоматической проверкой — можно брать маршруты."
+    with get_db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+            (vol_id, "moderation_approved", msg, datetime.now(timezone.utc)),
+        )
+    try:
+        telegram_service.notify_volunteer(vol_id, f"✅ {msg}")
+    except Exception:
+        pass
+    logging.info("[kyc] volunteer %s auto-approved (score %.2f)", vol_id, score)
+
+
+def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
+    """Blocking analysis — call via start_volunteer_kyc_check (thread)."""
+    from backend.volunteer import db as vol_db
+    try:
+        if not os.path.isfile(document_path):
+            return
+        ext = os.path.splitext(document_path)[1].lower()
+        mime = _MIME_BY_EXT.get(ext, "image/jpeg")
+        with open(document_path, "rb") as f:
+            content = f.read()
+        parsed = _analyze(content, mime, applicant_name, system_prompt=VOLUNTEER_SYSTEM_PROMPT)
+        if parsed is None:
+            vol_db.save_volunteer_kyc(vol_id, None, "unchecked", "ИИ-проверка недоступна, проверьте вручную")
+            return
+        result = _score_volunteer(parsed)
+        notes = result["notes"]
+        auto = should_auto_approve_volunteer(result["verdict"], result["score"])
+        if auto:
+            notes = f"[авто-одобрено ИИ] {notes}"[:1000]
+        vol_db.save_volunteer_kyc(vol_id, result["score"], result["verdict"], notes)
+        if auto:
+            v = vol_db.get_volunteer_by_id(vol_id)
+            if v and v.get("status") == "pending":
+                _auto_approve_volunteer(vol_id, document_path, result["score"])
+        logging.info("[kyc] volunteer %s: %s (%.2f)", vol_id, result["verdict"], result["score"])
+    except Exception as e:
+        logging.warning("[kyc] volunteer check for %s failed: %s", vol_id, e)
+
+
+def start_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
+    threading.Thread(
+        target=run_volunteer_kyc_check, args=(vol_id, document_path, applicant_name), daemon=True
     ).start()
