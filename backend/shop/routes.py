@@ -68,8 +68,13 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
 
     billing.check_lot_quota(shop_id)
     # Validation: if unit is not kg, unit_weight_kg is mandatory and must be > 0.
-    if payload.unit != 'кг' and (payload.unit_weight_kg is None or payload.unit_weight_kg <= 0):
-        raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    unit = payload.unit or "кг"
+    weight = payload.unit_weight_kg
+    if unit != 'кг':
+        if weight is None or weight <= 0:
+            raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    else:
+        weight = 1.0
     
     # C2C anti-abuse (§45): a private donor's lot must show the actual food —
     # recipients can't rely on a business reputation they can see on the map.
@@ -80,7 +85,7 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
         shop_id, payload.description, payload.quantity, expiry, payload.photo,
         payload.address, payload.time_slot, payload.category, payload.comment,
         requires_cold=bool(payload.requires_cold),
-        unit=payload.unit, unit_weight_kg=payload.unit_weight_kg
+        unit=unit, unit_weight_kg=weight
     )
     # «Карта потребностей»: ping recipients whose preferences match the category.
     needs_match.start_needs_match(lot_id)
@@ -108,8 +113,13 @@ def create_lot_upload(
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
     billing.check_lot_quota(shop_id)
-    if unit != 'кг' and (unit_weight_kg is None or unit_weight_kg <= 0):
-        raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    
+    if unit != 'кг':
+        if unit_weight_kg is None or unit_weight_kg <= 0:
+            raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    else:
+        unit_weight_kg = 1.0
+
     if shop.get("kind") == "private" and not (file and file.filename):
         raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
 
@@ -147,9 +157,24 @@ def delete_lot(lot_id: int, current_user: dict = Depends(get_current_user)):
 
 @router.patch("/lots/{lot_id}", response_model=schemas.LotOut)
 def patch_lot(lot_id: int, payload: schemas.LotUpdate, current_user: dict = Depends(get_current_user)):
-    _require_lot_owner(lot_id, current_user)
+    lot = _require_lot_owner(lot_id, current_user)
+    
+    # Validation: if unit is changed or weight is changed, ensure correctness
+    new_unit = payload.unit if payload.unit is not None else lot.get('unit', 'кг')
+    new_weight = payload.unit_weight_kg if payload.unit_weight_kg is not None else lot.get('unit_weight_kg', 1.0)
+    
+    if new_unit != 'кг':
+        if new_weight is None or new_weight <= 0:
+            raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
+    else:
+        new_weight = 1.0
+
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    updated = db.update_lot(lot_id, payload.description, payload.quantity, expiry, payload.address, payload.category, payload.comment, requires_cold=payload.requires_cold)
+    updated = db.update_lot(
+        lot_id, payload.description, payload.quantity, expiry, payload.address,
+        payload.category, payload.comment, requires_cold=payload.requires_cold,
+        unit=payload.unit, unit_weight_kg=new_weight
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Lot not found or cannot be updated")
     return updated

@@ -136,7 +136,7 @@ def reject_delivery_photo(ticket_id: int, _user: dict = Depends(require_admin)):
 @router.get("/stats")
 def admin_stats(_user: dict = Depends(require_admin)):
     with get_db_cursor() as cur:
-        cur.execute(f"SELECT COALESCE(SUM(l.quantity),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
+        cur.execute(f"SELECT COALESCE(SUM({esg.RESCUED_KG_SQL}),0) as kg_saved FROM lots l WHERE {esg.RESCUED_SQL}")
         kg_saved = cur.fetchone()['kg_saved']
         cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'fulfilled'")
         deliveries_completed = cur.fetchone()['count']
@@ -171,7 +171,7 @@ def supply_demand_heatmap(_user: dict = Depends(require_admin)):
     with get_db_cursor() as cur:
         cur.execute(f"""
             SELECT {lot_city} AS city, COUNT(*) AS active_lots,
-                   COALESCE(SUM(quantity), 0) AS active_kg
+                   COALESCE(SUM(quantity * unit_weight_kg), 0) AS active_kg
             FROM lots WHERE status = 'active' GROUP BY 1
         """)
         supply = {r["city"]: r for r in cur.fetchall()}

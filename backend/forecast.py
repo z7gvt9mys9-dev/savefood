@@ -66,7 +66,7 @@ def shop_forecast(shop_id: int) -> Dict[str, Any]:
             """
             SELECT EXTRACT(ISODOW FROM l.created_at)::int AS isodow,
                    l.category,
-                   COALESCE(SUM(l.quantity), 0) AS kg
+                   COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) AS kg
             FROM lots l
             WHERE l.shop_id = %s
               AND l.created_at >= CURRENT_TIMESTAMP - INTERVAL '%s weeks'

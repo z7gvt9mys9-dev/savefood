@@ -61,7 +61,7 @@ def city_leaderboard(months: int = 12):
         cur.execute(
             f"""
             SELECT COALESCE(NULLIF(TRIM(l.city), ''), 'Без города') AS city,
-                   COALESCE(SUM(l.quantity), 0) AS kg,
+                   COALESCE(SUM({esg.RESCUED_KG_SQL}), 0) AS kg,
                    COUNT(*) AS lots
             FROM lots l
             WHERE {esg.RESCUED_SQL} AND {esg.RESCUED_AT_SQL} >= CURRENT_TIMESTAMP - INTERVAL '%s months'
@@ -81,7 +81,7 @@ def volunteer_leaderboard():
             SELECT v.id, v.name,
                    COUNT(t.id) AS deliveries,
                    COALESCE((
-                       SELECT SUM(l.quantity)
+                       SELECT SUM(l.initial_quantity * l.unit_weight_kg)
                        FROM volunteer_routes vr JOIN lots l ON l.id = vr.lot_id
                        WHERE vr.volunteer_id = v.id AND vr.status = 'finished'
                    ), 0) AS kg
@@ -112,7 +112,7 @@ def team_leaderboard():
                    COUNT(DISTINCT v.id) AS members,
                    COUNT(t.id) AS deliveries,
                    COALESCE((
-                       SELECT SUM(l.quantity)
+                       SELECT SUM(l.initial_quantity * l.unit_weight_kg)
                        FROM volunteer_routes vr
                        JOIN lots l ON l.id = vr.lot_id
                        JOIN volunteers v2 ON v2.id = vr.volunteer_id

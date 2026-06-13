@@ -863,7 +863,7 @@ def volunteer_stats(volunteer_id: int, current_user: dict = Depends(get_current_
 
         cur.execute(
             """
-            SELECT COALESCE(SUM(l.quantity), 0) as total_kg
+            SELECT COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) as total_kg
             FROM volunteer_routes vr
             JOIN lots l ON l.id = vr.lot_id
             WHERE vr.volunteer_id = %s AND vr.status = 'finished'
@@ -982,7 +982,7 @@ def _team_summary(team_id: int):
         deliveries = cur.fetchone()["deliveries"]
         cur.execute(
             """
-            SELECT COALESCE(SUM(l.quantity), 0) AS kg
+            SELECT COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) AS kg
             FROM volunteer_routes vr
             JOIN lots l ON l.id = vr.lot_id
             JOIN volunteers v ON v.id = vr.volunteer_id
