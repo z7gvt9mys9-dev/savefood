@@ -76,13 +76,6 @@ def test_score_volunteer_tampering_is_fraud():
     assert r["verdict"] == "likely_fraud"
 
 
-def test_auto_approve_volunteer_gated_by_env_and_confidence():
-    assert kyc_service.should_auto_approve_volunteer("likely_ok", 0.9, enabled=True, threshold=0.85) is True
-    assert kyc_service.should_auto_approve_volunteer("likely_ok", 0.8, enabled=True, threshold=0.85) is False
-    assert kyc_service.should_auto_approve_volunteer("review", 0.99, enabled=True, threshold=0.85) is False
-    assert kyc_service.should_auto_approve_volunteer("likely_ok", 0.99, enabled=False, threshold=0.85) is False
-
-
 # ── Gate + lifecycle (DB) ────────────────────────────────────────────────────
 
 def test_new_volunteer_starts_pending():
@@ -178,9 +171,11 @@ def test_kyc_doc_retention_keeps_fresh_doc():
     assert vdb.get_volunteer_by_id(vid)["document"] == "/volunteer_kyc/fresh.jpg"
 
 
-def test_set_status_clears_document_reference():
+def test_set_status_retains_document_reference():
+    """§58: the document is retained (encrypted at rest) after a decision for
+    accountability — it is NOT cleared on approve/reject any more."""
     vid = vdb.create_volunteer("V", "+7", 43.2, 76.9, "Almaty")
     vdb.set_volunteer_document(vid, "/volunteer_kyc/abc.jpg")
     assert vdb.get_volunteer_by_id(vid)["document"] == "/volunteer_kyc/abc.jpg"
     vdb.set_volunteer_status(vid, "approved")
-    assert vdb.get_volunteer_by_id(vid)["document"] is None
+    assert vdb.get_volunteer_by_id(vid)["document"] == "/volunteer_kyc/abc.jpg"

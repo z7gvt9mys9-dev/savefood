@@ -44,11 +44,9 @@ STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
 
-# ── Auto-KYC v2 (роадмап v2.2): auto-approve at high confidence ──────────────
-# Opt-in via env. Only 'likely_ok' AT OR ABOVE the (stricter) auto-approve
-# score skips the human; 'review' and 'likely_fraud' always stay in the queue.
-KYC_AUTO_APPROVE = os.getenv("KYC_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
-KYC_AUTO_APPROVE_SCORE = float(os.getenv("KYC_AUTO_APPROVE_SCORE", "0.85"))
+# KYC is fully automated (§58): the verdict alone decides — 'likely_ok' →
+# approve, 'likely_fraud' → reject, 'review'/'unchecked' → stay pending (retried).
+# There is no human-in-the-loop and no opt-in env gate any more.
 
 _MIME_BY_EXT = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
@@ -185,18 +183,11 @@ def _save_result(needy_id: int, score: Optional[float], verdict: str, notes: str
         )
 
 
-def should_auto_approve(verdict: str, score, enabled: bool = None, threshold: float = None) -> bool:
-    """Pure decision: auto-approve only confident 'likely_ok' verdicts."""
-    enabled = KYC_AUTO_APPROVE if enabled is None else enabled
-    threshold = KYC_AUTO_APPROVE_SCORE if threshold is None else threshold
-    return bool(enabled and verdict == VERDICT_OK and score is not None and score >= threshold)
-
-
 def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
-    """Approve without a human: same effects as the moderation endpoint (§5) —
-    status flip, document removal, notification — plus an audit trail. The flip
-    is conditional on the row still being 'pending', so a moderator who decided
-    during the AI call is not overwritten. Returns True only if we approved."""
+    """Approve without a human: atomic status flip + notification + audit trail.
+    The flip is conditional on the row still being 'pending'. The document is NOT
+    deleted — it is retained encrypted-at-rest for accountability. Returns True
+    only if we approved."""
     from backend.database import log_action
     from backend.needy import db as needy_db
     from backend import telegram_service
@@ -204,14 +195,8 @@ def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
     if needy_db.set_needy_status(needy_id, STATUS_APPROVED, expected_status=STATUS_PENDING) is None:
         logging.info("[kyc] needy %s no longer pending; skipping auto-approve", needy_id)
         return False
-    try:
-        if os.path.isfile(document_path):
-            os.remove(document_path)
-        needy_db.create_or_update_profile(needy_id, None, None, None, None, document=None)
-    except Exception:
-        logging.exception("[kyc] auto-approve: document cleanup failed for needy %s", needy_id)
     log_action("auto-kyc", "kyc_auto_approve", "needy", needy_id,
-               f"Auto-approved by AI KYC v2 (score {score:.2f})")
+               f"Auto-approved by AI KYC (score {score:.2f})")
     msg = "Ваша анкета одобрена автоматической проверкой — можете создавать заявки на получение продуктов."
     with get_db_cursor() as cur:
         cur.execute(
@@ -226,14 +211,42 @@ def _auto_approve(needy_id: int, document_path: str, score: float) -> bool:
     return True
 
 
+def _auto_reject(needy_id: int, score, notes: str) -> bool:
+    """Reject without a human when the AI is confident the document is invalid.
+    The account stays usable for a re-upload (upload moves it back to pending).
+    The document is retained encrypted for accountability. Returns True only if
+    we rejected (row was still pending)."""
+    from backend.database import log_action
+    from backend.needy import db as needy_db
+    from backend import telegram_service
+
+    if needy_db.set_needy_status(needy_id, STATUS_REJECTED, expected_status=STATUS_PENDING) is None:
+        return False
+    log_action("auto-kyc", "kyc_auto_reject", "needy", needy_id,
+               f"Auto-rejected by AI KYC (score {score})")
+    msg = ("Документ не прошёл автоматическую проверку. Загрузите корректный "
+           "документ, подтверждающий право на помощь.")
+    with get_db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+            (needy_id, "moderation_rejected", msg, datetime.now(timezone.utc)),
+        )
+    try:
+        telegram_service.notify_needy(needy_id, f"⚠️ {msg}")
+    except Exception:
+        pass
+    logging.info("[kyc] needy %s auto-rejected (score %s)", needy_id, score)
+    return True
+
+
 def _run_kyc_pipeline(entity_id, document_path, applicant_name, *,
-                      system_prompt, scorer, saver, auto_gate, approver, label):
-    """Shared KYC orchestration for both entity types: read the document, run the
-    AI analysis, score it, atomically auto-approve when confident, and persist the
-    verdict. The needy and volunteer flows differ only in the system prompt, the
-    scorer and the db/auto-approve callables — keeping the sequence here means a
-    fix to the AI-unavailable fallback or the auto-approve ordering applies to
-    both at once."""
+                      system_prompt, scorer, saver, approver, rejecter, label):
+    """Fully automated KYC for both entity types — NO human in the loop (§58):
+    read the document, run the AI analysis, score it, persist the verdict, and
+    auto-decide. Confident 'likely_ok' → approve; confident 'likely_fraud' →
+    reject (account can re-upload); anything inconclusive ('review') or with the
+    AI unavailable ('unchecked') stays pending and is retried by kyc_retry_tick
+    until a confident verdict — it is never escalated to a person."""
     try:
         if not os.path.isfile(document_path):
             return
@@ -243,19 +256,25 @@ def _run_kyc_pipeline(entity_id, document_path, applicant_name, *,
         content = kyc_crypto.read_decrypted(document_path)
         parsed = _analyze(content, mime, applicant_name, system_prompt=system_prompt)
         if parsed is None:
-            # AI unavailable → the queue falls back to fully manual review.
-            saver(entity_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, проверьте вручную")
+            # AI unavailable → stay pending; kyc_retry_tick will re-run it later.
+            saver(entity_id, None, VERDICT_UNCHECKED, "ИИ-проверка недоступна, будет повторена автоматически")
             return
         result = scorer(parsed)
         # Persist the verdict FIRST, so an entity is never left auto-approved
         # with a null KYC record if a later step fails.
         saver(entity_id, result["score"], result["verdict"], result["notes"])
-        # Then attempt the auto-approve — it atomically claims the row only if
-        # still pending (a moderator may have decided during the AI call). Only
-        # on an actual approval do we re-stamp the note so it reflects reality.
-        if auto_gate(result["verdict"], result["score"]) and approver(entity_id, document_path, result["score"]):
-            saver(entity_id, result["score"], result["verdict"],
-                  f"[авто-одобрено ИИ] {result['notes']}"[:1000])
+        if result["verdict"] == VERDICT_OK:
+            # Atomically claim the row only if still pending; re-stamp the note
+            # only on an actual approval so it reflects reality.
+            if approver(entity_id, document_path, result["score"]):
+                saver(entity_id, result["score"], result["verdict"],
+                      f"[авто-одобрено ИИ] {result['notes']}"[:1000])
+        elif result["verdict"] == VERDICT_FRAUD:
+            if rejecter(entity_id, result["score"], result["notes"]):
+                saver(entity_id, result["score"], result["verdict"],
+                      f"[авто-отклонено ИИ] {result['notes']}"[:1000])
+        # VERDICT_REVIEW → stay pending (the dashboard banner prompts a clearer
+        # re-upload); retrying the same document would yield the same score.
         logging.info("[kyc] %s %s: %s (%.2f)", label, entity_id, result["verdict"], result["score"])
     except Exception as e:
         logging.warning("[kyc] %s check for %s failed: %s", label, entity_id, e)
@@ -266,7 +285,7 @@ def run_kyc_check(needy_id: int, document_path: str, applicant_name: str):
     _run_kyc_pipeline(
         needy_id, document_path, applicant_name,
         system_prompt=SYSTEM_PROMPT, scorer=_score, saver=_save_result,
-        auto_gate=should_auto_approve, approver=_auto_approve, label="needy",
+        approver=_auto_approve, rejecter=_auto_reject, label="needy",
     )
 
 
@@ -279,11 +298,8 @@ def start_kyc_check(needy_id: int, document_path: str, applicant_name: str):
 # ── Volunteer identity KYC (§58) ─────────────────────────────────────────────
 # A volunteer physically picks food up from shops and carries it to recipients,
 # so the fraud we guard against is identity (anyone grabbing food and vanishing),
-# not eligibility. Same pipeline as the needy check — AI pre-check + human in the
-# loop — but it reads an *identity* document and never persists it (§5).
-
-VOLUNTEER_KYC_AUTO_APPROVE = os.getenv("VOLUNTEER_KYC_AUTO_APPROVE", "").lower() in ("1", "true", "yes")
-VOLUNTEER_KYC_AUTO_APPROVE_SCORE = float(os.getenv("VOLUNTEER_KYC_AUTO_APPROVE_SCORE", "0.85"))
+# not eligibility. Same fully-automated pipeline as the needy check — no human in
+# the loop — reading an *identity* document, retained encrypted-at-rest (§58).
 
 VOLUNTEER_SYSTEM_PROMPT = """\
 Ты — система верификации личности волонтёров платформы SaveFood (Казахстан).
@@ -332,16 +348,10 @@ def _score_volunteer(parsed: Dict[str, Any]) -> Dict[str, Any]:
     return _finalize_score(score, notes, parsed)
 
 
-def should_auto_approve_volunteer(verdict: str, score, enabled: bool = None, threshold: float = None) -> bool:
-    enabled = VOLUNTEER_KYC_AUTO_APPROVE if enabled is None else enabled
-    threshold = VOLUNTEER_KYC_AUTO_APPROVE_SCORE if threshold is None else threshold
-    return bool(enabled and verdict == VERDICT_OK and score is not None and score >= threshold)
-
-
 def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bool:
     """Approve a volunteer without a human. The flip is conditional on the row
-    still being 'pending' so a concurrent manual decision is not overwritten.
-    Returns True only if we approved."""
+    still being 'pending'. The identity document is retained encrypted-at-rest
+    for accountability (not deleted). Returns True only if we approved."""
     from backend.database import log_action
     from backend.volunteer import db as vol_db
     from backend import telegram_service
@@ -349,11 +359,6 @@ def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bo
     if vol_db.set_volunteer_status(vol_id, STATUS_APPROVED, expected_status=STATUS_PENDING) is None:
         logging.info("[kyc] volunteer %s no longer pending; skipping auto-approve", vol_id)
         return False
-    try:
-        if document_path and os.path.isfile(document_path):
-            os.remove(document_path)
-    except Exception:
-        logging.exception("[kyc] vol auto-approve: document cleanup failed for volunteer %s", vol_id)
     log_action("auto-kyc", "kyc_auto_approve", "volunteer", vol_id,
                f"Auto-approved volunteer by AI KYC (score {score:.2f})")
     msg = "Ваш аккаунт волонтёра подтверждён автоматической проверкой — можно брать маршруты."
@@ -370,14 +375,41 @@ def _auto_approve_volunteer(vol_id: int, document_path: str, score: float) -> bo
     return True
 
 
+def _auto_reject_volunteer(vol_id: int, score, notes: str) -> bool:
+    """Reject a volunteer without a human when the AI is confident the identity
+    document is invalid. The account can re-upload (upload moves it back to
+    pending). Document retained encrypted. Returns True only if we rejected."""
+    from backend.database import log_action
+    from backend.volunteer import db as vol_db
+    from backend import telegram_service
+
+    if vol_db.set_volunteer_status(vol_id, STATUS_REJECTED, expected_status=STATUS_PENDING) is None:
+        return False
+    log_action("auto-kyc", "kyc_auto_reject", "volunteer", vol_id,
+               f"Auto-rejected volunteer by AI KYC (score {score})")
+    msg = ("Удостоверение не прошло автоматическую проверку. Загрузите корректный "
+           "документ, удостоверяющий личность, чтобы брать маршруты.")
+    with get_db_cursor() as cur:
+        cur.execute(
+            "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
+            (vol_id, "moderation_rejected", msg, datetime.now(timezone.utc)),
+        )
+    try:
+        telegram_service.notify_volunteer(vol_id, f"⚠️ {msg}")
+    except Exception:
+        pass
+    logging.info("[kyc] volunteer %s auto-rejected (score %s)", vol_id, score)
+    return True
+
+
 def run_volunteer_kyc_check(vol_id: int, document_path: str, applicant_name: str):
     """Blocking analysis — call via start_volunteer_kyc_check (thread)."""
     from backend.volunteer import db as vol_db
     _run_kyc_pipeline(
         vol_id, document_path, applicant_name,
         system_prompt=VOLUNTEER_SYSTEM_PROMPT, scorer=_score_volunteer,
-        saver=vol_db.save_volunteer_kyc, auto_gate=should_auto_approve_volunteer,
-        approver=_auto_approve_volunteer, label="volunteer",
+        saver=vol_db.save_volunteer_kyc, approver=_auto_approve_volunteer,
+        rejecter=_auto_reject_volunteer, label="volunteer",
     )
 
 

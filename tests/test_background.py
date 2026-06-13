@@ -21,7 +21,7 @@ def test_modes_parse(monkeypatch):
 
 def test_task_table_complete():
     names = [name for name, _, _ in background.TASKS]
-    assert names == ["expire", "reassign", "antifraud", "reservation_ttl", "kyc_doc_retention"]
+    assert names == ["expire", "reassign", "antifraud", "reservation_ttl", "kyc_retry", "kyc_doc_retention"]
     for _, tick, interval in background.TASKS:
         assert callable(tick)
         assert interval > 0

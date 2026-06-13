@@ -22,7 +22,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from backend import telegram_service
+from backend import telegram_service, kyc_service
 from backend.database import get_db_cursor
 from backend.shop import db as shop_db
 from backend.needy import db as needy_db
@@ -35,16 +35,16 @@ REASSIGN_INTERVAL = 60 * 10
 ANTIFRAUD_INTERVAL = 60 * 3
 RESERVATION_TTL_INTERVAL = 60 * 5
 KYC_DOC_RETENTION_INTERVAL = 60 * 60  # hourly is plenty for a slow-moving sweep
+KYC_RETRY_INTERVAL = 60 * 15  # re-run AI for accounts stuck pending (AI was down)
 
 REASSIGN_TIMEOUT_MINUTES = 60
 
-# KYC document retention (§5/§58): identity & eligibility documents must not
-# live on disk indefinitely. A doc is normally deleted on a final moderation
-# decision, but an account that stays 'pending' (never moderated, or AI
-# 'unchecked') would otherwise keep its document forever — so a time-based sweep
-# purges them after this many hours. Keyed on kyc_checked_at (set seconds after
-# upload), NOT created_at (which is the account date).
-KYC_DOC_RETENTION_HOURS = int(os.getenv("KYC_DOC_RETENTION_HOURS", "72"))
+# KYC document retention sweep (§5/§58). Documents are now retained ENCRYPTED at
+# rest for accountability, so the purge is DISABLED by default (0). Set a
+# positive number of hours only where a jurisdiction requires deleting
+# unmoderated documents; keyed on kyc_checked_at (set seconds after upload),
+# NOT created_at (the account date).
+KYC_DOC_RETENTION_HOURS = int(os.getenv("KYC_DOC_RETENTION_HOURS", "0"))
 
 # Upload dirs, derived the same way the route modules build them.
 _VOL_KYC_DIR = os.path.join(os.path.dirname(volunteer_db.__file__), "kyc_uploads")
@@ -283,6 +283,8 @@ def kyc_doc_retention_tick(retention_hours: int = KYC_DOC_RETENTION_HOURS) -> in
     and its document reference cleared, and is asked to re-upload. No moderation
     state is lost beyond the now-deleted file; the account stays 'pending' so the
     verification banner keeps prompting. Covers volunteers and needy."""
+    if retention_hours <= 0:
+        return 0  # disabled: documents are retained encrypted for accountability
     purged = 0
     with get_db_cursor() as cur:
         # ── Volunteers (document column on volunteers) ──
@@ -348,6 +350,45 @@ def kyc_doc_retention_tick(retention_hours: int = KYC_DOC_RETENTION_HOURS) -> in
     return purged
 
 
+def kyc_retry_tick() -> int:
+    """Re-run fully-automated KYC for accounts stuck 'pending' because the AI was
+    unavailable (verdict 'unchecked' or never recorded). There is no human
+    fallback — the account is held pending and retried until a confident verdict
+    (approve/reject). Only retries 'unchecked'/null verdicts; a genuine 'review'
+    verdict is deterministic, so re-running the same document wouldn't change it."""
+    retried = 0
+    with get_db_cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, name, document FROM volunteers
+            WHERE status = 'pending' AND document IS NOT NULL
+              AND (kyc_verdict IS NULL OR kyc_verdict = 'unchecked')
+            """
+        )
+        vols = cur.fetchall()
+        cur.execute(
+            """
+            SELECT n.id AS id, n.name AS name, p.document AS document
+            FROM needy n JOIN needy_profile p ON p.needy_id = n.id
+            WHERE n.status = 'pending' AND p.document IS NOT NULL
+              AND (n.kyc_verdict IS NULL OR n.kyc_verdict = 'unchecked')
+            """
+        )
+        needies = cur.fetchall()
+
+    for v in vols:
+        path = _safe_doc_path(_VOL_KYC_DIR, v["document"])
+        if path:
+            kyc_service.run_volunteer_kyc_check(v["id"], path, v.get("name") or "")
+            retried += 1
+    for n in needies:
+        path = _safe_doc_path(_NEEDY_UPLOAD_DIR, n["document"])
+        if path:
+            kyc_service.run_kyc_check(n["id"], path, n.get("name") or "")
+            retried += 1
+    return retried
+
+
 # ── Scheduling ───────────────────────────────────────────────────────────────
 
 TASKS = (
@@ -355,6 +396,7 @@ TASKS = (
     ("reassign", reassign_tick, REASSIGN_INTERVAL),
     ("antifraud", antifraud_tick, ANTIFRAUD_INTERVAL),
     ("reservation_ttl", reservation_ttl_tick, RESERVATION_TTL_INTERVAL),
+    ("kyc_retry", kyc_retry_tick, KYC_RETRY_INTERVAL),
     ("kyc_doc_retention", kyc_doc_retention_tick, KYC_DOC_RETENTION_INTERVAL),
 )
 

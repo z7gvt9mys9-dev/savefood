@@ -488,8 +488,9 @@ def set_needy_status(needy_id: int, status: str, expected_status: Optional[str] 
         if not n:
             return None
 
-        # Flip the status first (atomically when guarded) so the document
-        # deletion below only runs once we know the transition actually happened.
+        # The eligibility document is NOT deleted on a decision any more — it is
+        # retained encrypted-at-rest for accountability (§58). No human accesses
+        # it; decryption is a deliberate break-glass action.
         if expected_status is None:
             cur.execute("UPDATE needy SET status = %s WHERE id = %s", (status, needy_id))
         else:
@@ -497,20 +498,6 @@ def set_needy_status(needy_id: int, status: str, expected_status: Optional[str] 
                         (status, needy_id, expected_status))
             if cur.rowcount == 0:
                 return None
-
-        if status == 'approved':
-            cur.execute("SELECT document FROM needy_profile WHERE needy_id = %s", (needy_id,))
-            prof = cur.fetchone()
-            if prof and prof['document']:
-                doc_path = prof['document']
-                filename = os.path.basename(doc_path)
-                local_path = os.path.join(os.path.dirname(__file__), "uploads", filename)
-                if os.path.exists(local_path):
-                    try:
-                        os.remove(local_path)
-                    except Exception as e:
-                        print(f"Error deleting sensitive document: {e}")
-                cur.execute("UPDATE needy_profile SET document = NULL WHERE needy_id = %s", (needy_id,))
 
         cur.execute("SELECT * FROM needy WHERE id = %s", (needy_id,))
         updated = cur.fetchone()

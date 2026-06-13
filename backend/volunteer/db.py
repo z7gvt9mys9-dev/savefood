@@ -232,34 +232,23 @@ def create_volunteer(name: str, contact: Optional[str], lat: Optional[float], lo
 
 
 def set_volunteer_status(vol_id: int, status: str, expected_status: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """Admin/auto-KYC decision (§58). The identity document reference is dropped
-    after a final decision (approve/reject) — the file itself is only needed
-    during moderation, same lifecycle as the needy document (§5).
+    """Auto-KYC decision (§58). The identity document is NOT cleared on a decision
+    any more — it is retained encrypted-at-rest for accountability; no human
+    accesses it.
 
     When `expected_status` is given the flip is conditional (UPDATE ... WHERE
     status = expected) and returns None if the row was no longer in that state —
-    used by the auto-KYC thread so it cannot clobber a manual moderation decision
-    made during the AI call (TOCTOU guard)."""
+    used by the auto-KYC thread so it cannot clobber a decision made concurrently
+    (TOCTOU guard)."""
     with get_db_cursor() as cur:
-        cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
-        v = cur.fetchone()
-        if not v:
+        cur.execute("SELECT 1 FROM volunteers WHERE id = %s", (vol_id,))
+        if cur.fetchone() is None:
             return None
-        clear_doc = status in ("approved", "rejected") and bool(v.get("document"))
-        # Drop the document reference in the same UPDATE as the status flip to
-        # avoid a second round-trip on the row.
         if expected_status is None:
-            if clear_doc:
-                cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s", (status, vol_id))
-            else:
-                cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
+            cur.execute("UPDATE volunteers SET status = %s WHERE id = %s", (status, vol_id))
         else:
-            if clear_doc:
-                cur.execute("UPDATE volunteers SET status = %s, document = NULL WHERE id = %s AND status = %s",
-                            (status, vol_id, expected_status))
-            else:
-                cur.execute("UPDATE volunteers SET status = %s WHERE id = %s AND status = %s",
-                            (status, vol_id, expected_status))
+            cur.execute("UPDATE volunteers SET status = %s WHERE id = %s AND status = %s",
+                        (status, vol_id, expected_status))
             if cur.rowcount == 0:
                 return None
         cur.execute("SELECT * FROM volunteers WHERE id = %s", (vol_id,))
