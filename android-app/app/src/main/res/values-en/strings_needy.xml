@@ -1,0 +1,106 @@
+<resources>
+    <!-- Tracking -->
+    <string name="needy_tickets_title">My requests</string>
+    <string name="needy_tickets_empty_title">No active requests</string>
+    <string name="needy_tickets_empty_desc">Create a request in the "Find food" tab and delivery tracking will appear here.</string>
+    <string name="needy_tickets_empty_cta">Find food</string>
+    <string name="needy_track_stage_waiting">Waiting for courier</string>
+    <string name="needy_track_stage_accepted">Courier accepted</string>
+    <string name="needy_track_stage_on_the_way">On the way</string>
+    <string name="needy_track_stage_delivered">Delivered</string>
+    <string name="needy_track_cancelled">Request cancelled</string>
+    <string name="needy_track_self_pickup">Self-pickup</string>
+    <string name="needy_track_courier">Courier</string>
+    <string name="needy_track_courier_assigned">Volunteer #%1$d assigned</string>
+    <string name="needy_track_eta">On the way to you</string>
+    <string name="needy_track_map_loading">Locating the courier…</string>
+    <string name="needy_track_no_location">Courier location not available yet</string>
+    <string name="needy_track_your_qr">Your pickup QR</string>
+    <string name="needy_track_cancel">Cancel request</string>
+    <string name="needy_track_cancel_confirm_title">Cancel request?</string>
+    <string name="needy_track_cancel_confirm_desc">The courier will stop delivering. This cannot be undone.</string>
+    <string name="needy_track_rate_cta">Rate delivery</string>
+
+    <!-- Find food -->
+    <string name="needy_find_title">Find food</string>
+    <string name="needy_find_tab_list">List</string>
+    <string name="needy_find_tab_map">Map</string>
+    <string name="needy_find_search_hint">Search by name</string>
+    <string name="needy_find_empty_title">No lots yet</string>
+    <string name="needy_find_empty_desc">Check back later — shops publish food throughout the day.</string>
+    <string name="needy_find_request_cta">Create request</string>
+
+    <!-- Wizard -->
+    <string name="needy_wizard_title">New request</string>
+    <string name="needy_wizard_step_method">Method</string>
+    <string name="needy_wizard_step_details">Details</string>
+    <string name="needy_wizard_step_confirm">Confirm</string>
+    <string name="needy_wizard_method_delivery">Volunteer delivery</string>
+    <string name="needy_wizard_method_delivery_desc">A courier brings the order to your address.</string>
+    <string name="needy_wizard_method_pickup">Self-pickup</string>
+    <string name="needy_wizard_method_pickup_desc">You collect the order at the shop.</string>
+    <string name="needy_wizard_address">Address</string>
+    <string name="needy_wizard_apartment">Apartment</string>
+    <string name="needy_wizard_floor">Floor</string>
+    <string name="needy_wizard_entrance">Entrance</string>
+    <string name="needy_wizard_available_time">Preferred time</string>
+    <string name="needy_wizard_items">Note / what you need</string>
+    <string name="needy_wizard_use_my_location">My current location</string>
+    <string name="needy_wizard_lot">Selected lot</string>
+    <string name="needy_wizard_submit">Submit request</string>
+    <string name="needy_wizard_success">Request submitted</string>
+    <string name="needy_wizard_address_required">Enter a delivery address</string>
+
+    <!-- History -->
+    <string name="needy_history_title">History</string>
+    <string name="needy_history_empty_title">No history yet</string>
+    <string name="needy_history_empty_desc">Completed pickups will show up here.</string>
+    <string name="needy_history_rated">Your rating: %1$d★</string>
+    <string name="needy_history_rate">Rate</string>
+    <string name="needy_history_rerate">Change rating</string>
+    <string name="needy_history_add_photo">Add photo</string>
+    <string name="needy_history_photo_pending">Photo under review</string>
+    <string name="needy_history_photo_approved">Photo published</string>
+    <string name="needy_history_photo_rejected">Photo rejected</string>
+    <string name="needy_history_delete">Delete request</string>
+    <string name="needy_history_delete_confirm_title">Delete request?</string>
+    <string name="needy_history_delete_confirm_desc">The record will be removed. This cannot be undone.</string>
+
+    <!-- Rating -->
+    <string name="needy_rate_title">Rate the delivery</string>
+    <string name="needy_rate_comment_hint">Thank-you note (optional)</string>
+    <string name="needy_rate_submit">Submit rating</string>
+
+    <!-- Profile -->
+    <string name="needy_profile_title">Profile</string>
+    <string name="needy_profile_section_personal">Details</string>
+    <string name="needy_profile_section_address">Address</string>
+    <string name="needy_profile_section_kyc">Document (KYC)</string>
+    <string name="needy_profile_section_privacy">Data &amp; privacy</string>
+    <string name="needy_profile_family_size">Family size</string>
+    <string name="needy_profile_preferences">Preferences</string>
+    <string name="needy_profile_urgency">Urgency</string>
+    <string name="needy_profile_city">City</string>
+    <string name="needy_profile_address">Address</string>
+    <string name="needy_profile_apartment">Apartment</string>
+    <string name="needy_profile_floor">Floor</string>
+    <string name="needy_profile_entrance">Entrance</string>
+    <string name="needy_profile_available_time">Preferred time</string>
+    <string name="needy_profile_save">Save details</string>
+    <string name="needy_profile_saved">Details saved</string>
+    <string name="needy_profile_kyc_desc">Upload a document proving eligibility. Verification is automatic; the document is not shown.</string>
+    <string name="needy_profile_kyc_upload">Upload document</string>
+    <string name="needy_profile_kyc_uploaded">Document uploaded and under review</string>
+    <string name="needy_profile_kyc_status">Verification status: %1$s</string>
+    <string name="needy_profile_geo_push">Nearby food alerts</string>
+    <string name="needy_profile_geo_push_desc">Push when a matching lot appears nearby.</string>
+    <string name="needy_profile_export">Export my data</string>
+    <string name="needy_profile_export_done">Data exported</string>
+    <string name="needy_profile_delete_account">Delete account</string>
+    <string name="needy_profile_delete_confirm_title">Delete account?</string>
+    <string name="needy_profile_delete_confirm_desc">Personal data will be erased permanently (right to be forgotten).</string>
+
+    <!-- Common -->
+    <string name="needy_choose_file">Choose file</string>
+    <string name="needy_retry">Retry</string>
+</resources>

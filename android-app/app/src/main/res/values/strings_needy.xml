@@ -1,0 +1,106 @@
+<resources>
+    <!-- Tracking / Мои заявки -->
+    <string name="needy_tickets_title">Мои заявки</string>
+    <string name="needy_tickets_empty_title">Активных заявок нет</string>
+    <string name="needy_tickets_empty_desc">Оформите заявку во вкладке «Найти еду», и здесь появится трекинг доставки.</string>
+    <string name="needy_tickets_empty_cta">Найти еду</string>
+    <string name="needy_track_stage_waiting">Ожидает курьера</string>
+    <string name="needy_track_stage_accepted">Курьер взял</string>
+    <string name="needy_track_stage_on_the_way">В пути</string>
+    <string name="needy_track_stage_delivered">Доставлено</string>
+    <string name="needy_track_cancelled">Заявка отменена</string>
+    <string name="needy_track_self_pickup">Самовывоз</string>
+    <string name="needy_track_courier">Курьер</string>
+    <string name="needy_track_courier_assigned">Назначен волонтёр #%1$d</string>
+    <string name="needy_track_eta">В пути к вам</string>
+    <string name="needy_track_map_loading">Определяем позицию курьера…</string>
+    <string name="needy_track_no_location">Позиция курьера пока недоступна</string>
+    <string name="needy_track_your_qr">Ваш QR для получения</string>
+    <string name="needy_track_cancel">Отменить заявку</string>
+    <string name="needy_track_cancel_confirm_title">Отменить заявку?</string>
+    <string name="needy_track_cancel_confirm_desc">Курьер перестанет везти заказ. Это действие нельзя отменить.</string>
+    <string name="needy_track_rate_cta">Оценить доставку</string>
+
+    <!-- Find food / Найти еду -->
+    <string name="needy_find_title">Найти еду</string>
+    <string name="needy_find_tab_list">Список</string>
+    <string name="needy_find_tab_map">Карта</string>
+    <string name="needy_find_search_hint">Поиск по названию</string>
+    <string name="needy_find_empty_title">Лотов пока нет</string>
+    <string name="needy_find_empty_desc">Загляните позже — магазины публикуют еду в течение дня.</string>
+    <string name="needy_find_request_cta">Оформить заявку</string>
+
+    <!-- Ticket wizard -->
+    <string name="needy_wizard_title">Оформление заявки</string>
+    <string name="needy_wizard_step_method">Способ получения</string>
+    <string name="needy_wizard_step_details">Детали</string>
+    <string name="needy_wizard_step_confirm">Подтверждение</string>
+    <string name="needy_wizard_method_delivery">Доставка волонтёром</string>
+    <string name="needy_wizard_method_delivery_desc">Курьер привезёт заказ по вашему адресу.</string>
+    <string name="needy_wizard_method_pickup">Самовывоз</string>
+    <string name="needy_wizard_method_pickup_desc">Заберёте заказ в магазине сами.</string>
+    <string name="needy_wizard_address">Адрес</string>
+    <string name="needy_wizard_apartment">Квартира</string>
+    <string name="needy_wizard_floor">Этаж</string>
+    <string name="needy_wizard_entrance">Подъезд</string>
+    <string name="needy_wizard_available_time">Удобное время</string>
+    <string name="needy_wizard_items">Комментарий / что нужно</string>
+    <string name="needy_wizard_use_my_location">Моё текущее местоположение</string>
+    <string name="needy_wizard_lot">Выбранный лот</string>
+    <string name="needy_wizard_submit">Отправить заявку</string>
+    <string name="needy_wizard_success">Заявка отправлена</string>
+    <string name="needy_wizard_address_required">Укажите адрес доставки</string>
+
+    <!-- History / История -->
+    <string name="needy_history_title">История</string>
+    <string name="needy_history_empty_title">История пуста</string>
+    <string name="needy_history_empty_desc">Завершённые получения появятся здесь.</string>
+    <string name="needy_history_rated">Ваша оценка: %1$d★</string>
+    <string name="needy_history_rate">Оценить</string>
+    <string name="needy_history_rerate">Изменить оценку</string>
+    <string name="needy_history_add_photo">Добавить фото</string>
+    <string name="needy_history_photo_pending">Фото на модерации</string>
+    <string name="needy_history_photo_approved">Фото опубликовано</string>
+    <string name="needy_history_photo_rejected">Фото отклонено</string>
+    <string name="needy_history_delete">Удалить заявку</string>
+    <string name="needy_history_delete_confirm_title">Удалить заявку?</string>
+    <string name="needy_history_delete_confirm_desc">Запись будет удалена. Это действие нельзя отменить.</string>
+
+    <!-- Rating dialog -->
+    <string name="needy_rate_title">Оцените доставку</string>
+    <string name="needy_rate_comment_hint">Благодарность волонтёру (необязательно)</string>
+    <string name="needy_rate_submit">Отправить оценку</string>
+
+    <!-- Profile / Профиль -->
+    <string name="needy_profile_title">Профиль</string>
+    <string name="needy_profile_section_personal">Анкета</string>
+    <string name="needy_profile_section_address">Адрес</string>
+    <string name="needy_profile_section_kyc">Документ (KYC)</string>
+    <string name="needy_profile_section_privacy">Данные и приватность</string>
+    <string name="needy_profile_family_size">Размер семьи</string>
+    <string name="needy_profile_preferences">Предпочтения</string>
+    <string name="needy_profile_urgency">Срочность</string>
+    <string name="needy_profile_city">Город</string>
+    <string name="needy_profile_address">Адрес</string>
+    <string name="needy_profile_apartment">Квартира</string>
+    <string name="needy_profile_floor">Этаж</string>
+    <string name="needy_profile_entrance">Подъезд</string>
+    <string name="needy_profile_available_time">Удобное время</string>
+    <string name="needy_profile_save">Сохранить анкету</string>
+    <string name="needy_profile_saved">Анкета сохранена</string>
+    <string name="needy_profile_kyc_desc">Загрузите документ, подтверждающий право на помощь. Проверка автоматическая, документ не отображается.</string>
+    <string name="needy_profile_kyc_upload">Загрузить документ</string>
+    <string name="needy_profile_kyc_uploaded">Документ загружен и проверяется</string>
+    <string name="needy_profile_kyc_status">Статус проверки: %1$s</string>
+    <string name="needy_profile_geo_push">Уведомления о еде рядом</string>
+    <string name="needy_profile_geo_push_desc">Пуш, когда поблизости появляется подходящий лот.</string>
+    <string name="needy_profile_export">Экспорт моих данных</string>
+    <string name="needy_profile_export_done">Данные экспортированы</string>
+    <string name="needy_profile_delete_account">Удалить аккаунт</string>
+    <string name="needy_profile_delete_confirm_title">Удалить аккаунт?</string>
+    <string name="needy_profile_delete_confirm_desc">Личные данные будут стёрты безвозвратно (право на забвение).</string>
+
+    <!-- Common needy -->
+    <string name="needy_choose_file">Выбрать файл</string>
+    <string name="needy_retry">Повторить</string>
+</resources>
