@@ -9,30 +9,25 @@ import './Admin.css';
 const AdminPanel = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('moderation');
-  const [pendingNeedy, setPendingNeedy] = useState([]);
+  const [activeTab, setActiveTab] = useState('photos');
   const [stats, setStats] = useState({});
   const [activeRoutes, setActiveRoutes] = useState([]);
   const [users, setUsers] = useState([]);
   const [auditLog, setAuditLog] = useState([]);
   const [shops, setShops] = useState([]);
   const [esgGlobal, setEsgGlobal] = useState(null);
-  const [kycRechecking, setKycRechecking] = useState({});
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
   const [heatmap, setHeatmap] = useState(null);
-  const [pendingVolunteers, setPendingVolunteers] = useState([]);
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
   const fetchData = async () => {
     try {
-      const [needyRes, statsRes, routesRes] = await Promise.all([
-        fetch(`${API_URL}/admin/needy?status=pending`, { headers: authHeader }),
+      const [statsRes, routesRes] = await Promise.all([
         fetch(`${API_URL}/admin/stats`, { headers: authHeader }),
         fetch(`${API_URL}/admin/routes`, { headers: authHeader }),
       ]);
-      if (needyRes.ok) setPendingNeedy(await needyRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (routesRes.ok) setActiveRoutes(await routesRes.json());
     } catch {}
@@ -70,19 +65,11 @@ const AdminPanel = () => {
     } catch {}
   };
 
-  const fetchPendingVolunteers = async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
-      if (res.ok) setPendingVolunteers(await res.json());
-    } catch {}
-  };
-
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
     if (activeTab === 'plans') fetchShops();
     if (activeTab === 'photos') fetchDeliveryPhotos();
-    if (activeTab === 'vol_kyc') fetchPendingVolunteers();
     if (activeTab === 'analytics' && !esgGlobal) {
       fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
@@ -109,20 +96,6 @@ const AdminPanel = () => {
     } catch {}
   };
 
-  const handleApprove = async (id) => {
-    try {
-      await fetch(`${API_URL}/needy/${id}/moderation?status=approved`, { method: 'PATCH', headers: authHeader });
-      fetchData();
-    } catch {}
-  };
-
-  const handleReject = async (id) => {
-    try {
-      await fetch(`${API_URL}/needy/${id}/moderation?status=rejected`, { method: 'PATCH', headers: authHeader });
-      fetchData();
-    } catch {}
-  };
-
   const handleResetRoute = async (routeId) => {
     if (!window.confirm(t('admin.confirm_reset_route', { id: routeId }))) return;
     try {
@@ -130,18 +103,6 @@ const AdminPanel = () => {
       if (res.ok) fetchData();
       else alert(t('admin.error_reset'));
     } catch {}
-  };
-
-  // Documents live behind the auth-checked /needy/{id}/document endpoint
-  // (the public /needy_uploads mount was removed on purpose), and a plain
-  // <a href> can't send the Authorization header — fetch as blob instead.
-  const handleViewDocument = async (needyId) => {
-    try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/document`, { headers: authHeader });
-      if (!res.ok) { alert(t('common.error')); return; }
-      const blob = await res.blob();
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
-    } catch { alert(t('common.error')); }
   };
 
   const handleBlockUser = async (userId, isBlocked) => {
@@ -152,22 +113,6 @@ const AdminPanel = () => {
       if (res.ok) fetchUsers();
       else alert(t('common.error'));
     } catch {}
-  };
-
-  // Second opinion on a disputed AI verdict: re-runs the Gemini check
-  // synchronously (a few seconds) and refreshes the queue row.
-  const handleKycRecheck = async (needyId) => {
-    setKycRechecking(prev => ({ ...prev, [needyId]: true }));
-    try {
-      const res = await fetch(`${API_URL}/admin/needy/${needyId}/kyc_recheck`, { method: 'POST', headers: authHeader });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        alert(e.detail || t('common.error'));
-        return;
-      }
-      await fetchData();
-    } catch { alert(t('common.connection_error')); }
-    finally { setKycRechecking(prev => ({ ...prev, [needyId]: false })); }
   };
 
   // Delivery photo moderation: publish or drop a recipient photo before it
@@ -201,148 +146,6 @@ const AdminPanel = () => {
       </span>
     );
   };
-
-  // Auto-KYC v1: AI pre-check verdict rendered as a colored hint; the
-  // approve/reject decision stays with the human moderator.
-  const kycBadge = (item) => {
-    if (!item.kyc_verdict || item.kyc_verdict === 'unchecked') return <span style={{ opacity: 0.6 }}>—</span>;
-    const colors = { likely_ok: '#5f5', review: '#fa0', likely_fraud: '#f55' };
-    const labels = {
-      likely_ok: t('admin.kyc_likely_ok'),
-      review: t('admin.kyc_review'),
-      likely_fraud: t('admin.kyc_likely_fraud'),
-    };
-    return (
-      <span title={item.kyc_notes || ''} style={{ color: colors[item.kyc_verdict] || '#aaa', cursor: 'help' }}>
-        {labels[item.kyc_verdict] || item.kyc_verdict}
-        {item.kyc_score != null && ` (${Math.round(item.kyc_score * 100)}%)`}
-      </span>
-    );
-  };
-
-  const renderModeration = () => (
-    <div className="admin-tab">
-      <h2>{t('admin.moderation_queue')}</h2>
-      {pendingNeedy.length === 0 ? (
-        <EmptyState icon="✅" title={t('empty.moderation_title')} description={t('empty.moderation_desc')} />
-      ) : (
-      <table className="admin-table">
-        <thead>
-          <tr>
-            <th>{t('admin.col_user')}</th>
-            <th>{t('admin.col_contact')}</th>
-            <th>{t('admin.col_document')}</th>
-            <th>{t('admin.col_kyc')}</th>
-            <th>{t('admin.col_actions')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {pendingNeedy.map(item => (
-            <tr key={item.id}>
-              <td>{item.name}</td>
-              <td>{item.contact || '—'}</td>
-              <td>{item.document ? <button className="btn-small" onClick={() => handleViewDocument(item.id)}>{t('admin.view_doc')}</button> : '—'}</td>
-              <td>
-                {kycBadge(item)}
-                {item.kyc_notes && <div style={{ fontSize: '0.78rem', opacity: 0.75, maxWidth: 260 }}>{item.kyc_notes}</div>}
-                {item.document && (
-                  <button
-                    className="btn-small"
-                    style={{ marginTop: 4 }}
-                    disabled={!!kycRechecking[item.id]}
-                    onClick={() => handleKycRecheck(item.id)}
-                  >
-                    {kycRechecking[item.id] ? t('common.loading') : t('admin.kyc_recheck')}
-                  </button>
-                )}
-              </td>
-              <td>
-                <button className="btn-small btn-success" onClick={() => handleApprove(item.id)}>{t('admin.approve')}</button>
-                <button className="btn-small btn-danger" onClick={() => handleReject(item.id)}>{t('admin.reject')}</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      )}
-    </div>
-  );
-
-  // ── Volunteer identity KYC (§58): same queue shape as needy moderation ──────
-  const handleVolunteerModerate = async (id, status) => {
-    try {
-      await fetch(`${API_URL}/volunteers/${id}/moderation?status=${status}`, { method: 'PATCH', headers: authHeader });
-      fetchPendingVolunteers();
-    } catch {}
-  };
-
-  const handleViewVolunteerDocument = async (id) => {
-    try {
-      const res = await fetch(`${API_URL}/volunteers/${id}/document`, { headers: authHeader });
-      if (!res.ok) { alert(t('common.error')); return; }
-      const blob = await res.blob();
-      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
-    } catch { alert(t('common.error')); }
-  };
-
-  const handleVolunteerKycRecheck = async (id) => {
-    setKycRechecking(prev => ({ ...prev, [`v${id}`]: true }));
-    try {
-      const res = await fetch(`${API_URL}/admin/volunteers/${id}/kyc_recheck`, { method: 'POST', headers: authHeader });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        alert(e.detail || t('common.error'));
-        return;
-      }
-      await fetchPendingVolunteers();
-    } catch { alert(t('common.connection_error')); }
-    finally { setKycRechecking(prev => ({ ...prev, [`v${id}`]: false })); }
-  };
-
-  const renderVolunteerKyc = () => (
-    <div className="admin-tab">
-      <h2>{t('admin.vol_kyc_queue')}</h2>
-      {pendingVolunteers.length === 0 ? (
-        <EmptyState icon="✅" title={t('empty.moderation_title')} description={t('admin.vol_kyc_empty')} />
-      ) : (
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>{t('admin.col_user')}</th>
-              <th>{t('admin.col_contact')}</th>
-              <th>{t('admin.col_document')}</th>
-              <th>{t('admin.col_kyc')}</th>
-              <th>{t('admin.col_actions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pendingVolunteers.map(item => (
-              <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.contact || '—'}</td>
-                <td>{item.document ? <button className="btn-small" onClick={() => handleViewVolunteerDocument(item.id)}>{t('admin.view_doc')}</button> : '—'}</td>
-                <td>
-                  {kycBadge(item)}
-                  {item.kyc_notes && <div style={{ fontSize: '0.78rem', opacity: 0.75, maxWidth: 260 }}>{item.kyc_notes}</div>}
-                  {item.document && (
-                    <button className="btn-small" style={{ marginTop: 4 }}
-                      disabled={!!kycRechecking[`v${item.id}`]}
-                      onClick={() => handleVolunteerKycRecheck(item.id)}>
-                      {kycRechecking[`v${item.id}`] ? t('common.loading') : t('admin.kyc_recheck')}
-                    </button>
-                  )}
-                </td>
-                <td>
-                  <button className="btn-small btn-success" onClick={() => handleVolunteerModerate(item.id, 'approved')}>{t('admin.approve')}</button>
-                  <button className="btn-small btn-danger" onClick={() => handleVolunteerModerate(item.id, 'rejected')}>{t('admin.reject')}</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
 
   const renderPhotos = () => (
     <div className="admin-tab">
@@ -642,8 +445,6 @@ const AdminPanel = () => {
       <aside className="sidebar">
         <h2>SaveFood Admin</h2>
         <nav>
-          <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.moderation')}</button>
-          <button className={activeTab === 'vol_kyc' ? 'active' : ''} onClick={() => setActiveTab('vol_kyc')}>{t('admin.vol_kyc')}</button>
           <button className={activeTab === 'photos' ? 'active' : ''} onClick={() => setActiveTab('photos')}>{t('admin.photos')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
@@ -654,8 +455,6 @@ const AdminPanel = () => {
       </aside>
 
       <main className="main-content">
-        {activeTab === 'moderation' && renderModeration()}
-        {activeTab === 'vol_kyc' && renderVolunteerKyc()}
         {activeTab === 'photos' && renderPhotos()}
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}
