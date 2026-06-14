@@ -36,6 +36,10 @@ ANTIFRAUD_INTERVAL = 60 * 3
 RESERVATION_TTL_INTERVAL = 60 * 5
 KYC_DOC_RETENTION_INTERVAL = 60 * 60  # hourly is plenty for a slow-moving sweep
 KYC_RETRY_INTERVAL = 60 * 15  # re-run AI for accounts stuck pending (AI was down)
+# Cap how many stuck docs we re-send to the AI per tick, so a large backlog (e.g.
+# after an AI outage) doesn't stampede the API / starve the worker on recovery.
+# Oldest-attempt-first, so every doc is eventually retried across ticks.
+KYC_RETRY_BATCH = int(os.getenv("KYC_RETRY_BATCH", "100"))
 
 REASSIGN_TIMEOUT_MINUTES = 60
 
@@ -363,7 +367,10 @@ def kyc_retry_tick() -> int:
             SELECT id, name, document FROM volunteers
             WHERE status = 'pending' AND document IS NOT NULL
               AND (kyc_verdict IS NULL OR kyc_verdict = 'unchecked')
-            """
+            ORDER BY kyc_checked_at ASC NULLS FIRST
+            LIMIT %s
+            """,
+            (KYC_RETRY_BATCH,),
         )
         vols = cur.fetchall()
         cur.execute(
@@ -372,7 +379,10 @@ def kyc_retry_tick() -> int:
             FROM needy n JOIN needy_profile p ON p.needy_id = n.id
             WHERE n.status = 'pending' AND p.document IS NOT NULL
               AND (n.kyc_verdict IS NULL OR n.kyc_verdict = 'unchecked')
-            """
+            ORDER BY n.kyc_checked_at ASC NULLS FIRST
+            LIMIT %s
+            """,
+            (KYC_RETRY_BATCH,),
         )
         needies = cur.fetchall()
 

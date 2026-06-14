@@ -1,4 +1,3 @@
-import os
 import psycopg2.errors
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any

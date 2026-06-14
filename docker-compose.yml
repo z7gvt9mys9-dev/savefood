@@ -71,13 +71,9 @@ services:
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
-      # Auto-KYC v2 (optional)
-      KYC_AUTO_APPROVE: ${KYC_AUTO_APPROVE:-false}
-      KYC_AUTO_APPROVE_SCORE: ${KYC_AUTO_APPROVE_SCORE:-0.85}
-      # Volunteer identity KYC (§58). Gate ON by default; auto-approve OFF.
+      # KYC is fully automated (§58.1): the AI verdict decides, no opt-in flag.
+      # Gate that blocks unverified volunteers from routes (default ON).
       VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
-      VOLUNTEER_KYC_AUTO_APPROVE: ${VOLUNTEER_KYC_AUTO_APPROVE:-false}
-      VOLUNTEER_KYC_AUTO_APPROVE_SCORE: ${VOLUNTEER_KYC_AUTO_APPROVE_SCORE:-0.85}
       # Fernet key for KYC document encryption-at-rest. Empty = stored
       # UNENCRYPTED (dev only). Generate: Fernet.generate_key().
       KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:-}

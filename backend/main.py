@@ -86,9 +86,9 @@ async def shutdown():
     await telegram_routes.stop_polling()
 
 app.mount("/uploads", StaticFiles(directory=shop_routes.UPLOAD_DIR), name="uploads")
-# /needy_uploads is intentionally NOT mounted publicly — it contains personal
-# documents (passports/social-status proofs). Downloads go through the
-# auth-checked /needy/{needy_id}/document endpoint instead.
+# needy KYC documents are intentionally NOT mounted publicly — they contain
+# personal documents (passports/social-status proofs), are encrypted at rest, and
+# are never served to anyone: KYC is fully automated, no human access (§58.1).
 app.mount("/volunteer_uploads", StaticFiles(directory=vol_routes.UPLOAD_DIR), name="volunteer_uploads")
 app.include_router(auth_routes.router)
 app.include_router(oauth_routes.router)
