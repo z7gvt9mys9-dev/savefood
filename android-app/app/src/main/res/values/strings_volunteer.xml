@@ -1,0 +1,95 @@
+<resources>
+    <!-- Available -->
+    <string name="vol_available_title">Доступные заявки</string>
+    <string name="vol_available_tab_list">Список</string>
+    <string name="vol_available_tab_map">Карта</string>
+    <string name="vol_available_search_hint">Поиск по лотам</string>
+    <string name="vol_available_empty_title">Сейчас нет открытых лотов</string>
+    <string name="vol_available_empty_desc">Как только магазин опубликует лот с заявками на доставку, он появится здесь.</string>
+    <string name="vol_available_take">Взять заявку → старт маршрута</string>
+    <string name="vol_available_open_tickets">Открытых заявок поблизости: %1$d</string>
+    <string name="vol_available_cold_badge">Нужен холодильник</string>
+    <string name="vol_available_start_title">Стартовать маршрут?</string>
+    <string name="vol_available_start_desc">Вы заберёте лот «%1$s» и развезёте его по подходящим заявкам. Маршрут построится автоматически.</string>
+    <string name="vol_available_started">Маршрут построен — откройте вкладку «Мой маршрут»</string>
+
+    <!-- Route -->
+    <string name="vol_route_title">Мой маршрут</string>
+    <string name="vol_route_empty_title">Активного маршрута нет</string>
+    <string name="vol_route_empty_desc">Возьмите заявку во вкладке «Доступные», чтобы построить маршрут доставки.</string>
+    <string name="vol_route_point_shop">Магазин — забор</string>
+    <string name="vol_route_point_delivery">Доставка</string>
+    <string name="vol_route_step_pickup">Заберите лот в магазине</string>
+    <string name="vol_route_pickup_btn">Я забрал лот</string>
+    <string name="vol_route_pickup_done">Лот забран</string>
+    <string name="vol_route_deliver_btn">Подтвердить доставку (QR + фото)</string>
+    <string name="vol_route_attempt_btn">Не открыли дверь</string>
+    <string name="vol_route_delivered">Доставлено</string>
+    <string name="vol_route_released">Возвращено в очередь</string>
+    <string name="vol_route_attempt_count">Попытка %1$d из 3</string>
+    <string name="vol_route_finish">Завершить маршрут</string>
+    <string name="vol_route_finish_confirm_title">Завершить маршрут?</string>
+    <string name="vol_route_finish_confirm_desc">Незавершённые точки будут возвращены в очередь для других волонтёров.</string>
+    <string name="vol_route_scan_qr">Сканируйте QR получателя</string>
+    <string name="vol_route_photo_title">Фото доставки</string>
+    <string name="vol_route_photo_capture">Сделать фото</string>
+    <string name="vol_route_photo_retake">Переснять</string>
+    <string name="vol_route_photo_confirm">Подтвердить доставку</string>
+    <string name="vol_route_photo_skip">Без фото</string>
+    <string name="vol_route_no_location">Не удалось получить геолокацию — включите GPS</string>
+    <string name="vol_route_tracking_on">GPS-трекинг включён</string>
+    <string name="vol_route_addr_detail">%1$s</string>
+
+    <!-- Rating -->
+    <string name="vol_rating_title">Рейтинг</string>
+    <string name="vol_rating_level">Уровень %1$d</string>
+    <string name="vol_rating_avg">Средняя оценка: %1$s (%2$d)</string>
+    <string name="vol_rating_no_rating">Пока нет оценок</string>
+    <string name="vol_rating_deliveries">Доставок: %1$d</string>
+    <string name="vol_rating_routes">Маршрутов: %1$d</string>
+    <string name="vol_rating_kg">Спасено: %1$s кг</string>
+    <string name="vol_rating_achievements">Достижения</string>
+    <string name="vol_rating_thanks_title">Благодарности</string>
+    <string name="vol_rating_thanks_empty">Здесь появятся отзывы получателей.</string>
+    <string name="vol_rating_team_title">Команда</string>
+    <string name="vol_rating_team_none">Вы пока не в команде</string>
+    <string name="vol_rating_team_members">Участников: %1$d</string>
+    <string name="vol_rating_team_stats">Доставок: %1$d · %2$s кг</string>
+    <string name="vol_rating_team_code">Код вступления: %1$s</string>
+    <string name="vol_rating_team_create">Создать команду</string>
+    <string name="vol_rating_team_join">Вступить по коду</string>
+    <string name="vol_rating_team_leave">Покинуть команду</string>
+    <string name="vol_rating_team_name_hint">Название команды</string>
+    <string name="vol_rating_team_code_hint">Код вступления</string>
+
+    <!-- Achievements -->
+    <string name="vol_ach_first_delivery">Первая доставка</string>
+    <string name="vol_ach_kg_100">100 кг спасено</string>
+    <string name="vol_ach_night_courier">Ночной курьер</string>
+    <string name="vol_ach_sprinter">Спринтер</string>
+
+    <!-- Profile -->
+    <string name="vol_profile_title">Профиль волонтёра</string>
+    <string name="vol_profile_section_personal">Личные данные</string>
+    <string name="vol_profile_name">Имя</string>
+    <string name="vol_profile_contact">Контакт (телефон)</string>
+    <string name="vol_profile_city">Город</string>
+    <string name="vol_profile_thermal_bag">Есть термосумка</string>
+    <string name="vol_profile_thermal_bag_desc">Нужна для лотов, требующих холодильник.</string>
+    <string name="vol_profile_save">Сохранить</string>
+    <string name="vol_profile_saved">Профиль сохранён</string>
+    <string name="vol_profile_section_kyc">Верификация (KYC)</string>
+    <string name="vol_profile_kyc_desc">Загрузите удостоверение личности, чтобы брать маршруты. Проверка проходит автоматически.</string>
+    <string name="vol_profile_kyc_upload">Загрузить документ</string>
+    <string name="vol_profile_kyc_uploaded">Документ загружен, ожидает проверки</string>
+    <string name="vol_profile_status_pending">На проверке</string>
+    <string name="vol_profile_status_approved">Верифицирован</string>
+    <string name="vol_profile_status_rejected">Отклонён — загрузите документ ещё раз</string>
+    <string name="vol_profile_section_history">История маршрутов</string>
+    <string name="vol_profile_history_empty">Завершённых маршрутов пока нет.</string>
+    <string name="vol_profile_route_n">Маршрут #%1$d</string>
+    <string name="vol_profile_route_points">Точек: %1$d</string>
+    <string name="vol_profile_section_notifications">Уведомления</string>
+    <string name="vol_profile_notifications_empty">Новых уведомлений нет.</string>
+    <string name="vol_profile_mark_read">Прочитано</string>
+</resources>

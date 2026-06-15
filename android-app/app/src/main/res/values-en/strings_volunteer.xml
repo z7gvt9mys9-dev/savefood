@@ -1,0 +1,95 @@
+<resources>
+    <!-- Available -->
+    <string name="vol_available_title">Available requests</string>
+    <string name="vol_available_tab_list">List</string>
+    <string name="vol_available_tab_map">Map</string>
+    <string name="vol_available_search_hint">Search lots</string>
+    <string name="vol_available_empty_title">No open lots right now</string>
+    <string name="vol_available_empty_desc">As soon as a shop publishes a lot with delivery requests, it will appear here.</string>
+    <string name="vol_available_take">Take request → start route</string>
+    <string name="vol_available_open_tickets">Open requests nearby: %1$d</string>
+    <string name="vol_available_cold_badge">Cold chain</string>
+    <string name="vol_available_start_title">Start the route?</string>
+    <string name="vol_available_start_desc">You will pick up the lot \"%1$s\" and deliver it to matching requests. The route is built automatically.</string>
+    <string name="vol_available_started">Route created — open the \"My route\" tab</string>
+
+    <!-- Route -->
+    <string name="vol_route_title">My route</string>
+    <string name="vol_route_empty_title">No active route</string>
+    <string name="vol_route_empty_desc">Take a request on the \"Available\" tab to build a delivery route.</string>
+    <string name="vol_route_point_shop">Shop — pickup</string>
+    <string name="vol_route_point_delivery">Delivery</string>
+    <string name="vol_route_step_pickup">Pick up the lot at the shop</string>
+    <string name="vol_route_pickup_btn">I picked up the lot</string>
+    <string name="vol_route_pickup_done">Lot picked up</string>
+    <string name="vol_route_deliver_btn">Confirm delivery (QR + photo)</string>
+    <string name="vol_route_attempt_btn">No one answered</string>
+    <string name="vol_route_delivered">Delivered</string>
+    <string name="vol_route_released">Returned to queue</string>
+    <string name="vol_route_attempt_count">Attempt %1$d of 3</string>
+    <string name="vol_route_finish">Finish route</string>
+    <string name="vol_route_finish_confirm_title">Finish the route?</string>
+    <string name="vol_route_finish_confirm_desc">Unfinished points will be returned to the queue for other volunteers.</string>
+    <string name="vol_route_scan_qr">Scan the recipient\'s QR</string>
+    <string name="vol_route_photo_title">Delivery photo</string>
+    <string name="vol_route_photo_capture">Take photo</string>
+    <string name="vol_route_photo_retake">Retake</string>
+    <string name="vol_route_photo_confirm">Confirm delivery</string>
+    <string name="vol_route_photo_skip">Without photo</string>
+    <string name="vol_route_no_location">Couldn\'t get location — turn on GPS</string>
+    <string name="vol_route_tracking_on">GPS tracking on</string>
+    <string name="vol_route_addr_detail">%1$s</string>
+
+    <!-- Rating -->
+    <string name="vol_rating_title">Rating</string>
+    <string name="vol_rating_level">Level %1$d</string>
+    <string name="vol_rating_avg">Average rating: %1$s (%2$d)</string>
+    <string name="vol_rating_no_rating">No ratings yet</string>
+    <string name="vol_rating_deliveries">Deliveries: %1$d</string>
+    <string name="vol_rating_routes">Routes: %1$d</string>
+    <string name="vol_rating_kg">Rescued: %1$s kg</string>
+    <string name="vol_rating_achievements">Achievements</string>
+    <string name="vol_rating_thanks_title">Thank-you notes</string>
+    <string name="vol_rating_thanks_empty">Recipient feedback will appear here.</string>
+    <string name="vol_rating_team_title">Team</string>
+    <string name="vol_rating_team_none">You are not in a team yet</string>
+    <string name="vol_rating_team_members">Members: %1$d</string>
+    <string name="vol_rating_team_stats">Deliveries: %1$d · %2$s kg</string>
+    <string name="vol_rating_team_code">Join code: %1$s</string>
+    <string name="vol_rating_team_create">Create team</string>
+    <string name="vol_rating_team_join">Join by code</string>
+    <string name="vol_rating_team_leave">Leave team</string>
+    <string name="vol_rating_team_name_hint">Team name</string>
+    <string name="vol_rating_team_code_hint">Join code</string>
+
+    <!-- Achievements -->
+    <string name="vol_ach_first_delivery">First delivery</string>
+    <string name="vol_ach_kg_100">100 kg rescued</string>
+    <string name="vol_ach_night_courier">Night courier</string>
+    <string name="vol_ach_sprinter">Sprinter</string>
+
+    <!-- Profile -->
+    <string name="vol_profile_title">Volunteer profile</string>
+    <string name="vol_profile_section_personal">Personal info</string>
+    <string name="vol_profile_name">Name</string>
+    <string name="vol_profile_contact">Contact (phone)</string>
+    <string name="vol_profile_city">City</string>
+    <string name="vol_profile_thermal_bag">I have a thermal bag</string>
+    <string name="vol_profile_thermal_bag_desc">Needed for lots that require cold storage.</string>
+    <string name="vol_profile_save">Save</string>
+    <string name="vol_profile_saved">Profile saved</string>
+    <string name="vol_profile_section_kyc">Verification (KYC)</string>
+    <string name="vol_profile_kyc_desc">Upload an identity document to take routes. Verification is automatic.</string>
+    <string name="vol_profile_kyc_upload">Upload document</string>
+    <string name="vol_profile_kyc_uploaded">Document uploaded, awaiting review</string>
+    <string name="vol_profile_status_pending">Under review</string>
+    <string name="vol_profile_status_approved">Verified</string>
+    <string name="vol_profile_status_rejected">Rejected — upload the document again</string>
+    <string name="vol_profile_section_history">Route history</string>
+    <string name="vol_profile_history_empty">No finished routes yet.</string>
+    <string name="vol_profile_route_n">Route #%1$d</string>
+    <string name="vol_profile_route_points">Points: %1$d</string>
+    <string name="vol_profile_section_notifications">Notifications</string>
+    <string name="vol_profile_notifications_empty">No new notifications.</string>
+    <string name="vol_profile_mark_read">Read</string>
+</resources>
