@@ -16,8 +16,10 @@ import kz.savefood.app.feature.volunteer.route.RouteScreen
 
 /** Volunteer role — the initiator: picks up open requests and runs the route. */
 @Composable
-fun VolunteerShell() {
+fun VolunteerShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {
     RoleShell(
+        initialRoute = initialRoute,
+        onInitialRouteHandled = onInitialRouteHandled,
         tabs = listOf(
             TabItem("vol/available", R.string.nav_vol_available, Icons.Filled.Map) {
                 // RoleShell owns the navController, so there is no programmatic tab

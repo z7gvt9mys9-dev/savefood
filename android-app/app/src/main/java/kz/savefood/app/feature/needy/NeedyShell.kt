@@ -16,8 +16,10 @@ import kz.savefood.app.feature.needy.tracking.TrackingScreen
 
 /** Needy role — focused on tracking an order a courier already picked up. */
 @Composable
-fun NeedyShell() {
+fun NeedyShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {
     RoleShell(
+        initialRoute = initialRoute,
+        onInitialRouteHandled = onInitialRouteHandled,
         tabs = listOf(
             TabItem("needy/tickets", R.string.nav_needy_tickets, Icons.Filled.LocalShipping) {
                 // The empty-state CTA hints to use the "Find food" bottom tab;

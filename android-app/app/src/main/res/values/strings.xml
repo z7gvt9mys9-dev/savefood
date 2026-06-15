@@ -1,0 +1,51 @@
+<resources>
+    <string name="app_name">SaveFood</string>
+
+    <!-- Common UI -->
+    <string name="common_retry">Повторить</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="common_save">Сохранить</string>
+    <string name="common_next">Далее</string>
+    <string name="common_back">Назад</string>
+    <string name="common_done">Готово</string>
+    <string name="common_loading">Загрузка…</string>
+    <string name="common_error_generic">Что-то пошло не так</string>
+    <string name="common_logout">Выйти</string>
+
+    <!-- Auth -->
+    <string name="auth_title">Вход</string>
+    <string name="auth_username">Логин</string>
+    <string name="auth_password">Пароль</string>
+    <string name="auth_sign_in">Войти</string>
+    <string name="auth_error_invalid">Неверный логин или пароль</string>
+
+    <!-- Roles -->
+    <string name="role_shop">Магазин</string>
+    <string name="role_volunteer">Волонтёр</string>
+    <string name="role_needy">Нуждающийся</string>
+
+    <!-- Bottom nav — Needy -->
+    <string name="nav_needy_tickets">Мои заявки</string>
+    <string name="nav_needy_find">Найти еду</string>
+    <string name="nav_history">История</string>
+    <string name="nav_profile">Профиль</string>
+
+    <!-- Bottom nav — Volunteer -->
+    <string name="nav_vol_available">Доступные</string>
+    <string name="nav_vol_route">Мой маршрут</string>
+    <string name="nav_vol_rating">Рейтинг</string>
+
+    <!-- Bottom nav — Shop -->
+    <string name="nav_shop_lots">Лоты</string>
+    <string name="nav_shop_create">Создать</string>
+    <string name="nav_shop_esg">Чеки/ESG</string>
+
+    <!-- Push notifications -->
+    <string name="push_channel_name">Уведомления</string>
+    <string name="push_channel_description">Заявки, маршруты и статусы доставки</string>
+
+    <!-- Language -->
+    <string name="lang_ru">Русский</string>
+    <string name="lang_kk">Қазақша</string>
+    <string name="lang_en">English</string>
+</resources>

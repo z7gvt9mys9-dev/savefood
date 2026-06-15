@@ -1,0 +1,41 @@
+<resources>
+    <string name="common_retry">Retry</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_next">Next</string>
+    <string name="common_back">Back</string>
+    <string name="common_done">Done</string>
+    <string name="common_loading">Loading…</string>
+    <string name="common_error_generic">Something went wrong</string>
+    <string name="common_logout">Log out</string>
+
+    <string name="auth_title">Sign in</string>
+    <string name="auth_username">Username</string>
+    <string name="auth_password">Password</string>
+    <string name="auth_sign_in">Sign in</string>
+    <string name="auth_error_invalid">Incorrect username or password</string>
+
+    <string name="role_shop">Shop</string>
+    <string name="role_volunteer">Volunteer</string>
+    <string name="role_needy">In need</string>
+
+    <string name="nav_needy_tickets">My requests</string>
+    <string name="nav_needy_find">Find food</string>
+    <string name="nav_history">History</string>
+    <string name="nav_profile">Profile</string>
+
+    <string name="nav_vol_available">Available</string>
+    <string name="nav_vol_route">My route</string>
+    <string name="nav_vol_rating">Rating</string>
+
+    <string name="nav_shop_lots">Lots</string>
+    <string name="nav_shop_create">Create</string>
+    <string name="nav_shop_esg">Receipts/ESG</string>
+
+    <string name="push_channel_name">Notifications</string>
+    <string name="push_channel_description">Requests, routes and delivery updates</string>
+
+    <string name="lang_ru">Русский</string>
+    <string name="lang_kk">Қазақша</string>
+    <string name="lang_en">English</string>
+</resources>

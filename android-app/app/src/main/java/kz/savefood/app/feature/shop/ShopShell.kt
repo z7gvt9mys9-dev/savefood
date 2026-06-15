@@ -16,8 +16,10 @@ import kz.savefood.app.feature.shop.receipts.ReceiptsScreen
 
 /** Shop role — publish lots, confirm transfers, receipts/ESG (no forecast). */
 @Composable
-fun ShopShell() {
+fun ShopShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {
     RoleShell(
+        initialRoute = initialRoute,
+        onInitialRouteHandled = onInitialRouteHandled,
         tabs = listOf(
             TabItem("shop/lots", R.string.nav_shop_lots, Icons.Filled.Inventory2) {
                 LotsScreen()

@@ -1,0 +1,5 @@
+<resources>
+    <color name="ic_launcher_background">#1B9C5A</color>
+    <!-- Brand rescue-green; used to tint status-bar notification icons. -->
+    <color name="brand_green">#1B9C5A</color>
+</resources>
