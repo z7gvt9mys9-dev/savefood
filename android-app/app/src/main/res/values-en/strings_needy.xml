@@ -15,6 +15,7 @@
     <string name="needy_track_eta">On the way to you</string>
     <string name="needy_track_map_loading">Locating the courier…</string>
     <string name="needy_track_no_location">Courier location not available yet</string>
+    <string name="needy_track_stale">Couldn\'t refresh — showing last known data</string>
     <string name="needy_track_your_qr">Your pickup QR</string>
     <string name="needy_track_cancel">Cancel request</string>
     <string name="needy_track_cancel_confirm_title">Cancel request?</string>

@@ -10,6 +10,7 @@
     <string name="common_done">Готово</string>
     <string name="common_loading">Загрузка…</string>
     <string name="common_error_generic">Что-то пошло не так</string>
+    <string name="common_partial_load_error">Часть данных не загрузилась</string>
     <string name="common_logout">Выйти</string>
 
     <!-- Auth -->

@@ -7,6 +7,7 @@
     <string name="common_done">Done</string>
     <string name="common_loading">Loading…</string>
     <string name="common_error_generic">Something went wrong</string>
+    <string name="common_partial_load_error">Some data failed to load</string>
     <string name="common_logout">Log out</string>
 
     <string name="auth_title">Sign in</string>

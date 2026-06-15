@@ -73,6 +73,8 @@
     <string name="shop_esg_locked">ESG-отчёт доступен на тарифе «Профи» и выше.</string>
     <string name="shop_esg_export_csv">Экспорт CSV</string>
     <string name="shop_esg_csv_saved">CSV сохранён</string>
+    <string name="shop_esg_csv_failed">Не удалось сохранить файл</string>
+    <string name="shop_esg_load_error">Не удалось загрузить ESG-отчёт</string>
 
     <string name="shop_receipt_upload">Загрузить чек (OCR)</string>
     <string name="shop_receipts_section">Чеки</string>

@@ -38,6 +38,7 @@
     <string name="vol_route_photo_skip">Без фото</string>
     <string name="vol_route_no_location">Не удалось получить геолокацию — включите GPS</string>
     <string name="vol_route_tracking_on">GPS-трекинг включён</string>
+    <string name="vol_route_tracking_error">Трекинг прерван — переподключаемся…</string>
     <string name="vol_route_addr_detail">%1$s</string>
 
     <!-- Rating -->

@@ -15,6 +15,7 @@
     <string name="needy_track_eta">В пути к вам</string>
     <string name="needy_track_map_loading">Определяем позицию курьера…</string>
     <string name="needy_track_no_location">Позиция курьера пока недоступна</string>
+    <string name="needy_track_stale">Не удалось обновить — показаны последние данные</string>
     <string name="needy_track_your_qr">Ваш QR для получения</string>
     <string name="needy_track_cancel">Отменить заявку</string>
     <string name="needy_track_cancel_confirm_title">Отменить заявку?</string>

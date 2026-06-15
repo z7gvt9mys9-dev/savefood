@@ -2,6 +2,7 @@ package kz.savefood.app.feature.shop.receipts
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil.ImageLoader
@@ -30,6 +31,7 @@ data class ReceiptsUiState(
     val receipts: List<ReceiptDto> = emptyList(),
     val esg: EsgReportDto? = null,
     val esgLocked: Boolean = false, // plan does not include ESG (403)
+    val esgError: Boolean = false,  // ESG failed to load for another reason (network/5xx)
     val uploading: Boolean = false,
     val busyReceiptId: Int? = null,
     val exporting: Boolean = false,
@@ -60,8 +62,13 @@ class ReceiptsViewModel @Inject constructor(
                 is ApiResult.Error -> _state.update { it.copy(loading = false, error = res.message) }
             }
             when (val esg = repo.getEsg(shopId)) {
-                is ApiResult.Success -> _state.update { it.copy(esg = esg.data, esgLocked = false) }
-                is ApiResult.Error -> _state.update { it.copy(esgLocked = esg.code == 403, esg = null) }
+                is ApiResult.Success -> _state.update { it.copy(esg = esg.data, esgLocked = false, esgError = false) }
+                // 403 = not in plan (a real, expected state). Anything else is a load
+                // failure and must read differently than "ESG unavailable on your plan".
+                is ApiResult.Error -> {
+                    if (esg.code != 403) Log.w(TAG, "getEsg failed: ${esg.message}")
+                    _state.update { it.copy(esg = null, esgLocked = esg.code == 403, esgError = esg.code != 403) }
+                }
             }
         }
     }
@@ -109,19 +116,22 @@ class ReceiptsViewModel @Inject constructor(
     }
 
     /** Downloads the ESG CSV and writes it to the user-picked [target] document. */
-    fun exportCsv(target: Uri, savedMessage: String) {
+    fun exportCsv(target: Uri, savedMessage: String, failedMessage: String) {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: return@launch
             _state.update { it.copy(exporting = true) }
             when (val res = repo.downloadEsgCsv(shopId)) {
                 is ApiResult.Success -> {
-                    val ok = runCatching {
+                    val writeError = runCatching {
                         withContext(Dispatchers.IO) {
                             context.contentResolver.openOutputStream(target)?.use { it.write(res.data) }
-                                ?: error("no stream")
+                                ?: error("no output stream for $target")
                         }
-                    }.isSuccess
-                    _state.update { it.copy(exporting = false, message = if (ok) savedMessage else "Не удалось сохранить файл") }
+                    }.exceptionOrNull()
+                    if (writeError != null) Log.w(TAG, "ESG CSV write failed", writeError)
+                    _state.update {
+                        it.copy(exporting = false, message = if (writeError == null) savedMessage else failedMessage)
+                    }
                 }
                 is ApiResult.Error -> _state.update { it.copy(exporting = false, message = res.message) }
             }
@@ -129,4 +139,8 @@ class ReceiptsViewModel @Inject constructor(
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }
+
+    companion object {
+        private const val TAG = "ReceiptsVM"
+    }
 }

@@ -69,6 +69,13 @@ fun RatingScreen(viewModel: RatingViewModel = hiltViewModel()) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.vol_rating_title))
+                if (state.partialError) {
+                    Text(
+                        text = stringResource(R.string.common_partial_load_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 state.stats?.let { LevelCard(it) }
                 state.stats?.let { AchievementsCard(it) }
                 ThanksCard(state.thanks)

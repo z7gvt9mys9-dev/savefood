@@ -67,6 +67,7 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
     var confirmReceipt by remember { mutableStateOf<ReceiptDto?>(null) }
 
     val csvSavedMsg = stringResource(R.string.shop_esg_csv_saved)
+    val csvFailedMsg = stringResource(R.string.shop_esg_csv_failed)
     val confirmedMsg = stringResource(R.string.shop_receipt_confirmed)
 
     LaunchedEffect(state.message) {
@@ -82,7 +83,7 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
 
     val csvExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
-    ) { uri -> if (uri != null) viewModel.exportCsv(uri, csvSavedMsg) }
+    ) { uri -> if (uri != null) viewModel.exportCsv(uri, csvSavedMsg, csvFailedMsg) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
@@ -172,6 +173,11 @@ private fun EsgCard(state: ReceiptsUiState, onExport: () -> Unit) {
                     stringResource(R.string.shop_esg_locked),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                state.esgError -> Text(
+                    stringResource(R.string.shop_esg_load_error),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
                 )
                 state.esg != null -> {
                     val t = state.esg.totals

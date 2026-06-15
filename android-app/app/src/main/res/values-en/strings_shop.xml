@@ -73,6 +73,8 @@
     <string name="shop_esg_locked">The ESG report is available on the “Pro” plan and above.</string>
     <string name="shop_esg_export_csv">Export CSV</string>
     <string name="shop_esg_csv_saved">CSV saved</string>
+    <string name="shop_esg_csv_failed">Couldn\'t save the file</string>
+    <string name="shop_esg_load_error">Couldn\'t load the ESG report</string>
 
     <string name="shop_receipt_upload">Upload receipt (OCR)</string>
     <string name="shop_receipts_section">Receipts</string>

@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -29,7 +30,10 @@ class SaveFoodMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         // Runs on a background thread; block briefly to push the rotated token.
+        // A failure here means the device silently stops receiving pushes until the
+        // next login/registration — log it so that's diagnosable.
         runCatching { runBlocking { pushTokenManager.registerNewToken(token) } }
+            .onFailure { Log.w(TAG, "Failed to register rotated FCM token", it) }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
@@ -46,6 +50,9 @@ class SaveFoodMessagingService : FirebaseMessagingService() {
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            // No runtime grant → the push is dropped. Log it; the in-app permission
+            // prompt (NotificationPermission) is what recovers this.
+            Log.w(TAG, "Dropping push notification: POST_NOTIFICATIONS not granted")
             return
         }
         ensureDefaultChannel(this)
@@ -71,11 +78,15 @@ class SaveFoodMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .build()
 
-        NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+        // Key the id off the deep-link target so pushes for the same destination
+        // collapse, but distinct events (order taken vs. delivered) stack instead
+        // of overwriting each other before the user sees them.
+        val notificationId = url?.hashCode() ?: DEFAULT_NOTIFICATION_ID
+        NotificationManagerCompat.from(this).notify(notificationId, notification)
     }
 
     private companion object {
-        // A single id: pushes for the same account collapse rather than stack.
-        const val NOTIFICATION_ID = 1001
+        const val TAG = "SaveFoodFCM"
+        const val DEFAULT_NOTIFICATION_ID = 1001
     }
 }

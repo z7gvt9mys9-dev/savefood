@@ -158,7 +158,13 @@ private fun RouteMain(
                 ) {
                     item {
                         SectionHeader(title = stringResource(R.string.vol_route_title))
-                        if (state.trackingActive) {
+                        if (state.trackingError) {
+                            Text(
+                                text = stringResource(R.string.vol_route_tracking_error),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else if (state.trackingActive) {
                             Text(
                                 text = stringResource(R.string.vol_route_tracking_on),
                                 style = MaterialTheme.typography.bodySmall,

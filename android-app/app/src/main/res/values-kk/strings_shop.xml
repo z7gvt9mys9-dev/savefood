@@ -73,6 +73,8 @@
     <string name="shop_esg_locked">ESG есебі «Профи» тарифінен бастап қолжетімді.</string>
     <string name="shop_esg_export_csv">CSV экспорттау</string>
     <string name="shop_esg_csv_saved">CSV сақталды</string>
+    <string name="shop_esg_csv_failed">Файлды сақтау мүмкін болмады</string>
+    <string name="shop_esg_load_error">ESG есебін жүктеу мүмкін болмады</string>
 
     <string name="shop_receipt_upload">Чек жүктеу (OCR)</string>
     <string name="shop_receipts_section">Чектер</string>

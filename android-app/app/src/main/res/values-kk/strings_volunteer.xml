@@ -38,6 +38,7 @@
     <string name="vol_route_photo_skip">Фотосыз</string>
     <string name="vol_route_no_location">Геолокацияны алу мүмкін болмады — GPS қосыңыз</string>
     <string name="vol_route_tracking_on">GPS бақылау қосулы</string>
+    <string name="vol_route_tracking_error">Бақылау үзілді — қайта қосылудамыз…</string>
     <string name="vol_route_addr_detail">%1$s</string>
 
     <!-- Rating -->

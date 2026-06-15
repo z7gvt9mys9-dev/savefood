@@ -3,6 +3,7 @@ package kz.savefood.app.core.device.camera
 import android.Manifest
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -57,6 +58,8 @@ fun CameraPreview(
     )
 }
 
+private const val TAG = "CameraCapture"
+
 private fun bindCameraUseCases(
     context: Context,
     lifecycleOwner: LifecycleOwner,
@@ -65,11 +68,14 @@ private fun bindCameraUseCases(
 ) {
     val future = ProcessCameraProvider.getInstance(context)
     future.addListener({
-        val provider = future.get()
-        val preview = Preview.Builder().build().apply {
-            surfaceProvider = previewView.surfaceProvider
-        }
+        // future.get() and bindToLifecycle can both throw (provider init failure,
+        // camera in use, no back camera). Don't swallow it silently — at minimum log
+        // so a black/empty preview is diagnosable instead of a mystery.
         runCatching {
+            val provider = future.get()
+            val preview = Preview.Builder().build().apply {
+                surfaceProvider = previewView.surfaceProvider
+            }
             provider.unbindAll()
             provider.bindToLifecycle(
                 lifecycleOwner,
@@ -77,7 +83,7 @@ private fun bindCameraUseCases(
                 preview,
                 imageCapture,
             )
-        }
+        }.onFailure { Log.e(TAG, "Failed to bind camera use cases", it) }
     }, ContextCompat.getMainExecutor(context))
 }
 

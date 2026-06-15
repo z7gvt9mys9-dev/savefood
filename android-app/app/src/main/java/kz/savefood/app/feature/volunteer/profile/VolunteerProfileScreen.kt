@@ -62,6 +62,7 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
 
     val savedMsg = stringResource(R.string.vol_profile_saved)
     val uploadedMsg = stringResource(R.string.vol_profile_kyc_uploaded)
+    val markReadErr = stringResource(R.string.common_error_generic)
 
     val docPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
@@ -88,6 +89,14 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.vol_profile_title))
+
+            if (state.partialError) {
+                Text(
+                    text = stringResource(R.string.common_partial_load_error),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
 
             // --- Personal ---
             SaveFoodCard {
@@ -187,7 +196,7 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                         )
                     } else {
                         state.notifications.forEach { note ->
-                            NotificationRow(note, onRead = { viewModel.markNotificationRead(note.id) })
+                            NotificationRow(note, onRead = { viewModel.markNotificationRead(note.id, markReadErr) })
                         }
                     }
                 }

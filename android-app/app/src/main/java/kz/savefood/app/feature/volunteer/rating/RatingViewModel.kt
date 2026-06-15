@@ -1,5 +1,6 @@
 package kz.savefood.app.feature.volunteer.rating
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,6 +19,9 @@ import javax.inject.Inject
 data class RatingUiState(
     val loading: Boolean = true,
     val error: String? = null,
+    /** Thanks / team failed to load while stats loaded fine — non-blocking banner,
+     *  so an empty team section isn't misread as "you're not in a team". */
+    val partialError: Boolean = false,
     val stats: StatsDto? = null,
     val thanks: List<ThanksDto> = emptyList(),
     val team: TeamDto? = null,
@@ -42,7 +46,7 @@ class RatingViewModel @Inject constructor(
                 _state.update { it.copy(loading = false, error = "Нет сессии") }
                 return@launch
             }
-            _state.update { it.copy(loading = true, error = null) }
+            _state.update { it.copy(loading = true, error = null, partialError = false) }
             when (val statsRes = repo.getStats(volunteerId)) {
                 is ApiResult.Success -> _state.update { it.copy(loading = false, stats = statsRes.data) }
                 is ApiResult.Error -> {
@@ -50,12 +54,16 @@ class RatingViewModel @Inject constructor(
                     return@launch
                 }
             }
-            (repo.getThanks(volunteerId) as? ApiResult.Success)?.let { res ->
-                _state.update { it.copy(thanks = res.data) }
+            var partial = false
+            when (val res = repo.getThanks(volunteerId)) {
+                is ApiResult.Success -> _state.update { it.copy(thanks = res.data) }
+                is ApiResult.Error -> { partial = true; Log.w(TAG, "getThanks failed: ${res.message}") }
             }
-            (repo.getTeam(volunteerId) as? ApiResult.Success)?.let { res ->
-                _state.update { it.copy(team = res.data) }
+            when (val res = repo.getTeam(volunteerId)) {
+                is ApiResult.Success -> _state.update { it.copy(team = res.data) }
+                is ApiResult.Error -> { partial = true; Log.w(TAG, "getTeam failed: ${res.message}") }
             }
+            if (partial) _state.update { it.copy(partialError = true) }
         }
     }
 
@@ -85,4 +93,8 @@ class RatingViewModel @Inject constructor(
     }
 
     fun clearTeamError() = _state.update { it.copy(teamError = null) }
+
+    companion object {
+        private const val TAG = "RatingVM"
+    }
 }

@@ -106,6 +106,13 @@ fun TrackingScreen(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
+                    if (state.stale) {
+                        Text(
+                            text = stringResource(R.string.needy_track_stale),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     state.tickets.forEach { ticket ->
                         TrackingCard(
                             ticket = ticket,

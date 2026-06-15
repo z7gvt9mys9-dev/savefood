@@ -1,5 +1,6 @@
 package kz.savefood.app.feature.volunteer.route
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -7,6 +8,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kz.savefood.app.core.common.ApiResult
@@ -25,6 +27,9 @@ data class RouteUiState(
     val finishing: Boolean = false,
     val actionError: String? = null,
     val trackingActive: Boolean = false,
+    /** Set when location updates repeatedly fail to reach the server, so the
+     *  recipient's live map is frozen. Cleared on the next successful push. */
+    val trackingError: Boolean = false,
 ) {
     /** A real route exists only when the server returned an id (active_route is {} otherwise). */
     val hasRoute: Boolean get() = route?.id != null
@@ -64,17 +69,39 @@ class RouteViewModel @Inject constructor(
     private fun startTracking(volunteerId: Int) {
         if (trackingJob?.isActive == true) return
         trackingJob = viewModelScope.launch {
-            _state.update { it.copy(trackingActive = true) }
-            locationProvider.updates(TRACKING_INTERVAL_MS).collect { loc ->
-                repo.updateLocation(volunteerId, loc.latitude, loc.longitude)
-            }
+            _state.update { it.copy(trackingActive = true, trackingError = false) }
+            var consecutiveFailures = 0
+            locationProvider.updates(TRACKING_INTERVAL_MS)
+                .catch { e ->
+                    // The location stream itself failed (e.g. updates couldn't be
+                    // requested). Don't let the courier think tracking is live.
+                    Log.w(TAG, "Location updates stream failed", e)
+                    _state.update { it.copy(trackingActive = false, trackingError = true) }
+                }
+                .collect { loc ->
+                    when (val res = repo.updateLocation(volunteerId, loc.latitude, loc.longitude)) {
+                        is ApiResult.Success -> {
+                            consecutiveFailures = 0
+                            if (_state.value.trackingError) _state.update { it.copy(trackingError = false) }
+                        }
+                        is ApiResult.Error -> {
+                            consecutiveFailures++
+                            Log.w(TAG, "Location push failed ($consecutiveFailures): ${res.message}")
+                            // Tolerate transient blips; surface only sustained failure so
+                            // the recipient's live map being frozen doesn't go unnoticed.
+                            if (consecutiveFailures >= MAX_TRACKING_FAILURES) {
+                                _state.update { it.copy(trackingError = true) }
+                            }
+                        }
+                    }
+                }
         }
     }
 
     fun stopTracking() {
         trackingJob?.cancel()
         trackingJob = null
-        _state.update { it.copy(trackingActive = false) }
+        _state.update { it.copy(trackingActive = false, trackingError = false) }
     }
 
     /** Completes the shop pickup point. Requires the volunteer's current GPS fix. */
@@ -176,7 +203,9 @@ class RouteViewModel @Inject constructor(
     }
 
     companion object {
+        private const val TAG = "RouteViewModel"
         private const val TRACKING_INTERVAL_MS = 15_000L
+        private const val MAX_TRACKING_FAILURES = 3
         const val NO_LOCATION = "no_location"
     }
 }

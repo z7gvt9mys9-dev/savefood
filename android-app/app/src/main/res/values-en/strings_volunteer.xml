@@ -38,6 +38,7 @@
     <string name="vol_route_photo_skip">Without photo</string>
     <string name="vol_route_no_location">Couldn\'t get location — turn on GPS</string>
     <string name="vol_route_tracking_on">GPS tracking on</string>
+    <string name="vol_route_tracking_error">Tracking interrupted — reconnecting…</string>
     <string name="vol_route_addr_detail">%1$s</string>
 
     <!-- Rating -->

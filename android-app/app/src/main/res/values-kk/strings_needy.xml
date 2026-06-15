@@ -15,6 +15,7 @@
     <string name="needy_track_eta">Сізге қарай жолда</string>
     <string name="needy_track_map_loading">Курьердің орны анықталуда…</string>
     <string name="needy_track_no_location">Курьердің орны әзірге қолжетімсіз</string>
+    <string name="needy_track_stale">Жаңарту мүмкін болмады — соңғы деректер көрсетілген</string>
     <string name="needy_track_your_qr">Алуға арналған QR</string>
     <string name="needy_track_cancel">Өтінімді тоқтату</string>
     <string name="needy_track_cancel_confirm_title">Өтінімді тоқтату керек пе?</string>

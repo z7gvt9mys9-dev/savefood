@@ -54,6 +54,7 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
 
     val savedMsg = stringResource(R.string.shop_profile_saved)
     val pickupMsg = stringResource(R.string.shop_pickup_confirmed)
+    val markReadErr = stringResource(R.string.common_error_generic)
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -95,6 +96,14 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.shop_profile_title))
+
+            if (state.partialError) {
+                Text(
+                    text = stringResource(R.string.common_partial_load_error),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
 
             // --- Shop data ---
             SaveFoodCard {
@@ -171,7 +180,7 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                         )
                     } else {
                         state.notifications.forEach { note ->
-                            NotificationRow(note, onRead = { viewModel.markNotificationRead(note.id) })
+                            NotificationRow(note, onRead = { viewModel.markNotificationRead(note.id, markReadErr) })
                         }
                     }
                 }
