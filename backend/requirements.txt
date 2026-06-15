@@ -14,5 +14,6 @@ slowapi>=0.1.9
 sentry-sdk>=2.0
 prometheus-client>=0.20
 pywebpush>=2.0
+google-auth>=2.27  # FCM HTTP v1 OAuth2 for the native Android push channel
 redis>=5.0
 Pillow>=10.0.0

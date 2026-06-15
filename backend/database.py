@@ -92,6 +92,23 @@ def init_common_db():
             )
         """)
         cur.execute("CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions (user_id)")
+        # Firebase Cloud Messaging device tokens for the native Android app
+        # (push_service.py FCM channel). One user can have several devices.
+        # role/related_id are denormalized so notify_role() can dispatch by the
+        # same (role, related_id) key the Telegram/Web Push paths use, without a
+        # join. Dead tokens (404/UNREGISTERED on send) are pruned by push_service.
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS fcm_tokens (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token TEXT UNIQUE NOT NULL,
+                role TEXT NOT NULL,
+                related_id INTEGER,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_fcm_tokens_role_related ON fcm_tokens (role, related_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_fcm_tokens_user ON fcm_tokens (user_id)")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS audit_log (
                 id SERIAL PRIMARY KEY,
