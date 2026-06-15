@@ -122,4 +122,7 @@ savefood/build/
 CLAUDE.md
 savefood.md
 
+# Claude Code local state (agent worktrees, settings)
+.claude/
+
 # End of file

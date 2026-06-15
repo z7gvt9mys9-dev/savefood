@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple leaf mark on the brand-green adaptive background. -->
+    <group android:translateX="22" android:translateY="22">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M54,8 C30,8 12,26 12,50 C12,70 28,86 50,86 C50,64 50,40 50,22 C50,40 50,64 50,86 C70,84 86,66 86,44 C86,24 72,8 54,8 Z" />
+    </group>
+</vector>

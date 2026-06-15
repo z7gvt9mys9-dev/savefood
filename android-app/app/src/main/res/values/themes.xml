@@ -1,0 +1,10 @@
+<resources>
+    <!-- Base application theme. Compose drives the actual UI/colors; this theme
+         only needs to be a valid no-action-bar DayNight theme for the host
+         Activity and a transparent status bar for edge-to-edge. -->
+    <style name="Theme.SaveFood" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
