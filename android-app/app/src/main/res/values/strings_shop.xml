@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lots tab -->
+    <string name="shop_lots_title">Лоты</string>
+    <string name="shop_lots_tab_active">Активные</string>
+    <string name="shop_lots_tab_history">История</string>
+    <string name="shop_lots_empty_title">Пока нет лотов</string>
+    <string name="shop_lots_empty_desc">Создайте первый лот во вкладке «Создать».</string>
+    <string name="shop_history_empty_title">История пуста</string>
+    <string name="shop_history_empty_desc">Здесь появятся завершённые лоты.</string>
+
+    <string name="shop_lot_expiry">Срок годности: %1$s</string>
+    <string name="shop_lot_taken_by">Забрал: %1$s</string>
+    <string name="shop_lot_edit">Изменить</string>
+    <string name="shop_lot_delete">Удалить</string>
+    <string name="shop_lot_saved">Лот обновлён</string>
+    <string name="shop_lot_deleted">Лот удалён</string>
+
+    <string name="shop_lot_edit_title">Редактирование лота</string>
+    <string name="shop_lot_delete_title">Удалить лот?</string>
+    <string name="shop_lot_delete_desc">«%1$s» будет удалён без возможности восстановления.</string>
+    <string name="shop_lot_delete_confirm">Удалить</string>
+
+    <string name="shop_lot_transfer">Подтвердить передачу</string>
+    <string name="shop_lot_transfer_title">Передача волонтёру</string>
+    <string name="shop_lot_transfer_desc">Покажите QR-код волонтёру, затем подтвердите передачу.</string>
+    <string name="shop_lot_transfer_confirm">Подтвердить</string>
+    <string name="shop_lot_transfer_done">Передача подтверждена</string>
+
+    <string name="shop_lot_status_active">Активен</string>
+    <string name="shop_lot_status_taken">Забран</string>
+    <string name="shop_lot_status_confirmed">Передан</string>
+    <string name="shop_lot_status_fulfilled">Выполнен</string>
+    <string name="shop_lot_status_expired">Просрочен</string>
+    <string name="shop_lot_status_cancelled">Отменён</string>
+    <string name="shop_lot_status_unknown">—</string>
+
+    <!-- Shared lot fields -->
+    <string name="shop_field_description">Описание</string>
+    <string name="shop_field_quantity">Количество</string>
+    <string name="shop_field_unit">Ед. изм.</string>
+    <string name="shop_field_unit_weight">Вес одной единицы (кг)</string>
+    <string name="shop_field_category">Категория</string>
+    <string name="shop_field_address">Адрес</string>
+    <string name="shop_field_time_slot">Время выдачи</string>
+    <string name="shop_field_expiry">Срок годности</string>
+    <string name="shop_field_comment">Комментарий</string>
+    <string name="shop_field_requires_cold">Требует холода</string>
+
+    <!-- Create tab -->
+    <string name="shop_create_step_of">Шаг %1$d из %2$d</string>
+    <string name="shop_create_photo">Фото</string>
+    <string name="shop_create_photo_hint">Добавьте фото лота — камерой или из галереи. Для частных доноров фото обязательно.</string>
+    <string name="shop_create_photo_camera">Камера</string>
+    <string name="shop_create_photo_gallery">Галерея</string>
+    <string name="shop_create_photo_capture">Снять фото</string>
+    <string name="shop_create_photo_permission">Нужен доступ к камере, чтобы сделать фото.</string>
+    <string name="shop_create_submit">Опубликовать</string>
+    <string name="shop_create_success">Лот опубликован</string>
+    <string name="shop_create_success_desc">Лот появился во вкладке «Лоты».</string>
+    <string name="shop_create_another">Создать ещё</string>
+    <string name="shop_review_yes">Да</string>
+    <string name="shop_review_no">Нет</string>
+
+    <!-- Receipts / ESG tab -->
+    <string name="shop_esg_title">Чеки и ESG</string>
+    <string name="shop_esg_summary">ESG-сводка</string>
+    <string name="shop_esg_kg">кг</string>
+    <string name="shop_esg_co2">кг CO₂e</string>
+    <string name="shop_esg_meals">порций</string>
+    <string name="shop_esg_lots">лотов</string>
+    <string name="shop_esg_empty">Пока нет данных за период.</string>
+    <string name="shop_esg_locked">ESG-отчёт доступен на тарифе «Профи» и выше.</string>
+    <string name="shop_esg_export_csv">Экспорт CSV</string>
+    <string name="shop_esg_csv_saved">CSV сохранён</string>
+
+    <string name="shop_receipt_upload">Загрузить чек (OCR)</string>
+    <string name="shop_receipts_section">Чеки</string>
+    <string name="shop_receipts_empty">Загруженных чеков пока нет.</string>
+    <string name="shop_receipt_n">Чек #%1$d</string>
+    <string name="shop_receipt_total">Сумма: %1$s</string>
+    <string name="shop_receipt_items">Позиций: %1$d</string>
+    <string name="shop_receipt_confirm">Подтвердить и создать лоты</string>
+    <string name="shop_receipt_confirmed">Лоты по чеку созданы</string>
+    <string name="shop_receipt_confirm_title">Подтверждение лотов</string>
+    <string name="shop_receipt_confirm_desc">Проверьте и при необходимости отредактируйте лоты перед публикацией.</string>
+    <string name="shop_receipt_lots_created">Создано лотов: %1$d</string>
+    <string name="shop_receipt_rejected">Отклонён антифродом: %1$s</string>
+    <string name="shop_receipt_status_parsed">Распознан</string>
+    <string name="shop_receipt_status_confirmed">Подтверждён</string>
+    <string name="shop_receipt_status_rejected">Отклонён</string>
+
+    <!-- Profile tab -->
+    <string name="shop_profile_title">Профиль магазина</string>
+    <string name="shop_profile_section_data">Данные магазина</string>
+    <string name="shop_profile_name">Название</string>
+    <string name="shop_profile_contact">Контакт</string>
+    <string name="shop_profile_city">Город</string>
+    <string name="shop_profile_saved">Профиль сохранён</string>
+
+    <string name="shop_profile_section_plan">Тариф</string>
+    <string name="shop_plan_quota">Лотов в этом месяце: %1$d из %2$d</string>
+    <string name="shop_plan_quota_unlimited">Лотов в этом месяце: %1$d (без лимита)</string>
+    <string name="shop_plan_features">Функции: %1$s%2$s%3$s</string>
+
+    <string name="shop_profile_section_pickup">Самовывоз</string>
+    <string name="shop_pickup_desc">Отсканируйте QR-код получателя, чтобы закрыть заявку на самовывоз.</string>
+    <string name="shop_pickup_scan">Сканировать QR</string>
+    <string name="shop_pickup_confirmed">Самовывоз подтверждён</string>
+
+    <string name="shop_profile_section_notifications">Уведомления</string>
+    <string name="shop_notifications_empty">Новых уведомлений нет.</string>
+    <string name="shop_mark_read">Прочитано</string>
+</resources>

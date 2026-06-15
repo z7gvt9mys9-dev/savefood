@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lots tab -->
+    <string name="shop_lots_title">Лоттар</string>
+    <string name="shop_lots_tab_active">Белсенді</string>
+    <string name="shop_lots_tab_history">Тарих</string>
+    <string name="shop_lots_empty_title">Әзірге лоттар жоқ</string>
+    <string name="shop_lots_empty_desc">«Жасау» қойындысында алғашқы лотты жасаңыз.</string>
+    <string name="shop_history_empty_title">Тарих бос</string>
+    <string name="shop_history_empty_desc">Мұнда аяқталған лоттар көрінеді.</string>
+
+    <string name="shop_lot_expiry">Жарамдылық мерзімі: %1$s</string>
+    <string name="shop_lot_taken_by">Алған: %1$s</string>
+    <string name="shop_lot_edit">Өзгерту</string>
+    <string name="shop_lot_delete">Жою</string>
+    <string name="shop_lot_saved">Лот жаңартылды</string>
+    <string name="shop_lot_deleted">Лот жойылды</string>
+
+    <string name="shop_lot_edit_title">Лотты өңдеу</string>
+    <string name="shop_lot_delete_title">Лотты жою керек пе?</string>
+    <string name="shop_lot_delete_desc">«%1$s» біржола жойылады.</string>
+    <string name="shop_lot_delete_confirm">Жою</string>
+
+    <string name="shop_lot_transfer">Беруді растау</string>
+    <string name="shop_lot_transfer_title">Еріктіге беру</string>
+    <string name="shop_lot_transfer_desc">QR-кодты еріктіге көрсетіңіз, содан кейін беруді растаңыз.</string>
+    <string name="shop_lot_transfer_confirm">Растау</string>
+    <string name="shop_lot_transfer_done">Беру расталды</string>
+
+    <string name="shop_lot_status_active">Белсенді</string>
+    <string name="shop_lot_status_taken">Алынды</string>
+    <string name="shop_lot_status_confirmed">Берілді</string>
+    <string name="shop_lot_status_fulfilled">Орындалды</string>
+    <string name="shop_lot_status_expired">Мерзімі өтті</string>
+    <string name="shop_lot_status_cancelled">Бас тартылды</string>
+    <string name="shop_lot_status_unknown">—</string>
+
+    <!-- Shared lot fields -->
+    <string name="shop_field_description">Сипаттама</string>
+    <string name="shop_field_quantity">Саны</string>
+    <string name="shop_field_unit">Өлшем бірлігі</string>
+    <string name="shop_field_unit_weight">Бір бірлік салмағы (кг)</string>
+    <string name="shop_field_category">Санат</string>
+    <string name="shop_field_address">Мекенжай</string>
+    <string name="shop_field_time_slot">Беру уақыты</string>
+    <string name="shop_field_expiry">Жарамдылық мерзімі</string>
+    <string name="shop_field_comment">Пікір</string>
+    <string name="shop_field_requires_cold">Салқындатуды қажет етеді</string>
+
+    <!-- Create tab -->
+    <string name="shop_create_step_of">%2$d-тің %1$d-қадамы</string>
+    <string name="shop_create_photo">Фото</string>
+    <string name="shop_create_photo_hint">Лот фотосын қосыңыз — камерадан немесе галереядан. Жеке донорлар үшін фото міндетті.</string>
+    <string name="shop_create_photo_camera">Камера</string>
+    <string name="shop_create_photo_gallery">Галерея</string>
+    <string name="shop_create_photo_capture">Фото түсіру</string>
+    <string name="shop_create_photo_permission">Фото түсіру үшін камераға рұқсат қажет.</string>
+    <string name="shop_create_submit">Жариялау</string>
+    <string name="shop_create_success">Лот жарияланды</string>
+    <string name="shop_create_success_desc">Лот «Лоттар» қойындысында пайда болды.</string>
+    <string name="shop_create_another">Тағы жасау</string>
+    <string name="shop_review_yes">Иә</string>
+    <string name="shop_review_no">Жоқ</string>
+
+    <!-- Receipts / ESG tab -->
+    <string name="shop_esg_title">Чектер және ESG</string>
+    <string name="shop_esg_summary">ESG қорытындысы</string>
+    <string name="shop_esg_kg">кг</string>
+    <string name="shop_esg_co2">кг CO₂e</string>
+    <string name="shop_esg_meals">порция</string>
+    <string name="shop_esg_lots">лот</string>
+    <string name="shop_esg_empty">Кезең бойынша әзірге дерек жоқ.</string>
+    <string name="shop_esg_locked">ESG есебі «Профи» тарифінен бастап қолжетімді.</string>
+    <string name="shop_esg_export_csv">CSV экспорттау</string>
+    <string name="shop_esg_csv_saved">CSV сақталды</string>
+
+    <string name="shop_receipt_upload">Чек жүктеу (OCR)</string>
+    <string name="shop_receipts_section">Чектер</string>
+    <string name="shop_receipts_empty">Жүктелген чектер әзірге жоқ.</string>
+    <string name="shop_receipt_n">Чек #%1$d</string>
+    <string name="shop_receipt_total">Сомасы: %1$s</string>
+    <string name="shop_receipt_items">Позициялар: %1$d</string>
+    <string name="shop_receipt_confirm">Растау және лот жасау</string>
+    <string name="shop_receipt_confirmed">Чек бойынша лоттар жасалды</string>
+    <string name="shop_receipt_confirm_title">Лоттарды растау</string>
+    <string name="shop_receipt_confirm_desc">Жарияламас бұрын лоттарды тексеріп, қажет болса өңдеңіз.</string>
+    <string name="shop_receipt_lots_created">Жасалған лоттар: %1$d</string>
+    <string name="shop_receipt_rejected">Алаяқтыққа қарсы жүйе қабылдамады: %1$s</string>
+    <string name="shop_receipt_status_parsed">Танылды</string>
+    <string name="shop_receipt_status_confirmed">Расталды</string>
+    <string name="shop_receipt_status_rejected">Қабылданбады</string>
+
+    <!-- Profile tab -->
+    <string name="shop_profile_title">Дүкен профилі</string>
+    <string name="shop_profile_section_data">Дүкен деректері</string>
+    <string name="shop_profile_name">Атауы</string>
+    <string name="shop_profile_contact">Байланыс</string>
+    <string name="shop_profile_city">Қала</string>
+    <string name="shop_profile_saved">Профиль сақталды</string>
+
+    <string name="shop_profile_section_plan">Тариф</string>
+    <string name="shop_plan_quota">Осы айдағы лоттар: %1$d / %2$d</string>
+    <string name="shop_plan_quota_unlimited">Осы айдағы лоттар: %1$d (шектеусіз)</string>
+    <string name="shop_plan_features">Мүмкіндіктер: %1$s%2$s%3$s</string>
+
+    <string name="shop_profile_section_pickup">Өзі алып кету</string>
+    <string name="shop_pickup_desc">Өзі алып кету өтінімін жабу үшін алушының QR-кодын сканерлеңіз.</string>
+    <string name="shop_pickup_scan">QR сканерлеу</string>
+    <string name="shop_pickup_confirmed">Өзі алып кету расталды</string>
+
+    <string name="shop_profile_section_notifications">Хабарламалар</string>
+    <string name="shop_notifications_empty">Жаңа хабарламалар жоқ.</string>
+    <string name="shop_mark_read">Оқылды</string>
+</resources>

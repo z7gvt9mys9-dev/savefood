@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lots tab -->
+    <string name="shop_lots_title">Lots</string>
+    <string name="shop_lots_tab_active">Active</string>
+    <string name="shop_lots_tab_history">History</string>
+    <string name="shop_lots_empty_title">No lots yet</string>
+    <string name="shop_lots_empty_desc">Create your first lot in the “Create” tab.</string>
+    <string name="shop_history_empty_title">No history</string>
+    <string name="shop_history_empty_desc">Completed lots will appear here.</string>
+
+    <string name="shop_lot_expiry">Best before: %1$s</string>
+    <string name="shop_lot_taken_by">Picked up by: %1$s</string>
+    <string name="shop_lot_edit">Edit</string>
+    <string name="shop_lot_delete">Delete</string>
+    <string name="shop_lot_saved">Lot updated</string>
+    <string name="shop_lot_deleted">Lot deleted</string>
+
+    <string name="shop_lot_edit_title">Edit lot</string>
+    <string name="shop_lot_delete_title">Delete lot?</string>
+    <string name="shop_lot_delete_desc">“%1$s” will be permanently deleted.</string>
+    <string name="shop_lot_delete_confirm">Delete</string>
+
+    <string name="shop_lot_transfer">Confirm transfer</string>
+    <string name="shop_lot_transfer_title">Transfer to volunteer</string>
+    <string name="shop_lot_transfer_desc">Show the QR code to the volunteer, then confirm the transfer.</string>
+    <string name="shop_lot_transfer_confirm">Confirm</string>
+    <string name="shop_lot_transfer_done">Transfer confirmed</string>
+
+    <string name="shop_lot_status_active">Active</string>
+    <string name="shop_lot_status_taken">Taken</string>
+    <string name="shop_lot_status_confirmed">Transferred</string>
+    <string name="shop_lot_status_fulfilled">Fulfilled</string>
+    <string name="shop_lot_status_expired">Expired</string>
+    <string name="shop_lot_status_cancelled">Cancelled</string>
+    <string name="shop_lot_status_unknown">—</string>
+
+    <!-- Shared lot fields -->
+    <string name="shop_field_description">Description</string>
+    <string name="shop_field_quantity">Quantity</string>
+    <string name="shop_field_unit">Unit</string>
+    <string name="shop_field_unit_weight">Weight per unit (kg)</string>
+    <string name="shop_field_category">Category</string>
+    <string name="shop_field_address">Address</string>
+    <string name="shop_field_time_slot">Pickup time</string>
+    <string name="shop_field_expiry">Best before</string>
+    <string name="shop_field_comment">Comment</string>
+    <string name="shop_field_requires_cold">Needs refrigeration</string>
+
+    <!-- Create tab -->
+    <string name="shop_create_step_of">Step %1$d of %2$d</string>
+    <string name="shop_create_photo">Photo</string>
+    <string name="shop_create_photo_hint">Add a lot photo — from the camera or gallery. A photo is required for private donors.</string>
+    <string name="shop_create_photo_camera">Camera</string>
+    <string name="shop_create_photo_gallery">Gallery</string>
+    <string name="shop_create_photo_capture">Take photo</string>
+    <string name="shop_create_photo_permission">Camera access is required to take a photo.</string>
+    <string name="shop_create_submit">Publish</string>
+    <string name="shop_create_success">Lot published</string>
+    <string name="shop_create_success_desc">The lot now appears in the “Lots” tab.</string>
+    <string name="shop_create_another">Create another</string>
+    <string name="shop_review_yes">Yes</string>
+    <string name="shop_review_no">No</string>
+
+    <!-- Receipts / ESG tab -->
+    <string name="shop_esg_title">Receipts &amp; ESG</string>
+    <string name="shop_esg_summary">ESG summary</string>
+    <string name="shop_esg_kg">kg</string>
+    <string name="shop_esg_co2">kg CO₂e</string>
+    <string name="shop_esg_meals">meals</string>
+    <string name="shop_esg_lots">lots</string>
+    <string name="shop_esg_empty">No data for the period yet.</string>
+    <string name="shop_esg_locked">The ESG report is available on the “Pro” plan and above.</string>
+    <string name="shop_esg_export_csv">Export CSV</string>
+    <string name="shop_esg_csv_saved">CSV saved</string>
+
+    <string name="shop_receipt_upload">Upload receipt (OCR)</string>
+    <string name="shop_receipts_section">Receipts</string>
+    <string name="shop_receipts_empty">No uploaded receipts yet.</string>
+    <string name="shop_receipt_n">Receipt #%1$d</string>
+    <string name="shop_receipt_total">Total: %1$s</string>
+    <string name="shop_receipt_items">Items: %1$d</string>
+    <string name="shop_receipt_confirm">Confirm and create lots</string>
+    <string name="shop_receipt_confirmed">Lots created from receipt</string>
+    <string name="shop_receipt_confirm_title">Confirm lots</string>
+    <string name="shop_receipt_confirm_desc">Review and edit the lots if needed before publishing.</string>
+    <string name="shop_receipt_lots_created">Lots created: %1$d</string>
+    <string name="shop_receipt_rejected">Rejected by anti-fraud: %1$s</string>
+    <string name="shop_receipt_status_parsed">Parsed</string>
+    <string name="shop_receipt_status_confirmed">Confirmed</string>
+    <string name="shop_receipt_status_rejected">Rejected</string>
+
+    <!-- Profile tab -->
+    <string name="shop_profile_title">Shop profile</string>
+    <string name="shop_profile_section_data">Shop details</string>
+    <string name="shop_profile_name">Name</string>
+    <string name="shop_profile_contact">Contact</string>
+    <string name="shop_profile_city">City</string>
+    <string name="shop_profile_saved">Profile saved</string>
+
+    <string name="shop_profile_section_plan">Plan</string>
+    <string name="shop_plan_quota">Lots this month: %1$d of %2$d</string>
+    <string name="shop_plan_quota_unlimited">Lots this month: %1$d (unlimited)</string>
+    <string name="shop_plan_features">Features: %1$s%2$s%3$s</string>
+
+    <string name="shop_profile_section_pickup">Self-pickup</string>
+    <string name="shop_pickup_desc">Scan the recipient’s QR code to close a self-pickup request.</string>
+    <string name="shop_pickup_scan">Scan QR</string>
+    <string name="shop_pickup_confirmed">Self-pickup confirmed</string>
+
+    <string name="shop_profile_section_notifications">Notifications</string>
+    <string name="shop_notifications_empty">No new notifications.</string>
+    <string name="shop_mark_read">Mark read</string>
+</resources>
