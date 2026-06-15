@@ -1,5 +1,8 @@
 package kz.savefood.app.feature.needy.find
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,12 +39,15 @@ import kz.savefood.app.feature.needy.data.LotDto
 import kz.savefood.app.feature.needy.data.TicketCreateDto
 
 /** 3-step request wizard: method → details → confirm. */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun TicketWizardScreen(
     lot: LotDto?,
     viewModel: FindFoodViewModel,
     onDone: () -> Unit,
     onCancel: () -> Unit,
+    sharedScope: SharedTransitionScope,
+    animatedScope: AnimatedVisibilityScope,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
@@ -71,7 +77,16 @@ fun TicketWizardScreen(
         )
 
         lot?.let {
-            SaveFoodCard {
+            // Shared key matches the list card (find/list LotCard) so the card
+            // morphs into this summary on enter and back on pop.
+            SaveFoodCard(
+                modifier = with(sharedScope) {
+                    Modifier.sharedBounds(
+                        rememberSharedContentState(key = "lot-${it.id}"),
+                        animatedVisibilityScope = animatedScope,
+                    )
+                },
+            ) {
                 Text(stringResource(R.string.needy_wizard_lot), style = MaterialTheme.typography.labelMedium)
                 Text(it.description ?: "#${it.id}", style = MaterialTheme.typography.titleMedium)
                 it.shopName?.let { s -> Text(s, style = MaterialTheme.typography.bodyMedium) }

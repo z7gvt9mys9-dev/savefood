@@ -46,6 +46,18 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/brand_green" />
 
+        <!-- AppCompat per-app language: auto-persist the locale selected via
+             AppCompatDelegate.setApplicationLocales on API < 33. On API 33+ the
+             platform LocaleManager handles persistence (android:localeConfig). -->
+        <service
+            android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"
+            android:enabled="false"
+            android:exported="false">
+            <meta-data
+                android:name="autoStoreLocales"
+                android:value="true" />
+        </service>
+
         <!-- FCM receiver. Inert without google-services.json (no Firebase init),
              so the app still builds and runs for contributors without credentials. -->
         <service

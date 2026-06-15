@@ -17,6 +17,8 @@ import kz.savefood.app.core.push.PushDeepLink
 import kz.savefood.app.core.push.RequestNotificationPermission
 import kz.savefood.app.feature.auth.LoginScreen
 import kz.savefood.app.feature.needy.NeedyShell
+import kz.savefood.app.feature.onboarding.OnboardingScreen
+import kz.savefood.app.feature.onboarding.OnboardingViewModel
 import kz.savefood.app.feature.shop.ShopShell
 import kz.savefood.app.feature.volunteer.VolunteerShell
 
@@ -43,12 +45,25 @@ fun AppRoot(
             is SessionState.LoggedIn -> {
                 // Prompt for notification permission once, in an authed context.
                 RequestNotificationPermission()
-                val initialRoute = PushDeepLink.tabRoute(s.role, deepLinkUrl)
                 when (s.role) {
-                    UserRole.SHOP -> ShopShell(initialRoute, onDeepLinkConsumed)
-                    UserRole.VOLUNTEER -> VolunteerShell(initialRoute, onDeepLinkConsumed)
-                    UserRole.NEEDY -> NeedyShell(initialRoute, onDeepLinkConsumed)
                     UserRole.ADMIN, UserRole.UNKNOWN -> AdminNotSupported()
+                    else -> {
+                        val onboardingVm: OnboardingViewModel = hiltViewModel()
+                        val onboardingDone by onboardingVm.completed.collectAsStateWithLifecycle()
+                        when (onboardingDone) {
+                            // null = flag not yet resolved; avoid flashing onboarding.
+                            null -> LoadingSplash()
+                            false -> OnboardingScreen(role = s.role, onFinish = onboardingVm::complete)
+                            else -> {
+                                val initialRoute = PushDeepLink.tabRoute(s.role, deepLinkUrl)
+                                when (s.role) {
+                                    UserRole.SHOP -> ShopShell(initialRoute, onDeepLinkConsumed)
+                                    UserRole.VOLUNTEER -> VolunteerShell(initialRoute, onDeepLinkConsumed)
+                                    else -> NeedyShell(initialRoute, onDeepLinkConsumed)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

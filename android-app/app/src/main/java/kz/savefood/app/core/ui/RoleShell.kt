@@ -1,5 +1,8 @@
 package kz.savefood.app.core.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -83,6 +86,10 @@ fun RoleShell(
             navController = navController,
             startDestination = tabs.first().route,
             modifier = Modifier.padding(innerPadding),
+            // Gentle cross-fade between bottom-nav tabs — no directional slide,
+            // since tabs are peers rather than a forward/back stack.
+            enterTransition = { fadeIn(tween(220)) },
+            exitTransition = { fadeOut(tween(180)) },
         ) {
             tabs.forEach { tab ->
                 composable(tab.route) { tab.content() }

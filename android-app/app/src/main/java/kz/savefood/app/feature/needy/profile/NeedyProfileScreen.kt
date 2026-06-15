@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kz.savefood.app.R
+import kz.savefood.app.core.designsystem.component.EmptyState
+import kz.savefood.app.core.designsystem.component.LanguageSelectorCard
+import kz.savefood.app.core.designsystem.component.ProfileSkeleton
 import kz.savefood.app.core.designsystem.component.SaveFoodButton
 import kz.savefood.app.core.designsystem.component.SaveFoodCard
 import kz.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
@@ -79,14 +83,23 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
     var deleteDialog by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SectionHeader(title = stringResource(R.string.needy_profile_title))
+        when {
+            state.loading && p == null -> ProfileSkeleton()
+            state.error != null && p == null -> EmptyState(
+                icon = Icons.Filled.Person,
+                title = stringResource(R.string.common_error_generic),
+                description = state.error,
+                actionLabel = stringResource(R.string.common_retry),
+                onAction = viewModel::load,
+            )
+            else -> Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SectionHeader(title = stringResource(R.string.needy_profile_title))
 
             // --- Personal / family ---
             SaveFoodCard {
@@ -234,12 +247,15 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                 }
             }
 
-            SaveFoodOutlinedButton(
-                text = stringResource(R.string.common_logout),
-                leadingIcon = Icons.AutoMirrored.Filled.Logout,
-                onClick = viewModel::logout,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-            )
+                LanguageSelectorCard()
+
+                SaveFoodOutlinedButton(
+                    text = stringResource(R.string.common_logout),
+                    leadingIcon = Icons.AutoMirrored.Filled.Logout,
+                    onClick = viewModel::logout,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                )
+            }
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }

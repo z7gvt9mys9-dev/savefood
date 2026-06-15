@@ -1,5 +1,12 @@
 package kz.savefood.app.feature.needy.find
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,37 +51,57 @@ import kz.savefood.app.feature.needy.data.NeedyRepository
 private const val ROUTE_LIST = "find/list"
 private const val ROUTE_WIZARD = "find/wizard"
 
-/** "Find food" tab: list/map of active lots + a request wizard (nested nav). */
+/**
+ * "Find food" tab: list/map of active lots + a request wizard (nested nav).
+ *
+ * Wrapped in a [SharedTransitionLayout] so tapping a lot card runs a container
+ * transform — the card morphs into the wizard's lot summary (shared key
+ * `lot-<id>`) — instead of a hard screen swap.
+ */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun FindFoodScreen(viewModel: FindFoodViewModel = hiltViewModel()) {
     val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = ROUTE_LIST) {
-        composable(ROUTE_LIST) {
-            LotsScreen(
-                viewModel = viewModel,
-                onRequest = { lotId -> nav.navigate("$ROUTE_WIZARD?lotId=$lotId") },
-            )
-        }
-        composable(
-            route = "$ROUTE_WIZARD?lotId={lotId}",
-            arguments = listOf(navArgument("lotId") { type = NavType.IntType; defaultValue = -1 }),
-        ) { entry ->
-            val lotId = entry.arguments?.getInt("lotId")?.takeIf { it >= 0 }
-            TicketWizardScreen(
-                lot = viewModel.lotById(lotId),
-                viewModel = viewModel,
-                onDone = { nav.popBackStack() },
-                onCancel = { nav.popBackStack() },
-            )
+    SharedTransitionLayout {
+        NavHost(
+            navController = nav,
+            startDestination = ROUTE_LIST,
+            enterTransition = { fadeIn(tween(220)) },
+            exitTransition = { fadeOut(tween(180)) },
+        ) {
+            composable(ROUTE_LIST) {
+                LotsScreen(
+                    viewModel = viewModel,
+                    onRequest = { lotId -> nav.navigate("$ROUTE_WIZARD?lotId=$lotId") },
+                    sharedScope = this@SharedTransitionLayout,
+                    animatedScope = this@composable,
+                )
+            }
+            composable(
+                route = "$ROUTE_WIZARD?lotId={lotId}",
+                arguments = listOf(navArgument("lotId") { type = NavType.IntType; defaultValue = -1 }),
+            ) { entry ->
+                val lotId = entry.arguments?.getInt("lotId")?.takeIf { it >= 0 }
+                TicketWizardScreen(
+                    lot = viewModel.lotById(lotId),
+                    viewModel = viewModel,
+                    onDone = { nav.popBackStack() },
+                    onCancel = { nav.popBackStack() },
+                    sharedScope = this@SharedTransitionLayout,
+                    animatedScope = this@composable,
+                )
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LotsScreen(
     viewModel: FindFoodViewModel,
     onRequest: (Int?) -> Unit,
+    sharedScope: SharedTransitionScope,
+    animatedScope: AnimatedVisibilityScope,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
@@ -117,29 +144,41 @@ private fun LotsScreen(
                 description = stringResource(R.string.needy_find_empty_desc),
             )
 
-            tab == 0 -> LotList(state.lots, onRequest)
+            tab == 0 -> LotList(state.lots, onRequest, sharedScope, animatedScope)
             else -> LotMap(state.lots, onRequest)
         }
     }
 }
 
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun LotList(lots: List<LotDto>, onRequest: (Int?) -> Unit) {
+private fun LotList(
+    lots: List<LotDto>,
+    onRequest: (Int?) -> Unit,
+    sharedScope: SharedTransitionScope,
+    animatedScope: AnimatedVisibilityScope,
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(top = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
     ) {
         items(lots, key = { it.id }) { lot ->
-            LotCard(
-                title = lot.description ?: "#${lot.id}",
-                category = lot.category ?: "—",
-                quantity = lot.quantity?.let { "${it.toInt()} ${lot.unit ?: ""}".trim() } ?: "",
-                expiry = lot.expiryDate ?: lot.timeSlot ?: "",
-                address = lot.address ?: lot.shopName ?: "",
-                imageUrl = NeedyRepository.absoluteUrl(lot.photo),
-                onClick = { onRequest(lot.id) },
-            )
+            with(sharedScope) {
+                LotCard(
+                    title = lot.description ?: "#${lot.id}",
+                    category = lot.category ?: "—",
+                    quantity = lot.quantity?.let { "${it.toInt()} ${lot.unit ?: ""}".trim() } ?: "",
+                    expiry = lot.expiryDate ?: lot.timeSlot ?: "",
+                    address = lot.address ?: lot.shopName ?: "",
+                    imageUrl = NeedyRepository.absoluteUrl(lot.photo),
+                    onClick = { onRequest(lot.id) },
+                    modifier = Modifier.sharedBounds(
+                        rememberSharedContentState(key = "lot-${lot.id}"),
+                        animatedVisibilityScope = animatedScope,
+                    ),
+                )
+            }
         }
     }
 }

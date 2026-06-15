@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
@@ -33,6 +34,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kz.savefood.app.R
 import kz.savefood.app.core.designsystem.component.BadgeTone
+import kz.savefood.app.core.designsystem.component.EmptyState
+import kz.savefood.app.core.designsystem.component.LanguageSelectorCard
+import kz.savefood.app.core.designsystem.component.ProfileSkeleton
 import kz.savefood.app.core.designsystem.component.SaveFoodButton
 import kz.savefood.app.core.designsystem.component.SaveFoodCard
 import kz.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
@@ -77,11 +81,20 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
     var city by remember(shop) { mutableStateOf(shop?.city.orEmpty()) }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            SectionHeader(title = stringResource(R.string.shop_profile_title))
+        when {
+            state.loading && shop == null -> ProfileSkeleton()
+            state.error != null && shop == null -> EmptyState(
+                icon = Icons.Filled.Storefront,
+                title = stringResource(R.string.common_error_generic),
+                description = state.error,
+                actionLabel = stringResource(R.string.common_retry),
+                onAction = viewModel::load,
+            )
+            else -> Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SectionHeader(title = stringResource(R.string.shop_profile_title))
 
             // --- Shop data ---
             SaveFoodCard {
@@ -164,12 +177,15 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                 }
             }
 
-            SaveFoodOutlinedButton(
-                text = stringResource(R.string.common_logout),
-                leadingIcon = Icons.AutoMirrored.Filled.Logout,
-                onClick = viewModel::logout,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-            )
+                LanguageSelectorCard()
+
+                SaveFoodOutlinedButton(
+                    text = stringResource(R.string.common_logout),
+                    leadingIcon = Icons.AutoMirrored.Filled.Logout,
+                    onClick = viewModel::logout,
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                )
+            }
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
