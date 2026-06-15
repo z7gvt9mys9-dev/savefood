@@ -24,14 +24,21 @@ import kz.savefood.app.feature.shop.data.ShopRepository
 import javax.inject.Inject
 import javax.inject.Named
 
+/** The ESG section is exactly one of these — encodes the four mutually exclusive
+ *  outcomes as a type so no contradictory flag combination is representable. */
+sealed interface EsgState {
+    data object Loading : EsgState
+    data object Locked : EsgState               // plan does not include ESG (403)
+    data object Error : EsgState                // failed to load (network / 5xx)
+    data class Loaded(val report: EsgReportDto) : EsgState
+}
+
 data class ReceiptsUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val shopId: Int? = null,
     val receipts: List<ReceiptDto> = emptyList(),
-    val esg: EsgReportDto? = null,
-    val esgLocked: Boolean = false, // plan does not include ESG (403)
-    val esgError: Boolean = false,  // ESG failed to load for another reason (network/5xx)
+    val esg: EsgState = EsgState.Loading,
     val uploading: Boolean = false,
     val busyReceiptId: Int? = null,
     val exporting: Boolean = false,
@@ -56,18 +63,18 @@ class ReceiptsViewModel @Inject constructor(
                 _state.update { it.copy(loading = false, error = "Нет сессии") }
                 return@launch
             }
-            _state.update { it.copy(loading = true, error = null, shopId = shopId) }
+            _state.update { it.copy(loading = true, error = null, shopId = shopId, esg = EsgState.Loading) }
             when (val res = repo.getReceipts(shopId)) {
                 is ApiResult.Success -> _state.update { it.copy(loading = false, receipts = res.data) }
                 is ApiResult.Error -> _state.update { it.copy(loading = false, error = res.message) }
             }
             when (val esg = repo.getEsg(shopId)) {
-                is ApiResult.Success -> _state.update { it.copy(esg = esg.data, esgLocked = false, esgError = false) }
+                is ApiResult.Success -> _state.update { it.copy(esg = EsgState.Loaded(esg.data)) }
                 // 403 = not in plan (a real, expected state). Anything else is a load
                 // failure and must read differently than "ESG unavailable on your plan".
                 is ApiResult.Error -> {
                     if (esg.code != 403) Log.w(TAG, "getEsg failed: ${esg.message}")
-                    _state.update { it.copy(esg = null, esgLocked = esg.code == 403, esgError = esg.code != 403) }
+                    _state.update { it.copy(esg = if (esg.code == 403) EsgState.Locked else EsgState.Error) }
                 }
             }
         }

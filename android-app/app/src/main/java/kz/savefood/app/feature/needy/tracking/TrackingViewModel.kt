@@ -86,7 +86,9 @@ class TrackingViewModel @Inject constructor(
                         is ApiResult.Error -> _state.update { it.copy(stale = true) }
                     }
                 } else {
-                    _state.update { it.copy(volunteerLocation = null) }
+                    // No assigned courier: clear the pin AND the stale flag, otherwise a
+                    // prior location-poll failure leaves the banner stuck on forever.
+                    _state.update { it.copy(volunteerLocation = null, stale = false) }
                 }
             }
             // First load with nothing on screen → surface the error state. A failed

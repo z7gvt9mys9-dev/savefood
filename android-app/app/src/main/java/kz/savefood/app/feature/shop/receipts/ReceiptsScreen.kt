@@ -168,19 +168,19 @@ private fun EsgCard(state: ReceiptsUiState, onExport: () -> Unit) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-            when {
-                state.esgLocked -> Text(
+            when (val esg = state.esg) {
+                EsgState.Locked -> Text(
                     stringResource(R.string.shop_esg_locked),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                state.esgError -> Text(
+                EsgState.Error -> Text(
                     stringResource(R.string.shop_esg_load_error),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                state.esg != null -> {
-                    val t = state.esg.totals
+                is EsgState.Loaded -> {
+                    val t = esg.report.totals
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -198,7 +198,7 @@ private fun EsgCard(state: ReceiptsUiState, onExport: () -> Unit) {
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                     )
                 }
-                else -> Text(
+                EsgState.Loading -> Text(
                     stringResource(R.string.shop_esg_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
