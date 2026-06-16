@@ -45,10 +45,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 allowed_origins = [o.strip() for o in os.getenv("CORS_ORIGIN", "").split(",") if o.strip()]
-if not allowed_origins:
+if not allowed_origins or "*" in allowed_origins:
     raise RuntimeError(
-        "CORS_ORIGIN must be set to a comma-separated list of allowed origins "
-        "(e.g. https://savefood.example.com). Wildcards are not allowed with credentials."
+        "CORS_ORIGIN must be set to a comma-separated list of explicit allowed origins "
+        "(e.g. https://savefood.example.com). A '*' wildcard is unsafe with "
+        "allow_credentials=True and is not allowed."
     )
 app.add_middleware(
     CORSMiddleware,

@@ -13,11 +13,14 @@ failures visible in the dashboard instead.
 """
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict
+from urllib.parse import urlparse
 
 import httpx
 
@@ -25,6 +28,42 @@ from backend.database import get_db_cursor
 
 EVENTS = ("lot.taken", "lot.confirmed", "receipt.parsed")
 DELIVERY_TIMEOUT = 10
+
+
+def _is_safe_webhook_url(url: str) -> bool:
+    """SSRF guard: partners control the webhook URL, so block requests that
+    would reach internal infrastructure (cloud metadata, loopback, private
+    ranges). Resolves the hostname and checks every resolved IP — a public DNS
+    name can still point at an internal address."""
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    host = parsed.hostname
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        addr = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            return False
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False
+    return True
 
 
 def sign(secret: str, body: bytes) -> str:
@@ -39,20 +78,25 @@ def event_matches(events_csv: str, event: str) -> bool:
 
 def _deliver(webhook_id: int, url: str, secret: str, event: str, body: bytes):
     status = None
-    try:
-        resp = httpx.post(
-            url,
-            content=body,
-            headers={
-                "content-type": "application/json",
-                "x-savefood-event": event,
-                "x-savefood-signature": sign(secret, body),
-            },
-            timeout=DELIVERY_TIMEOUT,
+    if not _is_safe_webhook_url(url):
+        logging.warning(
+            "[webhook] delivery to %s blocked: resolves to an internal/unsafe address", url
         )
-        status = resp.status_code
-    except Exception as e:
-        logging.warning("[webhook] delivery to %s failed: %s", url, e)
+    else:
+        try:
+            resp = httpx.post(
+                url,
+                content=body,
+                headers={
+                    "content-type": "application/json",
+                    "x-savefood-event": event,
+                    "x-savefood-signature": sign(secret, body),
+                },
+                timeout=DELIVERY_TIMEOUT,
+            )
+            status = resp.status_code
+        except Exception as e:
+            logging.warning("[webhook] delivery to %s failed: %s", url, e)
     try:
         with get_db_cursor() as cur:
             cur.execute(

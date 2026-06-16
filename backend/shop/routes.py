@@ -66,7 +66,6 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
-    billing.check_lot_quota(shop_id)
     # Validation: if unit is not kg, unit_weight_kg is mandatory and must be > 0.
     unit = payload.unit or "кг"
     weight = payload.unit_weight_kg
@@ -75,18 +74,21 @@ def create_lot(shop_id: int, payload: schemas.LotCreate, current_user: dict = De
             raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
     else:
         weight = 1.0
-    
+
     # C2C anti-abuse (§45): a private donor's lot must show the actual food —
     # recipients can't rely on a business reputation they can see on the map.
     if (shop.get("kind") == "private") and not payload.photo:
         raise HTTPException(status_code=400, detail="Для частных доноров фотография лота обязательна")
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    lot_id = db.create_lot(
-        shop_id, payload.description, payload.quantity, expiry, payload.photo,
-        payload.address, payload.time_slot, payload.category, payload.comment,
-        requires_cold=bool(payload.requires_cold),
-        unit=unit, unit_weight_kg=weight
-    )
+    # Hold the per-shop quota lock across the count + insert so concurrent
+    # creates can't both slip past the monthly limit.
+    with billing.lot_quota_guard(shop_id):
+        lot_id = db.create_lot(
+            shop_id, payload.description, payload.quantity, expiry, payload.photo,
+            payload.address, payload.time_slot, payload.category, payload.comment,
+            requires_cold=bool(payload.requires_cold),
+            unit=unit, unit_weight_kg=weight
+        )
     # «Карта потребностей»: ping recipients whose preferences match the category.
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
@@ -112,8 +114,7 @@ def create_lot_upload(
     shop = db.get_shop_by_id(shop_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
-    billing.check_lot_quota(shop_id)
-    
+
     if unit != 'кг':
         if unit_weight_kg is None or unit_weight_kg <= 0:
             raise HTTPException(status_code=400, detail="Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)")
@@ -131,7 +132,8 @@ def create_lot_upload(
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         photo_url = f"/uploads/{filename}"
 
-    lot_id = db.create_lot(shop_id, description, float(quantity), expiry_date, photo_url, address, time_slot, category, comment, requires_cold=bool(requires_cold), unit=unit, unit_weight_kg=unit_weight_kg)
+    with billing.lot_quota_guard(shop_id):
+        lot_id = db.create_lot(shop_id, description, float(quantity), expiry_date, photo_url, address, time_slot, category, comment, requires_cold=bool(requires_cold), unit=unit, unit_weight_kg=unit_weight_kg)
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 
@@ -340,7 +342,6 @@ def confirm_receipt(
     # Re-gate here, not only at upload: between OCR upload and confirmation the
     # plan may have been downgraded — confirm must not mint lots past billing.
     billing.require_feature(shop_id, "ocr")
-    billing.check_lot_quota(shop_id)
     receipt = db.get_receipt_by_id(receipt_id)
     if not receipt or receipt["shop_id"] != shop_id:
         raise HTTPException(status_code=404, detail="Чек не найден")
@@ -352,16 +353,20 @@ def confirm_receipt(
     shop = db.get_shop_by_id(shop_id)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
     address = payload.address or shop.get("city")
-    lot_ids = []
+    # Validate categories before taking the quota lock so a bad payload doesn't
+    # hold the per-shop lock while erroring out.
     for draft in payload.lots:
         if draft.category not in receipt_service.LOT_CATEGORIES:
             raise HTTPException(status_code=400, detail=f"Неизвестная категория: {draft.category}")
-        lot_ids.append(db.create_lot(
-            shop_id, draft.description, draft.quantity, expiry, None,
-            address, payload.time_slot, draft.category,
-            f"Создано из чека #{receipt_id} (OCR)",
-        ))
-    db.confirm_receipt(receipt_id, lot_ids)
+    lot_ids = []
+    with billing.lot_quota_guard(shop_id):
+        for draft in payload.lots:
+            lot_ids.append(db.create_lot(
+                shop_id, draft.description, draft.quantity, expiry, None,
+                address, payload.time_slot, draft.category,
+                f"Создано из чека #{receipt_id} (OCR)",
+            ))
+        db.confirm_receipt(receipt_id, lot_ids)
     for lid in lot_ids:
         needs_match.start_needs_match(lid)
     return {"ok": True, "lot_ids": lot_ids}

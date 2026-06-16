@@ -141,3 +141,22 @@ def test_upload_pdf_passthrough_when_allowed(tmp_path):
         FakeUpload("doc.pdf", raw, "application/pdf"), str(tmp_path), allow_pdf=True
     )
     assert (tmp_path / fn).read_bytes() == raw
+
+
+def test_upload_rejects_pdf_without_magic_bytes(tmp_path):
+    # A .pdf/application/pdf upload whose bytes are not a real PDF must be rejected.
+    with pytest.raises(UploadValidationError) as exc:
+        validate_and_save_upload(
+            FakeUpload("doc.pdf", b"<html>not a pdf</html>", "application/pdf"),
+            str(tmp_path),
+            allow_pdf=True,
+        )
+    assert exc.value.status_code == 415
+
+
+def test_upload_accepts_valid_pdf_magic_bytes(tmp_path):
+    raw = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3 real-ish pdf body"
+    fn = validate_and_save_upload(
+        FakeUpload("doc.pdf", raw, "application/pdf"), str(tmp_path), allow_pdf=True
+    )
+    assert (tmp_path / fn).read_bytes() == raw
