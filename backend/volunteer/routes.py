@@ -1164,6 +1164,11 @@ def update_location(volunteer_id: int, payload: vschemas.LocationUpdate, current
     vdb.update_volunteer_location(volunteer_id, payload.lat, payload.lon)
     # Write-through cache: recipients poll this every 15s during delivery —
     # serve the hot value from Redis, Postgres stays the source of truth.
+    # CONTRACT: this cache is keyed vol:loc:{id} and read back by get_location
+    # below. The Go geows service (go-services/geows) can also serve this
+    # endpoint but writes Postgres only — it has no Redis client. The reverse
+    # proxy must route this PATCH and the GET to the SAME service, or reads
+    # here will be up to TTL_LOCATION seconds stale after a geows write.
     from backend import cache
     cache.set_json(
         f"vol:loc:{volunteer_id}",

@@ -1,5 +1,7 @@
 """Background task scheduling config (the ticks themselves are DB-bound and
 covered by the runtime smoke — here we pin the mode contract and task table)."""
+import pytest
+
 from backend import background
 
 
@@ -27,3 +29,99 @@ def test_task_table_complete():
         assert interval > 0
     # anti-fraud must run noticeably more often than the route timeout check
     assert background.ANTIFRAUD_INTERVAL < background.REASSIGN_INTERVAL
+
+
+# ── reassign_tick quantity reconciliation (BUG-1: quantity leak on revert) ─────
+
+from backend.shop import db as shop_db
+from backend.shop.db import init_db as shop_init
+from backend.needy.db import (
+    create_ticket, create_needy, create_or_update_profile, init_db as needy_init,
+)
+from backend.volunteer import db as vdb
+from backend.volunteer.routes import start_route
+from backend.volunteer import schemas as vschemas
+from backend.database import (
+    get_db_cursor, init_common_db, init_ticket_extensions, get_conn,
+)
+
+
+def _db_reachable():
+    try:
+        conn = get_conn()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture
+def db_setup():
+    init_common_db()
+    shop_init()
+    needy_init()
+    vdb.init_db()
+    init_ticket_extensions()
+    with get_db_cursor() as cur:
+        cur.execute("DELETE FROM notifications")
+        cur.execute("DELETE FROM volunteer_routes")
+        cur.execute("DELETE FROM tickets")
+        cur.execute("DELETE FROM lots")
+        cur.execute("DELETE FROM shops")
+        cur.execute("DELETE FROM needy_profile")
+        cur.execute("DELETE FROM needy")
+        cur.execute("DELETE FROM volunteers")
+        cur.execute("DELETE FROM users")
+
+
+ADMIN = {"role": "admin"}
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_reconciles_quantity_on_revert(db_setup):
+    """A claimed lot whose route times out must come back with the units of the
+    co-lot tickets it cancelled at claim restored — not permanently leaked.
+
+    Lot of 2 units, two delivery reservations (quantity → 0). With max_stops=1
+    start_route assigns one ticket and cancels the other co-lot ticket WITHOUT
+    returning its unit (lot is 'taken'). After the route times out and
+    reassign_tick reverts the lot, quantity must be 1 (the one still-open route
+    ticket holds 1 unit; the cancelled co-lot unit is reconciled back). Before
+    the fix this was 0 and the lot would vanish from the map (quantity > 0 filter).
+    """
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "2 Apples", 2.0, "2026-12-31", None, "Address")
+
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")  # KYC gate (§58)
+
+    # Two recipients each reserve one delivery unit → lot.quantity drops to 0.
+    for i in range(2):
+        nid = create_needy(f"R{i}", f"+711{i}")
+        create_or_update_profile(nid, "Addr", 1, "Apples", "Normal", city="Almaty")
+        create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    assert shop_db.get_lot_by_id(lot_id)["quantity"] == 0.0
+
+    # Claim the lot; route fits only ONE stop, so one delivery ticket is assigned
+    # and the other is cancelled with its unit NOT returned (lot is 'taken').
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+
+    lot = shop_db.get_lot_by_id(lot_id)
+    assert lot["status"] == "taken"
+    assert lot["quantity"] == 0.0  # leaked unit not yet reconciled
+
+    # Force the route past the timeout and run the reassign tick.
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '120 minutes', "
+            "last_activity_at = NULL WHERE lot_id = %s",
+            (lot_id,),
+        )
+    assert background.reassign_tick(timeout_minutes=60) == 1
+
+    lot = shop_db.get_lot_by_id(lot_id)
+    assert lot["status"] == "active"
+    # One reopened route ticket still holds 1 unit; the cancelled co-lot unit
+    # was reconciled back. Pre-fix this asserted-against value would be 0.
+    assert lot["quantity"] == 1.0

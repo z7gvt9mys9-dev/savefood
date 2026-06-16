@@ -43,6 +43,28 @@ KYC_RETRY_BATCH = int(os.getenv("KYC_RETRY_BATCH", "100"))
 
 REASSIGN_TIMEOUT_MINUTES = 60
 
+# Advisory-lock namespace (first key of pg_advisory_xact_lock) for reconciling a
+# lot's quantity when a route reverts taken→active. Kept distinct from the lot
+# quota namespace in billing.py so the two never collide. Used by reassign_tick,
+# antifraud_tick and admin reset_route, all keyed on the lot id.
+LOT_REVERT_LOCK_NS = 0x10720002
+
+# Atomic lot-revert UPDATE shared by the three revert paths (reassign timeout,
+# anti-fraud release, admin reset). When a lot genuinely flips taken→active it
+# recomputes `quantity` from the source of truth (initial_quantity) minus the
+# units still held by live reservations (tickets 'open'/'assigned'). Each caller
+# reopens the route's OWN tickets to 'open' FIRST, so they are counted as held;
+# the co-lot tickets cancelled at claim time are excluded, returning their units.
+# COALESCE(initial_quantity, quantity) degrades safely for legacy NULL lots;
+# GREATEST(...,0) clamps in case of any data drift (math should never go negative).
+_LOT_REVERT_SQL = (
+    "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL, "
+    "quantity = GREATEST(COALESCE(initial_quantity, quantity) - COALESCE("
+    "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = lots.id "
+    "AND t.status IN ('open', 'assigned')), 0), 0) "
+    "WHERE id = %s AND status = 'taken'"
+)
+
 # KYC document retention sweep (§5/§58). Documents are now retained ENCRYPTED at
 # rest for accountability, so the purge is DISABLED by default (0). Set a
 # positive number of hours only where a jurisdiction requires deleting
@@ -108,14 +130,16 @@ def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
                 if lot_id:
                     # Only revive lots still 'taken' — a lot the shop already
                     # confirmed as handed over must not reappear on the map.
-                    cur.execute(
-                        "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s AND status = 'taken'",
-                        (lot_id,),
-                    )
+                    # Reconcile quantity from the source of truth so the units of
+                    # co-lot tickets cancelled at claim time come back (see
+                    # _LOT_REVERT_SQL). Tickets above were already reopened to
+                    # 'open', so they keep their reserved units.
+                    cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, lot_id))
+                    cur.execute(_LOT_REVERT_SQL, (lot_id,))
             except Exception:
                 pass
 
-            cur.execute("UPDATE volunteer_routes SET status = 'timed_out' WHERE id = %s", (route_id,))
+            cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (route_id,))
             reset += 1
             support_chat = os.getenv("SUPPORT_CHAT_ID", "")
             if support_chat:
@@ -199,10 +223,11 @@ def antifraud_tick() -> dict:
                         (p["ticket_id"],),
                     )
             if row.get("lot_id"):
-                cur.execute(
-                    "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s AND status = 'taken'",
-                    (row["lot_id"],),
-                )
+                # Reconcile quantity on revert (see _LOT_REVERT_SQL): tickets were
+                # reopened to 'open' just above, so the co-lot units cancelled at
+                # claim time are restored while live reservations keep theirs.
+                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, row["lot_id"]))
+                cur.execute(_LOT_REVERT_SQL, (row["lot_id"],))
             cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (row["id"],))
             cur.execute(
                 "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",

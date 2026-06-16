@@ -143,6 +143,15 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 			httpError(w, http.StatusUnprocessableEntity, "lat and lon are required")
 			return
 		}
+		// CONTRACT: the FastAPI backend keeps a write-through Redis cache of
+		// volunteer location (key vol:loc:{id}, TTL_LOCATION=60s) — its PATCH
+		// writes the cache and its GET reads it. This Go service has no Redis
+		// client and writes Postgres only. The reverse proxy MUST therefore
+		// route the GET and PATCH of /volunteers/{id}/location to the SAME
+		// service (both here, or both to FastAPI). Split routing
+		// (writes→geows, reads→FastAPI) would serve location up to 60s stale
+		// from the Python cache. If geows ever needs to own writes while
+		// FastAPI owns reads, add a Redis DEL of vol:loc:{id} here.
 		_, err := pool.Exec(ctx,
 			"UPDATE volunteers SET lat = $1, lon = $2, updated_at = NOW() WHERE id = $3",
 			*body.Lat, *body.Lon, volunteerID)
