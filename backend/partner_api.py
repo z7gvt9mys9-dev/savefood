@@ -109,13 +109,13 @@ def api_create_lot(payload: ApiLotIn, shop_id: int = Depends(get_api_shop)):
         )
     if payload.quantity < 1:
         raise HTTPException(status_code=400, detail="quantity должен быть ≥ 1")
-    billing.check_lot_quota(shop_id)
     expiry = payload.expiry_date.isoformat() if payload.expiry_date else None
-    lot_id = shop_db.create_lot(
-        shop_id, payload.description, payload.quantity, expiry, None,
-        payload.address, payload.time_slot, payload.category,
-        payload.comment or "Создано через партнёрский API",
-    )
+    with billing.lot_quota_guard(shop_id):
+        lot_id = shop_db.create_lot(
+            shop_id, payload.description, payload.quantity, expiry, None,
+            payload.address, payload.time_slot, payload.category,
+            payload.comment or "Создано через партнёрский API",
+        )
     needs_match.start_needs_match(lot_id)
     return {"id": lot_id}
 

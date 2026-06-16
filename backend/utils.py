@@ -81,6 +81,13 @@ def validate_and_save_upload(file, dest_dir: str, *, allow_pdf: bool = False) ->
     if len(content) > MAX_UPLOAD_BYTES:
         raise UploadValidationError(413, f"File too large (limit {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)")
 
+    # Magic-byte check for PDFs: a .pdf extension / application/pdf content-type
+    # alone is attacker-controlled. Real PDFs start with "%PDF". Images on the
+    # doc path are re-encoded below (the image branch), so they self-validate.
+    if allow_pdf and (ext == ".pdf" or content_type == "application/pdf"):
+        if content[:4] != b"%PDF":
+            raise UploadValidationError(415, "File is not a valid PDF")
+
     # Strip metadata (privacy): smartphone photos carry GPS in EXIF, and some of
     # these images end up on the public impact feed. Re-encode so nothing survives.
     if not allow_pdf:
