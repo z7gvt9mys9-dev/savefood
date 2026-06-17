@@ -125,3 +125,51 @@ def test_reassign_tick_reconciles_quantity_on_revert(db_setup):
     # One reopened route ticket still holds 1 unit; the cancelled co-lot unit
     # was reconciled back. Pre-fix this asserted-against value would be 0.
     assert lot["quantity"] == 1.0
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_skips_route_when_revert_fails(db_setup, monkeypatch):
+    """BUG-R2: if the lot revert raises, the route must stay 'in_progress' (and
+    the lot 'taken') so the next tick retries it — it must NOT be closed.
+
+    Pre-fix the revert sat in `try/except: pass` and the route was closed to
+    'timed_out' unconditionally, so a swallowed revert error stranded the lot in
+    'taken' forever. The fix wraps the per-route work in a SAVEPOINT and rolls it
+    back on failure, leaving the route untouched for the next tick.
+    """
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "1 Apple", 1.0, "2026-12-31", None, "Address")
+
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")  # KYC gate (§58)
+
+    nid = create_needy("R", "+7110")
+    create_or_update_profile(nid, "Addr", 1, "Apples", "Normal", city="Almaty")
+    create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "taken"
+
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '120 minutes', "
+            "last_activity_at = NULL WHERE lot_id = %s",
+            (lot_id,),
+        )
+
+    # Inject a failing revert: invalid SQL raises inside the SAVEPOINT.
+    monkeypatch.setattr(
+        background, "_LOT_REVERT_SQL",
+        "UPDATE lots SET nonexistent_column = 1 WHERE id = %s AND status = 'taken'",
+    )
+    # The failing route is skipped, not counted, and left untouched.
+    assert background.reassign_tick(timeout_minutes=60) == 0
+    with get_db_cursor() as cur:
+        cur.execute("SELECT status FROM volunteer_routes WHERE lot_id = %s", (lot_id,))
+        assert cur.fetchone()["status"] == "in_progress"
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "taken"
+
+    # Restore the real SQL: the next tick now processes the still-open route.
+    monkeypatch.undo()
+    assert background.reassign_tick(timeout_minutes=60) == 1
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "active"
