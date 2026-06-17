@@ -52,16 +52,20 @@ LOT_REVERT_LOCK_NS = 0x10720002
 # Atomic lot-revert UPDATE shared by the three revert paths (reassign timeout,
 # anti-fraud release, admin reset). When a lot genuinely flips taken→active it
 # recomputes `quantity` from the source of truth (initial_quantity) minus the
-# units still held by live reservations (tickets 'open'/'assigned'). Each caller
-# reopens the route's OWN tickets to 'open' FIRST, so they are counted as held;
-# the co-lot tickets cancelled at claim time are excluded, returning their units.
+# units that are no longer available: live reservations still held (tickets
+# 'open'/'assigned') AND units already delivered/consumed (tickets 'fulfilled').
+# Each caller reopens the route's OWN tickets to 'open' FIRST, so they are
+# counted as held; the co-lot tickets cancelled at claim time are excluded,
+# returning their units. Omitting 'fulfilled' would resurrect already-delivered
+# units as phantom availability (the lot reappears on the map with quantity > 0
+# -> over-allocation on re-claim).
 # COALESCE(initial_quantity, quantity) degrades safely for legacy NULL lots;
 # GREATEST(...,0) clamps in case of any data drift (math should never go negative).
 _LOT_REVERT_SQL = (
     "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL, "
     "quantity = GREATEST(COALESCE(initial_quantity, quantity) - COALESCE("
     "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = lots.id "
-    "AND t.status IN ('open', 'assigned')), 0), 0) "
+    "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) "
     "WHERE id = %s AND status = 'taken'"
 )
 

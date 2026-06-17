@@ -125,3 +125,55 @@ def test_reassign_tick_reconciles_quantity_on_revert(db_setup):
     # One reopened route ticket still holds 1 unit; the cancelled co-lot unit
     # was reconciled back. Pre-fix this asserted-against value would be 0.
     assert lot["quantity"] == 1.0
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_subtracts_fulfilled_on_revert(db_setup):
+    """BUG-R1: a fulfilled (delivered) unit must NOT reappear as phantom quantity.
+
+    Lot of 3 units, three delivery reservations (quantity -> 0). Volunteer claims
+    with max_stops=3 so all three tickets are assigned. One ticket is marked
+    'fulfilled' (delivery happened). The route times out; reassign_tick reopens
+    the two still-assigned tickets and reverts the lot. Truth: 1 delivered +
+    2 reserved = 0 available. Pre-fix the revert SQL omitted 'fulfilled', giving
+    quantity = 3 - 2 = 1 (a phantom unit -> the lot reappears on the map). With
+    the fix quantity == 0 and the lot stays off the map.
+    """
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "3 Apples", 3.0, "2026-12-31", None, "Address")
+
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")  # KYC gate (§58)
+
+    ticket_ids = []
+    for i in range(3):
+        nid = create_needy(f"R{i}", f"+712{i}")
+        create_or_update_profile(nid, "Addr", 1, "Apples", "Normal", city="Almaty")
+        ticket_ids.append(
+            create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+        )
+
+    assert shop_db.get_lot_by_id(lot_id)["quantity"] == 0.0
+
+    # Claim with room for ALL three stops -> all three tickets assigned.
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=3), current_user=ADMIN)
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "taken"
+
+    # Simulate one delivery: mark one assigned ticket 'fulfilled'.
+    with get_db_cursor() as cur:
+        cur.execute("UPDATE tickets SET status = 'fulfilled' WHERE id = %s", (ticket_ids[0],))
+
+    # Force the route past the timeout and run the reassign tick.
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '120 minutes', "
+            "last_activity_at = NULL WHERE lot_id = %s",
+            (lot_id,),
+        )
+    assert background.reassign_tick(timeout_minutes=60) == 1
+
+    lot = shop_db.get_lot_by_id(lot_id)
+    assert lot["status"] == "active"
+    # 1 fulfilled + 2 reopened reservations = 3 units accounted -> 0 available.
+    # Pre-fix (fulfilled omitted) this would be 1.0, a phantom unit on the map.
+    assert lot["quantity"] == 0.0
