@@ -124,6 +124,17 @@ def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
         rows = cur.fetchall()
         for row in rows:
             route_id = row["id"]
+            # Reopening the route's tickets, reverting the lot's quantity and
+            # closing the route must be all-or-nothing PER ROUTE. get_db_cursor
+            # runs the whole batch in a single transaction, and in psycopg2 the
+            # first failed statement aborts that transaction (every later execute
+            # then raises until rollback). A per-route SAVEPOINT isolates the
+            # failure: on any error we ROLLBACK TO the savepoint and leave the
+            # route 'in_progress' so the NEXT tick retries it, instead of the old
+            # behaviour where a swallowed revert error still closed the route and
+            # stranded the lot in 'taken' forever (the tick only scans
+            # 'in_progress'). The rest of the batch is unaffected.
+            cur.execute("SAVEPOINT route_revert")
             try:
                 points = json.loads(row.get("points") or "[]")
                 for p in points:
@@ -132,10 +143,7 @@ def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
                             "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
                             (p["ticket_id"],),
                         )
-            except Exception:
-                pass
 
-            try:
                 lot_id = row.get("lot_id")
                 if lot_id:
                     # Only revive lots still 'taken' — a lot the shop already
@@ -146,10 +154,18 @@ def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
                     # 'open', so they keep their reserved units.
                     cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, lot_id))
                     cur.execute(_LOT_REVERT_SQL, (lot_id,))
-            except Exception:
-                pass
 
-            cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (route_id,))
+                cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (route_id,))
+                cur.execute("RELEASE SAVEPOINT route_revert")
+            except Exception:
+                cur.execute("ROLLBACK TO SAVEPOINT route_revert")
+                cur.execute("RELEASE SAVEPOINT route_revert")
+                logging.exception(
+                    "[background] reassign_tick: revert failed for route %s; left in_progress for retry",
+                    route_id,
+                )
+                continue
+
             reset += 1
             support_chat = os.getenv("SUPPORT_CHAT_ID", "")
             if support_chat:
@@ -226,6 +242,11 @@ def antifraud_tick() -> dict:
                 continue
 
             # No reaction: release tickets, revive the lot, close the route.
+            # Unlike reassign_tick, this loop opens a FRESH get_db_cursor() per
+            # route (one transaction each) and does NOT swallow revert errors, so
+            # a failed revert propagates out of the `with` block, rolls back the
+            # whole route — including the close below — and the route stays
+            # 'in_progress' for the next tick. No SAVEPOINT needed here.
             for p in points:
                 if p.get("kind") == "ticket" and p.get("ticket_id"):
                     cur.execute(
