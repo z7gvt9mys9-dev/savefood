@@ -47,6 +47,12 @@ REASSIGN_TIMEOUT_MINUTES = 60
 # lot's quantity when a route reverts taken→active. Kept distinct from the lot
 # quota namespace in billing.py so the two never collide. Used by reassign_tick,
 # antifraud_tick and admin reset_route, all keyed on the lot id.
+#
+# BUG-R3 (informational, no functional change): this advisory lock is actually
+# redundant. A lot can be held by only one route at a time (status 'taken'), so
+# revert-vs-revert on the same lot cannot happen; and the real quantity mutators
+# (reservation create/cancel) take a row lock on the lot, not this advisory lock.
+# TODO: drop LOT_REVERT_LOCK_NS in the next background-workers refactor.
 LOT_REVERT_LOCK_NS = 0x10720002
 
 # Atomic lot-revert UPDATE shared by the three revert paths (reassign timeout,
