@@ -245,10 +245,13 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
         # release lot — but only if it is still 'taken'; a lot the shop already
         # confirmed as handed over must not reappear on the map
         if route.get('lot_id'):
-            cur.execute(
-                "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = %s AND status = 'taken'",
-                (route['lot_id'],)
-            )
+            # Reconcile quantity on revert (see background._LOT_REVERT_SQL):
+            # tickets were reopened to 'open' just above, so the units of co-lot
+            # tickets cancelled at claim time are restored while live reservations
+            # keep theirs. Same atomic UPDATE + advisory lock as the bg ticks.
+            from backend.background import _LOT_REVERT_SQL, LOT_REVERT_LOCK_NS
+            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, route['lot_id']))
+            cur.execute(_LOT_REVERT_SQL, (route['lot_id'],))
         cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = %s", (route_id,))
     log_action(_user.get('sub'), 'route_reset', 'route', route_id, f"Admin reset route #{route_id}")
     return {"ok": True}
