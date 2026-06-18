@@ -225,3 +225,97 @@ def test_reassign_tick_skips_route_when_revert_fails(db_setup, monkeypatch):
     monkeypatch.undo()
     assert background.reassign_tick(timeout_minutes=60) == 1
     assert shop_db.get_lot_by_id(lot_id)["status"] == "active"
+
+
+# ── Q4: revert when the shop already confirmed the hand-over ───────────────────
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_cancels_tickets_when_lot_already_confirmed(db_setup):
+    """Q4: if the shop confirmed the hand-over (lot taken→confirmed) before the
+    route times out, the lot revert is a no-op (WHERE status='taken'). The route's
+    assigned tickets must then be CANCELLED — freeing the recipient's one-active
+    slot — not reopened 'open' onto a confirmed lot that no second route can ever
+    claim (which would strand them until the 48h TTL)."""
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "1 Apple", 1.0, "2026-12-31", None, "Address")
+
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")  # KYC gate (§58)
+
+    nid = create_needy("R", "+7110")
+    create_or_update_profile(nid, "Addr", 1, "Apples", "Normal", city="Almaty")
+    create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+
+    # Shop confirms the hand-over BEFORE the volunteer finishes: taken→confirmed.
+    assert shop_db.confirm_lot_transfer(lot_id) is True
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "confirmed"
+
+    # Route goes idle and is released.
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '200 minutes', "
+            "last_activity_at = NULL WHERE lot_id = %s",
+            (lot_id,),
+        )
+    assert background.reassign_tick(timeout_minutes=90) == 1
+
+    # Lot stays confirmed; the orphaned ticket is cancelled (not reopened) and the
+    # recipient is notified that their slot is free.
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "confirmed"
+    with get_db_cursor() as cur:
+        cur.execute("SELECT status FROM tickets WHERE needy_id = %s", (nid,))
+        assert cur.fetchone()["status"] == "cancelled"
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM notifications WHERE needy_id = %s AND type = 'ticket_cancelled'",
+            (nid,),
+        )
+        assert cur.fetchone()["n"] == 1
+
+
+# ── Q9: absolute ceiling on route duration ────────────────────────────────────
+
+def _claim_single_stop_route():
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "1 Apple", 1.0, "2026-12-31", None, "Address")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+    nid = create_needy("R", "+7110")
+    create_or_update_profile(nid, "Addr", 1, "Apples", "Normal", city="Almaty")
+    create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+    return lot_id
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_absolute_ceiling_releases_recently_active_route(db_setup):
+    """Q9: a fresh location ping proves only that the device is on, not that
+    delivery is progressing. A route younger than the inactivity window but older
+    than MAX_ROUTE_DURATION_MINUTES from started_at must still be released, so a
+    volunteer parked with the app open can't hold the lot forever."""
+    lot_id = _claim_single_stop_route()
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '300 minutes', "
+            "last_activity_at = CURRENT_TIMESTAMP WHERE lot_id = %s",  # activity is FRESH
+            (lot_id,),
+        )
+    # Inactivity (90) would NOT catch it (fresh activity); the ceiling (240) does.
+    assert background.reassign_tick(timeout_minutes=90, max_route_minutes=240) == 1
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "active"
+
+
+@pytest.mark.skipif(not _db_reachable(), reason="Database not reachable")
+def test_reassign_tick_keeps_recently_active_route_within_ceiling(db_setup):
+    """Q9 (the case the ceiling must NOT break): an honest volunteer on a long
+    leg — recent activity, started well within the ceiling — keeps the route."""
+    lot_id = _claim_single_stop_route()
+    with get_db_cursor() as cur:
+        cur.execute(
+            "UPDATE volunteer_routes SET started_at = CURRENT_TIMESTAMP - INTERVAL '30 minutes', "
+            "last_activity_at = CURRENT_TIMESTAMP WHERE lot_id = %s",
+            (lot_id,),
+        )
+    assert background.reassign_tick(timeout_minutes=90, max_route_minutes=240) == 0
+    assert shop_db.get_lot_by_id(lot_id)["status"] == "taken"

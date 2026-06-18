@@ -862,20 +862,26 @@ def get_volunteer_rating(volunteer_id: int, current_user: dict = Depends(get_cur
 def finish_route(route_id: int, payload: vschemas.FinishRouteRequest, current_user: dict = Depends(get_current_user)):
     route = _require_route_owner(route_id, current_user, require_active=True)
 
-    # release any assigned but uncompleted tickets back to open
     try:
         points = json.loads(route.get('points') or '[]')
-        with get_db_cursor() as cur:
-            for p in points:
-                if p.get('kind') == 'ticket' and not p.get('done') and p.get('ticket_id'):
-                    cur.execute(
-                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
-                        (p['ticket_id'],)
-                    )
     except Exception:
-        logging.exception('Failed to release assigned tickets when finishing route')
+        points = []
 
-    vdb.finish_route(route_id)
+    # §8: undelivered tickets return to 'open' — but for them to be servable the
+    # lot must come back to the witrine, so revert it too (audit Q12). Previously
+    # finish_route reopened tickets WITHOUT reverting the lot, stranding them on a
+    # still-'taken' lot until their 48h TTL. The shared helper reopens them if the
+    # lot came back, or cancels them if the shop already confirmed the hand-over.
+    # Revert + route close share ONE transaction: a crash between them would leave
+    # the lot reverted while the route stays 'in_progress', and the next reassign
+    # tick would re-revert and wrongly cancel the just-reopened tickets.
+    from backend.background import revert_route_lot
+    with get_db_cursor() as cur:
+        revert_route_lot(cur, route.get('lot_id'), points)
+        cur.execute(
+            "UPDATE volunteer_routes SET status = 'finished', finished_at = %s WHERE id = %s",
+            (datetime.now(timezone.utc), route_id),
+        )
     return {'ok': True}
 
 

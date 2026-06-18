@@ -231,27 +231,15 @@ def reset_route(route_id: int, _user: dict = Depends(require_admin)):
         # flip its (already delivered) lot back to 'active' on the map.
         if route.get('status') != 'in_progress':
             raise HTTPException(status_code=400, detail="Маршрут уже завершён или сброшен")
-        # free assigned tickets back to open
+        # Release the lot and resolve its tickets via the shared helper: reopen
+        # if the lot came back to 'active', cancel if it is already gone
+        # (confirmed/expired/removed) so tickets don't strand 'open' (audit Q4).
         try:
             points = json_mod.loads(route.get('points') or '[]')
-            for p in points:
-                if p.get('kind') == 'ticket' and p.get('ticket_id'):
-                    cur.execute(
-                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
-                        (p['ticket_id'],)
-                    )
         except Exception:
-            pass
-        # release lot — but only if it is still 'taken'; a lot the shop already
-        # confirmed as handed over must not reappear on the map
-        if route.get('lot_id'):
-            # Reconcile quantity on revert (see background._LOT_REVERT_SQL):
-            # tickets were reopened to 'open' just above, so the units of co-lot
-            # tickets cancelled at claim time are restored while live reservations
-            # keep theirs. Same atomic UPDATE + advisory lock as the bg ticks.
-            from backend.background import _LOT_REVERT_SQL, LOT_REVERT_LOCK_NS
-            cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, route['lot_id']))
-            cur.execute(_LOT_REVERT_SQL, (route['lot_id'],))
+            points = []
+        from backend.background import revert_route_lot
+        revert_route_lot(cur, route.get('lot_id'), points)
         cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = %s", (route_id,))
     log_action(_user.get('sub'), 'route_reset', 'route', route_id, f"Admin reset route #{route_id}")
     return {"ok": True}

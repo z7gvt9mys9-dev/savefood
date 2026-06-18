@@ -361,6 +361,29 @@ def confirm_lot_transfer(lot_id: int) -> bool:
         cur.execute("UPDATE lots SET status = 'confirmed' WHERE id = %s", (lot_id,))
         return True
 
+def _cancel_lot_open_tickets(cur, lot_id: int, reason: str) -> None:
+    """Cancel every still-open reservation on a lot that is leaving the witrine
+    (expired, or removed by the shop). Leaving them 'open' would strand the
+    recipient on a dead lot until the 48h reservation TTL, blocking their
+    one-active-ticket slot (§57, audit Q5). Mirrors start_route's orphan-cancel;
+    no unit is returned because the lot itself is gone. Uses the caller's cursor
+    so the cancellation shares the lot-state transaction."""
+    cur.execute(
+        "UPDATE tickets SET status = 'cancelled' WHERE lot_id = %s AND status = 'open' "
+        "RETURNING id, needy_id",
+        (lot_id,),
+    )
+    now = datetime.now(timezone.utc)
+    for row in cur.fetchall():
+        cur.execute(
+            "INSERT INTO notifications (needy_id, type, payload, created_at, read) "
+            "VALUES (%s, %s, %s, %s, 0)",
+            (row['needy_id'], 'ticket_cancelled',
+             f"Заявка #{row['id']} отменена: {reason}. "
+             f"Выберите другой лот — недельный лимит не потрачен.", now),
+        )
+
+
 def delete_lot(lot_id: int) -> bool:
     with get_db_cursor() as cur:
         cur.execute("SELECT * FROM lots WHERE id = %s", (lot_id,))
@@ -371,6 +394,9 @@ def delete_lot(lot_id: int) -> bool:
             return False
 
         cur.execute("UPDATE lots SET status = 'removed' WHERE id = %s", (lot_id,))
+        # Free any recipients who had reserved a unit on this lot (audit Q5):
+        # the lot is gone, so an 'open' ticket on it can never be served.
+        _cancel_lot_open_tickets(cur, lot_id, 'лот удалён магазином')
         try:
             cur.execute(
                 "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
@@ -462,6 +488,9 @@ def expire_soon_lots() -> int:
                     "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, %s, 0)",
                     (r['shop_id'], r['id'], 'lot_expired_soon', f'Лот #{r["id"]} снят: до истечения срока годности менее 24 часов', datetime.now(timezone.utc)),
                 )
+                # Free recipients holding a reservation on the now-expired lot
+                # instead of leaving them stranded until the 48h TTL (audit Q5).
+                _cancel_lot_open_tickets(cur, r['id'], 'лоту осталось менее 24 часов до истечения срока')
             except Exception:
                 pass
         return len(ids)

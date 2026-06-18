@@ -41,30 +41,26 @@ KYC_RETRY_INTERVAL = 60 * 15  # re-run AI for accounts stuck pending (AI was dow
 # Oldest-attempt-first, so every doc is eventually retried across ticks.
 KYC_RETRY_BATCH = int(os.getenv("KYC_RETRY_BATCH", "100"))
 
-REASSIGN_TIMEOUT_MINUTES = 60
-
-# Advisory-lock namespace (first key of pg_advisory_xact_lock) for reconciling a
-# lot's quantity when a route reverts taken→active. Kept distinct from the lot
-# quota namespace in billing.py so the two never collide. Used by reassign_tick,
-# antifraud_tick and admin reset_route, all keyed on the lot id.
-#
-# BUG-R3 (informational, no functional change): this advisory lock is actually
-# redundant. A lot can be held by only one route at a time (status 'taken'), so
-# revert-vs-revert on the same lot cannot happen; and the real quantity mutators
-# (reservation create/cancel) take a row lock on the lot, not this advisory lock.
-# TODO: drop LOT_REVERT_LOCK_NS in the next background-workers refactor.
-LOT_REVERT_LOCK_NS = 0x10720002
+# Route-release timeouts (§8/§9). Inactivity is measured from the last completed
+# point (last_activity_at), so an honest volunteer on a long leg — a distant
+# drop, traffic, the §8 "ring and wait 10 min at the door" — is not reset
+# mid-delivery. 60 min was too tight for one long leg, so it is 90. The absolute
+# ceiling from started_at is the backstop: a fresh location ping only proves the
+# device is on, not that delivery is progressing, so activity alone must never be
+# able to hold a route open forever (audit Q9).
+REASSIGN_TIMEOUT_MINUTES = 90
+MAX_ROUTE_DURATION_MINUTES = 240
 
 # Atomic lot-revert UPDATE shared by the three revert paths (reassign timeout,
-# anti-fraud release, admin reset). When a lot genuinely flips taken→active it
-# recomputes `quantity` from the source of truth (initial_quantity) minus the
-# units that are no longer available: live reservations still held (tickets
-# 'open'/'assigned') AND units already delivered/consumed (tickets 'fulfilled').
-# Each caller reopens the route's OWN tickets to 'open' FIRST, so they are
-# counted as held; the co-lot tickets cancelled at claim time are excluded,
-# returning their units. Omitting 'fulfilled' would resurrect already-delivered
-# units as phantom availability (the lot reappears on the map with quantity > 0
-# -> over-allocation on re-claim).
+# anti-fraud release, admin reset), all funnelled through revert_route_lot().
+# When a lot genuinely flips taken→active it recomputes `quantity` from the
+# source of truth (initial_quantity) minus the units no longer available: live
+# reservations still held (tickets 'open'/'assigned') AND units already
+# delivered/consumed (tickets 'fulfilled'). revert_route_lot runs this UPDATE
+# BEFORE reopening the route's own tickets — safe because both 'open' and
+# 'assigned' are counted here, so the reconciled quantity is identical either
+# way. Omitting 'fulfilled' would resurrect already-delivered units as phantom
+# availability (the lot reappears on the map with quantity > 0 → over-allocation).
 # COALESCE(initial_quantity, quantity) degrades safely for legacy NULL lots;
 # GREATEST(...,0) clamps in case of any data drift (math should never go negative).
 _LOT_REVERT_SQL = (
@@ -74,6 +70,55 @@ _LOT_REVERT_SQL = (
     "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) "
     "WHERE id = %s AND status = 'taken'"
 )
+
+
+def revert_route_lot(cur, lot_id, points, *, now=None) -> None:
+    """Release a route's lot and resolve its tickets when the route is torn down
+    (reassign timeout / anti-fraud / admin reset). Runs the lot revert FIRST and
+    branches on whether the lot actually came back to 'active':
+
+    - revert hit (rowcount == 1): the lot is back on the witrine, so the route's
+      assigned tickets are REOPENED to 'open' for another volunteer to claim.
+    - revert missed (rowcount == 0): the lot is no longer 'taken' — the shop
+      already confirmed the hand-over (taken→confirmed), or it expired / was
+      removed. No second route can ever claim it, so reopening its tickets would
+      strand them 'open' on a dead lot until their 48h TTL, blocking the
+      recipient's one-active-ticket slot (audit Q4/§57). CANCEL them and notify
+      instead — same treatment start_route gives co-lot orphans at claim time.
+
+    No advisory lock is taken: a lot is held by exactly one route at a time
+    (status 'taken'), so revert-vs-revert on the same lot cannot occur (BUG-R3)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+    ticket_ids = [p["ticket_id"] for p in points
+                  if p.get("kind") == "ticket" and p.get("ticket_id")]
+    lot_gone = False
+    if lot_id:
+        cur.execute(_LOT_REVERT_SQL, (lot_id,))
+        lot_gone = cur.rowcount == 0
+    if not lot_gone:
+        for tid in ticket_ids:
+            cur.execute(
+                "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, "
+                "assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
+                (tid,),
+            )
+        return
+    for tid in ticket_ids:
+        cur.execute(
+            "UPDATE tickets SET status = 'cancelled' WHERE id = %s AND status = 'assigned' "
+            "RETURNING needy_id",
+            (tid,),
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) "
+                "VALUES (%s, %s, %s, %s, 0)",
+                (row["needy_id"], "ticket_cancelled",
+                 f"Заявка #{tid} отменена: лот уже передан или снят магазином. "
+                 f"Выберите другой лот — недельный лимит не потрачен.", now),
+            )
 
 # KYC document retention sweep (§5/§58). Documents are now retained ENCRYPTED at
 # rest for accountability, so the purge is DISABLED by default (0). Set a
@@ -109,17 +154,22 @@ def expire_tick() -> int:
     return updated
 
 
-def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
+def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES,
+                  max_route_minutes: int = MAX_ROUTE_DURATION_MINUTES) -> int:
     """Release routes idle past the timeout: tickets → open, lot → active.
 
     Inactivity is measured from the last completed point (last_activity_at),
-    not route start — long multi-stop routes with an active volunteer must
-    not be reset mid-delivery."""
+    not route start — long multi-stop routes with an active volunteer must not
+    be reset mid-delivery. A second, absolute ceiling on started_at catches a
+    route that stays nominally active forever (e.g. a volunteer parked at home
+    with the app pinging) but never actually finishes delivering (audit Q9)."""
     reset = 0
     with get_db_cursor() as cur:
         cur.execute(
-            "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP - INTERVAL '%s minutes'",
-            (timeout_minutes,),
+            "SELECT * FROM volunteer_routes WHERE status = 'in_progress' AND ("
+            "COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP - INTERVAL '%s minutes' "
+            "OR started_at <= CURRENT_TIMESTAMP - INTERVAL '%s minutes')",
+            (timeout_minutes, max_route_minutes),
         )
         rows = cur.fetchall()
         for row in rows:
@@ -137,24 +187,10 @@ def reassign_tick(timeout_minutes: int = REASSIGN_TIMEOUT_MINUTES) -> int:
             cur.execute("SAVEPOINT route_revert")
             try:
                 points = json.loads(row.get("points") or "[]")
-                for p in points:
-                    if p.get("kind") == "ticket" and p.get("ticket_id"):
-                        cur.execute(
-                            "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
-                            (p["ticket_id"],),
-                        )
-
-                lot_id = row.get("lot_id")
-                if lot_id:
-                    # Only revive lots still 'taken' — a lot the shop already
-                    # confirmed as handed over must not reappear on the map.
-                    # Reconcile quantity from the source of truth so the units of
-                    # co-lot tickets cancelled at claim time come back (see
-                    # _LOT_REVERT_SQL). Tickets above were already reopened to
-                    # 'open', so they keep their reserved units.
-                    cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, lot_id))
-                    cur.execute(_LOT_REVERT_SQL, (lot_id,))
-
+                # Revert the lot and resolve its tickets in one place: reopen them
+                # if the lot came back to 'active', cancel them if it is already
+                # gone (confirmed/expired/removed) so they don't strand (Q4).
+                revert_route_lot(cur, row.get("lot_id"), points)
                 cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (route_id,))
                 cur.execute("RELEASE SAVEPOINT route_revert")
             except Exception:
@@ -247,18 +283,10 @@ def antifraud_tick() -> dict:
             # a failed revert propagates out of the `with` block, rolls back the
             # whole route — including the close below — and the route stays
             # 'in_progress' for the next tick. No SAVEPOINT needed here.
-            for p in points:
-                if p.get("kind") == "ticket" and p.get("ticket_id"):
-                    cur.execute(
-                        "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, assigned_volunteer_id = NULL WHERE id = %s AND status = 'assigned'",
-                        (p["ticket_id"],),
-                    )
-            if row.get("lot_id"):
-                # Reconcile quantity on revert (see _LOT_REVERT_SQL): tickets were
-                # reopened to 'open' just above, so the co-lot units cancelled at
-                # claim time are restored while live reservations keep theirs.
-                cur.execute("SELECT pg_advisory_xact_lock(%s, %s)", (LOT_REVERT_LOCK_NS, row["lot_id"]))
-                cur.execute(_LOT_REVERT_SQL, (row["lot_id"],))
+            # Revert the lot and resolve its tickets (reopen if it came back,
+            # cancel if it is already confirmed/removed — Q4). Same helper as
+            # reassign_tick; reuse this loop's `now` for the cancel notification.
+            revert_route_lot(cur, row.get("lot_id"), points, now=now)
             cur.execute("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP WHERE id = %s", (row["id"],))
             cur.execute(
                 "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (%s, %s, %s, %s, 0)",
