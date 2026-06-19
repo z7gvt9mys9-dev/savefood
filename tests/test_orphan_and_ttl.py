@@ -15,7 +15,7 @@ from backend.needy.db import (
     set_profile_last_received, init_db as needy_init,
 )
 from backend.volunteer import db as vdb
-from backend.volunteer.routes import start_route, finish_route
+from backend.volunteer.routes import start_route, finish_route, ROUTE_HARD_CAP
 from backend.volunteer import schemas as vschemas
 from backend.database import get_db_cursor, init_common_db, init_ticket_extensions, get_conn
 
@@ -322,3 +322,66 @@ def test_start_route_serves_all_reserved_when_max_stops_unset():
         counts = {r["status"]: r["n"] for r in cur.fetchall()}
     assert counts.get("assigned") == 12
     assert counts.get("cancelled", 0) == 0
+
+
+def test_start_route_caps_at_route_hard_cap_and_sheds_overflow():
+    """Q2 (light layer): a lot with more reserved in-window tickets than
+    ROUTE_HARD_CAP serves exactly the cap and sheds the overflow as 'cancelled'
+    (not left orphaned 'open'), so the surplus never hangs forever."""
+    overflow = 3
+    n = ROUTE_HARD_CAP + overflow
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, f"{n} Apples", float(n + 5), "2026-12-31", None, "Address")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+
+    for i in range(n):
+        nid = _delivery_ticket(f"R{i}", f"+7{i:05d}")
+        create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id), current_user=ADMIN)
+
+    with get_db_cursor() as cur:
+        cur.execute("SELECT status, COUNT(*) AS n FROM tickets WHERE lot_id = %s GROUP BY status", (lot_id,))
+        counts = {r["status"]: r["n"] for r in cur.fetchall()}
+    assert counts.get("assigned") == ROUTE_HARD_CAP
+    assert counts.get("cancelled", 0) == overflow
+    assert counts.get("open", 0) == 0   # overflow is cancelled, never orphaned
+
+
+def test_start_route_request_rejects_nonpositive_max_stops():
+    """Schema boundary (ge=1): an explicit 0 or negative max_stops is rejected
+    outright instead of being silently coerced (0 used to fall through `or` to the
+    cap; a negative clamped to a degenerate 1-stop route that cancelled everyone)."""
+    from pydantic import ValidationError
+    for bad in (0, -1, -20):
+        with pytest.raises(ValidationError):
+            vschemas.StartRouteRequest(lot_id=1, max_stops=bad)
+    # None (omitted) and positive values stay valid.
+    assert vschemas.StartRouteRequest(lot_id=1).max_stops is None
+    assert vschemas.StartRouteRequest(lot_id=1, max_stops=5).max_stops == 5
+
+
+def test_start_route_defers_notifications_to_background_tasks():
+    """Production path: when FastAPI injects a BackgroundTasks, start_route must
+    DEFER the Telegram fan-out onto it (the whole point of the latency fix) rather
+    than block the claim by sending inline. Direct test calls without it run inline,
+    so this is the only coverage of the deferred branch. Draining the queue — what
+    FastAPI does after the response — runs the fan-out without raising even though
+    Telegram is unconfigured (each send is best-effort)."""
+    from fastapi import BackgroundTasks
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "5 Apples", 5.0, "2026-12-31", None, "Address")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+    for i in range(2):
+        nid = _delivery_ticket(f"R{i}", f"+712{i}")
+        create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    bg = BackgroundTasks()
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id), background_tasks=bg, current_user=ADMIN)
+
+    # Exactly one task queued (the fan-out closure), not run inline on the hot path.
+    assert len(bg.tasks) == 1
+    for task in bg.tasks:
+        task.func(*task.args, **task.kwargs)   # must not raise

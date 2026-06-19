@@ -12,6 +12,7 @@ from fastapi.responses import Response
 
 from backend import cache, esg, gamification
 from backend.database import get_db_cursor
+from backend.utils import clamp
 
 router = APIRouter(prefix="/impact", tags=["impact"])
 
@@ -23,7 +24,7 @@ router = APIRouter(prefix="/impact", tags=["impact"])
 def impact_summary(months: int = 12):
     """Live city dashboard: ESG totals + platform counters + monthly series.
     Polled every 20s by every open /impact page — cached behind a short TTL."""
-    months = max(1, min(36, months))
+    months = clamp(months, 1, 36)
     return cache.cached_json(
         f"impact:summary:{months}", cache.TTL_STATS, lambda: _compute_summary(months)
     )
@@ -56,7 +57,7 @@ def _compute_summary(months: int):
 @router.get("/cities")
 def city_leaderboard(months: int = 12):
     """«Рейтинг районов»: rescued kg per city — the inter-district competition."""
-    months = max(1, min(36, months))
+    months = clamp(months, 1, 36)
     with get_db_cursor() as cur:
         cur.execute(
             f"""
@@ -201,7 +202,7 @@ def impact_feed(limit: int = 20):
     Photos must be moderation-approved (§36.1) before they reach this public
     PR surface — a 'pending'/'rejected' photo is never returned here.
     """
-    limit = max(1, min(50, limit))
+    limit = clamp(limit, 1, 50)
     with get_db_cursor() as cur:
         cur.execute(
             """

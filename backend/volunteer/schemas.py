@@ -51,7 +51,9 @@ class StartRouteRequest(BaseModel):
     lot_id: int
     # §59/Q2: None ⇒ serve all reserved in-window recipients up to ROUTE_HARD_CAP
     # (the volunteer carries the whole lot), instead of a fixed 10 that sheds the rest.
-    max_stops: Optional[int] = None
+    # ge=1 rejects 0/negatives at the boundary (a 422) instead of silently coercing
+    # them: 0 used to fall through `or` to the cap; a negative clamped to a 1-stop run.
+    max_stops: Optional[int] = Field(None, ge=1)
 
 
 class FinishRouteRequest(BaseModel):

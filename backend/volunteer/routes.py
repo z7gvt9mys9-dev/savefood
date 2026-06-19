@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, BackgroundTasks
 import html
 import json
 import math
@@ -9,7 +9,7 @@ import psycopg2.errors
 from backend.database import get_db_cursor, create_user
 from backend.volunteer import db as vdb, schemas as vschemas
 from backend.needy import db as needydb
-from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord, validate_and_save_upload, UploadValidationError
+from backend.utils import ensure_aware_utc, build_qr_code, coarsen_coord, validate_and_save_upload, UploadValidationError, clamp
 from backend.auth import get_password_hash, get_current_user, ensure_owner_or_admin
 from backend.gamification import compute_level
 from backend.limiter import limiter
@@ -373,7 +373,7 @@ def enforce_volunteer_kyc(vol: dict, current_user: dict):
 
 
 @router.post("/volunteers/{volunteer_id}/start_route")
-def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_user: dict = Depends(get_current_user)):
+def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, background_tasks: BackgroundTasks = None, current_user: dict = Depends(get_current_user)):
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
     vol = vdb.get_volunteer_by_id(volunteer_id)
     if not vol:
@@ -538,9 +538,10 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     # client sends none) means "as many as feasible" = ROUTE_HARD_CAP; an explicit
     # value is still honoured. Lots with more than ROUTE_HARD_CAP reserved tickets
     # still shed the overflow (rare; full multi-route split is the v3.0 answer).
-    # A negative value would slice the HIGHEST-priority tickets off the end, hence
-    # the max(1, ...).
-    max_stops = max(1, min(ROUTE_HARD_CAP, payload.max_stops or ROUTE_HARD_CAP))
+    # Resolve the default with `is None` (not `or`) so an explicit 0 isn't read as
+    # "serve all"; the schema's ge=1 already rejects 0/negatives, this is the floor.
+    requested_stops = payload.max_stops if payload.max_stops is not None else ROUTE_HARD_CAP
+    max_stops = clamp(requested_stops, 1, ROUTE_HARD_CAP)
     selected = sorted(tickets, key=lambda t: -compute_score(t))[:max_stops]
     order = _optimize_stop_order(selected, (shop['lat'], shop['lon']))
 
@@ -697,24 +698,41 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
     except Exception:
         pass
 
-    # Telegram is best-effort and lives outside the transaction.
-    # Names and lot descriptions originate from user input, so escape them
-    # before embedding into an HTML-parsed Telegram message.
-    try:
-        lot_desc = lot.get('description', f'лот #{payload.lot_id}')
-        safe_vol_name = html.escape(vol_name or "")
-        safe_lot_desc = html.escape(lot_desc or "")
-        telegram_service.notify_shop(lot['shop_id'], f"🛒 Волонтёр <b>{safe_vol_name}</b> взял ваш лот «{safe_lot_desc}». Маршрут #{route_id} в пути.")
-    except Exception:
-        pass
-    for needy_id, t_id in assigned_needy:
+    # Telegram is best-effort and lives outside the transaction. Each send can
+    # block up to the httpx timeout, and a route now carries up to ROUTE_HARD_CAP
+    # recipients, so a degraded Telegram could otherwise add ROUTE_HARD_CAP×timeout
+    # of latency to the claim. Run the whole fan-out AFTER the response as a
+    # background task. Names and lot descriptions originate from user input, so
+    # escape them before embedding into an HTML-parsed Telegram message.
+    # `description` is a nullable column, so `.get` can't supply the fallback (the
+    # key is present-but-None) — use `or` to catch both missing and NULL/empty.
+    lot_desc = lot.get('description') or f'лот #{payload.lot_id}'
+    safe_vol_name = html.escape(vol_name or "")
+    safe_lot_desc = html.escape(lot_desc)
+    # Capture only the scalar the closure needs, not the whole `lot` row: the
+    # background task can outlive the response, and pinning the full row until the
+    # fan-out drains is wasted retention.
+    shop_id = lot['shop_id']
+
+    def _notify_route_created():
         try:
-            telegram_service.notify_needy(
-                needy_id,
-                f"🚚 Волонтёр <b>{html.escape(vol_name or '')}</b> принял вашу заявку #{t_id} и скоро поедет в магазин.",
-            )
+            telegram_service.notify_shop(shop_id, f"🛒 Волонтёр <b>{safe_vol_name}</b> взял ваш лот «{safe_lot_desc}». Маршрут #{route_id} в пути.")
         except Exception:
             pass
+        for needy_id, t_id in assigned_needy:
+            try:
+                telegram_service.notify_needy(
+                    needy_id,
+                    f"🚚 Волонтёр <b>{safe_vol_name}</b> принял вашу заявку #{t_id} и скоро поедет в магазин.",
+                )
+            except Exception:
+                pass
+
+    # No injected BackgroundTasks (e.g. a direct call in tests) ⇒ run inline.
+    if background_tasks is not None:
+        background_tasks.add_task(_notify_route_created)
+    else:
+        _notify_route_created()
 
     return {'route_id': route_id, 'points': filtered_points}
 
@@ -1098,7 +1116,7 @@ def volunteer_thanks(volunteer_id: int, limit: int = 30, offset: int = 0,
     written comment. Cheapest possible motivation — the data already lives in
     `delivery_ratings.comment`, the volunteer just never saw it."""
     ensure_owner_or_admin(current_user, "volunteer", volunteer_id)
-    limit = max(1, min(limit, 100))
+    limit = clamp(limit, 1, 100)
     offset = max(0, offset)
     with get_db_cursor() as cur:
         cur.execute(

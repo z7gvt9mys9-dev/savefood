@@ -117,6 +117,15 @@ def ensure_aware_utc(dt):
         return dt.replace(tzinfo=timezone.utc)
     return dt
 
+def clamp(value, lo, hi):
+    """Constrain a number to the inclusive [lo, hi] range.
+
+    Centralises the `max(lo, min(hi, value))` idiom used for query limits and
+    window sizes across the API. `value` must be non-None — a caller with an
+    optional/omitted value should resolve its default before clamping.
+    """
+    return max(lo, min(hi, value))
+
 def haversine(lat1, lon1, lat2, lon2):
     """
     Calculate the great-circle distance between two points 

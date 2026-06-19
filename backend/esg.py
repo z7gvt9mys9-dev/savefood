@@ -19,6 +19,7 @@ import io
 from typing import Any, Dict, List, Optional
 
 from backend.database import get_db_cursor
+from backend.utils import clamp
 
 METHODOLOGY = (
     "SaveFood ESG v1.1 (FAO Food Wastage Footprint 2013, средние по категориям; "
@@ -122,7 +123,7 @@ def _co2_sql_case() -> str:
 
 
 def shop_report(shop_id: int, months: int = 12) -> Dict[str, Any]:
-    months = max(1, min(36, months))
+    months = clamp(months, 1, 36)
     with get_db_cursor() as cur:
         cur.execute(
             f"""
@@ -179,7 +180,7 @@ def report_to_csv(report: Dict[str, Any], shop_name: str = "") -> str:
 
 def global_report(months: int = 12) -> Dict[str, Any]:
     """Platform-wide report for the admin panel + top contributing shops."""
-    months = max(1, min(36, months))
+    months = clamp(months, 1, 36)
     with get_db_cursor() as cur:
         cur.execute(
             f"""

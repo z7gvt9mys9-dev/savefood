@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from backend import billing, esg, needs_match, webhook_service
+from backend.utils import clamp
 from backend.auth import ensure_owner_or_admin, get_current_user
 from backend.database import get_db_cursor
 from backend.receipt_service import LOT_CATEGORIES
@@ -84,7 +85,7 @@ def api_list_lots(
     offset: int = 0,
     shop_id: int = Depends(get_api_shop),
 ):
-    limit = max(1, min(200, limit))
+    limit = clamp(limit, 1, 200)
     with get_db_cursor() as cur:
         if status:
             cur.execute(
