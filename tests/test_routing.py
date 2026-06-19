@@ -64,3 +64,22 @@ def test_is_available_now_lenient_on_garbage():
     assert vol_routes.is_available_now(None) is True
     assert vol_routes.is_available_now("not-a-window") is True
     assert vol_routes.is_available_now("10:00") is True
+
+
+def test_window_open_within_horizon(monkeypatch):
+    monkeypatch.setattr(vol_routes, "datetime", _NoonDT)  # now = 12:00 local
+    H = 120
+    # open right now → True regardless of horizon
+    assert vol_routes.window_open_within("10:00-14:00", H) is True
+    # opens in 60 min (13:00) → within the 120-min horizon → True (§59/Q1-A:
+    # the working person whose window opens soon is no longer dropped+cancelled)
+    assert vol_routes.window_open_within("13:00-14:00", H) is True
+    # opens in 180 min (15:00) → beyond the horizon → False
+    assert vol_routes.window_open_within("15:00-16:00", H) is False
+    # already closed today, reopens tomorrow → False
+    assert vol_routes.window_open_within("08:00-09:00", H) is False
+    # empty / unparseable → always available
+    assert vol_routes.window_open_within("", H) is True
+    assert vol_routes.window_open_within(None, H) is True
+    # horizon 0 collapses to is_available_now (not open now → False)
+    assert vol_routes.window_open_within("13:00-14:00", 0) is False

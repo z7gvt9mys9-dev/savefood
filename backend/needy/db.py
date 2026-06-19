@@ -107,6 +107,11 @@ def init_db():
         # Geo-push subscription (§48): opt-out toggle for «рядом появился
         # подходящий лот» Web Push pings sent by needs_match.py (default on).
         cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS geo_push_enabled BOOLEAN NOT NULL DEFAULT TRUE")
+        # Fair-queue displacement counter (§59/Q1-C): how many times this
+        # recipient's reservation was cancelled because a volunteer claimed the
+        # lot (outside their time window or over max_stops). Feeds the routing
+        # score so the repeatedly-bumped climb; reset to 0 on fulfilment.
+        cur.execute("ALTER TABLE needy_profile ADD COLUMN IF NOT EXISTS displaced_count INTEGER NOT NULL DEFAULT 0")
 
     # One active (open/assigned) ticket per needy, enforced by the DB so two
     # parallel create_ticket calls can't both pass the SELECT-then-INSERT check.
@@ -504,7 +509,8 @@ def set_needy_status(needy_id: int, status: str, expected_status: Optional[str] 
 
 def set_profile_last_received(needy_id: int, ts):
     with get_db_cursor() as cur:
-        cur.execute("UPDATE needy_profile SET last_received_at = %s WHERE needy_id = %s", (ts, needy_id))
+        # §59/Q1-C: getting helped clears the displacement counter — a fresh start.
+        cur.execute("UPDATE needy_profile SET last_received_at = %s, displaced_count = 0 WHERE needy_id = %s", (ts, needy_id))
         if cur.rowcount == 0:
             cur.execute(
                 "INSERT INTO needy_profile (needy_id, last_received_at) VALUES (%s, %s)",

@@ -45,6 +45,9 @@ SHOP_GPS_RADIUS_METERS = 150
 PING_FRESH_SECONDS = 10 * 60
 PING_MISMATCH_METERS = 1000
 MAX_DELIVERY_ATTEMPTS = 3  # §8: after 3 attempts the ticket is released
+# §59/Q1-A: a delivery window gates SELECTION, but against a look-ahead horizon
+# (the volunteer reaches the door later than the claim), not "this exact minute".
+DELIVERY_WINDOW_HORIZON_MIN = 120
 LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
 
 router = APIRouter()
@@ -315,6 +318,42 @@ def is_available_now(available_time: str) -> bool:
         return True
 
 
+def _local_now_minutes() -> int:
+    """Minutes since local midnight in LOCAL_TZ (the single-region assumption,
+    §59/Q8). Uses the module-level `datetime` so tests can freeze it."""
+    if ZoneInfo is not None:
+        try:
+            now_t = datetime.now(ZoneInfo(LOCAL_TZ_NAME)).time()
+        except Exception:
+            now_t = datetime.now().time()
+    else:
+        now_t = datetime.now().time()
+    return now_t.hour * 60 + now_t.minute
+
+
+def window_open_within(available_time: str, horizon_minutes: int) -> bool:
+    """True if the recipient's delivery window is open now OR opens within the
+    next `horizon_minutes`. `available_time` is 'HH:MM-HH:MM' in LOCAL_TZ; empty
+    or unparseable is treated as always-available (lenient, like is_available_now).
+
+    Selection must not route to a door that won't open during the run, but a
+    fixed look-ahead horizon — rather than "this exact minute" — keeps a working
+    person whose window opens soon from being filtered out and then cancelled
+    wholesale with the lot (§59/Q1-A). The horizon is fixed, not a per-stop ETA:
+    the visiting order, and thus each stop's ETA, is only known after selection."""
+    if is_available_now(available_time):
+        return True
+    if not available_time or horizon_minutes <= 0:
+        return False
+    try:
+        start_s = available_time.split('-')[0].strip()
+        sh, sm = [int(x) for x in start_s.split(':')]
+    except Exception:
+        return True
+    delta = ((sh * 60 + sm) - _local_now_minutes()) % (24 * 60)
+    return delta <= horizon_minutes
+
+
 def enforce_volunteer_kyc(vol: dict, current_user: dict):
     """KYC gate (§58): an unverified volunteer must not take custody of food —
     that is the whole point of identity verification (food leaves the shop in
@@ -380,9 +419,13 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         )
         tickets = [dict(r) for r in cur.fetchall()]
 
-    # filter by available_time (only include tickets where needy is at home now or not specified)
+    # §59/Q1-A: include recipients whose delivery window is open now OR opens
+    # within DELIVERY_WINDOW_HORIZON_MIN — the volunteer reaches the door later
+    # than the claim, so filtering on "exactly now" unfairly drops (and then
+    # cancels, below) people with a narrow window. displaced_count then lets the
+    # repeatedly-bumped climb the queue (§59/Q1-C).
     had_any = bool(tickets)
-    tickets = [t for t in tickets if is_available_now(t.get('available_time'))]
+    tickets = [t for t in tickets if window_open_within(t.get('available_time'), DELIVERY_WINDOW_HORIZON_MIN)]
 
     # A route with zero delivery points makes no sense: the volunteer would
     # claim the lot, see only the shop pin and "finish" without a single QR
@@ -391,7 +434,7 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
         raise HTTPException(
             status_code=400,
             detail=(
-                "Все получатели этого лота сейчас недоступны (вне их окна времени) — попробуйте позже"
+                "Все получатели этого лота недоступны в ближайшее время (вне окна доступности) — попробуйте позже"
                 if had_any else
                 "На этот лот пока нет заявок на доставку — маршрут не создан"
             ),
@@ -452,7 +495,12 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
                 days_no_help = (datetime.now(timezone.utc) - last_dt).days
         except Exception:
             days_no_help = 0
-        score = age_days * 1.0 + family * 2.0 + urg * 4.0 + days_no_help * 1.5
+        displaced = profile.get('displaced_count') or 0
+        # §59/Q3: weights shifted from self-declared (urgency, family) toward
+        # objective need (days waiting, prior displacement) so an inflated
+        # 'critical' + large family can't dominate the queue; §59/Q1-C adds the
+        # displacement bonus so a repeatedly-bumped recipient climbs.
+        score = age_days * 1.5 + family * 1.0 + urg * 2.0 + days_no_help * 3.0 + displaced * 3.0
 
         # §6: match lot category against needy food preferences/restrictions.
         # Check restriction words only in the same clause as the category keyword
@@ -590,6 +638,13 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
                 (row['needy_id'], 'ticket_cancelled',
                  f'Заявка #{row["id"]} отменена: лот забрал волонтёр для других получателей. '
                  f'Выберите другой лот — недельный лимит не потрачен.', now),
+            )
+            # §59/Q1-C: the recipient reserved and waited but was bumped (window
+            # closed for the run, or over max_stops). Count it so they climb the
+            # priority queue next time and the loss isn't systematic.
+            cur.execute(
+                "UPDATE needy_profile SET displaced_count = displaced_count + 1 WHERE needy_id = %s",
+                (row['needy_id'],),
             )
 
         filtered_points = [p for p in points if p.get('kind') == 'shop' or (p.get('ticket_id') in assigned_ids)]

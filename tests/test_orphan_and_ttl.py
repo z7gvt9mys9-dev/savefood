@@ -11,7 +11,8 @@ from datetime import datetime, timezone, timedelta
 from backend.shop import db as shop_db
 from backend.shop.db import init_db as shop_init
 from backend.needy.db import (
-    create_ticket, create_needy, create_or_update_profile, init_db as needy_init,
+    create_ticket, create_needy, create_or_update_profile, get_profile,
+    set_profile_last_received, init_db as needy_init,
 )
 from backend.volunteer import db as vdb
 from backend.volunteer.routes import start_route, finish_route
@@ -236,3 +237,62 @@ def test_finish_route_cancels_tickets_when_lot_confirmed():
             (nid,),
         )
         assert cur.fetchone()["n"] == 1
+
+
+# ── §59 Q1-C / Q3: displacement counter + score rebalance ─────────────────────
+
+def test_displaced_count_increments_on_claim_and_resets_on_fulfil():
+    """Q1-C: a recipient bumped when a volunteer claims the lot gets
+    displaced_count +1; getting helped resets it to 0."""
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "3 Apples", 3.0, "2026-12-31", None, "Address")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+
+    nids = []
+    for i in range(3):
+        nid = _delivery_ticket(f"R{i}", f"+711{i}")
+        create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+        nids.append(nid)
+
+    # Route fits ONE stop → one assigned, the other two are displaced.
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+
+    counts = {nid: (get_profile(nid).get("displaced_count") or 0) for nid in nids}
+    assert sum(counts.values()) == 2
+    assert sorted(counts.values()) == [0, 1, 1]
+
+    # Fulfilment clears the counter.
+    bumped = next(nid for nid, c in counts.items() if c == 1)
+    set_profile_last_received(bumped, datetime.now(timezone.utc))
+    assert (get_profile(bumped).get("displaced_count") or 0) == 0
+
+
+def test_score_rebalance_objective_need_beats_self_declared():
+    """Q3: with rebalanced weights, a long wait without help outranks a
+    self-declared 'critical' + large family (old weights picked the latter)."""
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    # category 'овощи' is not in _CAT_KEYWORDS → no preference-match noise.
+    lot_id = shop_db.create_lot(shop_id, "2 Veg", 2.0, "2026-12-31", None, "Address", category="овощи")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+
+    # Self-declared: critical urgency + family 5, helped only 8 days ago.
+    nid_declared = create_needy("Declared", "+7001")
+    create_or_update_profile(nid_declared, "Addr", 5, "", "critical", city="Almaty")
+    set_profile_last_received(nid_declared, datetime.now(timezone.utc) - timedelta(days=8))
+    create_ticket(nid_declared, "Veg", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    # Objective: normal urgency + family 1, but 20 days without help.
+    nid_obj = create_needy("Objective", "+7002")
+    create_or_update_profile(nid_obj, "Addr", 1, "", "normal", city="Almaty")
+    set_profile_last_received(nid_obj, datetime.now(timezone.utc) - timedelta(days=20))
+    create_ticket(nid_obj, "Veg", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id, max_stops=1), current_user=ADMIN)
+
+    with get_db_cursor() as cur:
+        cur.execute("SELECT needy_id, status FROM tickets WHERE lot_id = %s", (lot_id,))
+        status = {r["needy_id"]: r["status"] for r in cur.fetchall()}
+    assert status[nid_obj] == "assigned"       # objective need wins selection
+    assert status[nid_declared] == "cancelled"
