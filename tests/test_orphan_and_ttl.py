@@ -296,3 +296,29 @@ def test_score_rebalance_objective_need_beats_self_declared():
         status = {r["needy_id"]: r["status"] for r in cur.fetchall()}
     assert status[nid_obj] == "assigned"       # objective need wins selection
     assert status[nid_declared] == "cancelled"
+
+
+# ── §59 Q2 (light layer): no silent shedding of reserved in-window demand ──────
+
+def test_start_route_serves_all_reserved_when_max_stops_unset():
+    """Q2: with no explicit max_stops the route serves every reserved in-window
+    recipient (up to ROUTE_HARD_CAP) instead of shedding everyone past a fixed 10
+    — the volunteer carries the whole lot anyway, so the surplus would otherwise
+    ride along undelivered."""
+    shop_id = shop_db.create_shop("Shop", "+7123", 43.2, 76.9, "Almaty")
+    lot_id = shop_db.create_lot(shop_id, "12 Apples", 12.0, "2026-12-31", None, "Address")
+    vol_id = vdb.create_volunteer("Vol", "+700", 43.21, 76.91, "Almaty")
+    vdb.set_volunteer_status(vol_id, "approved")
+
+    for i in range(12):
+        nid = _delivery_ticket(f"R{i}", f"+7{i:05d}")
+        create_ticket(nid, "Apples", "Addr", 43.2, 76.9, lot_id=lot_id, self_pickup=False)
+
+    # No max_stops passed → the old default of 10 would have cancelled 2 of 12.
+    start_route(vol_id, vschemas.StartRouteRequest(lot_id=lot_id), current_user=ADMIN)
+
+    with get_db_cursor() as cur:
+        cur.execute("SELECT status, COUNT(*) AS n FROM tickets WHERE lot_id = %s GROUP BY status", (lot_id,))
+        counts = {r["status"]: r["n"] for r in cur.fetchall()}
+    assert counts.get("assigned") == 12
+    assert counts.get("cancelled", 0) == 0

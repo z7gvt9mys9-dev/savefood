@@ -49,7 +49,9 @@ class VolunteerOut(BaseModel):
 
 class StartRouteRequest(BaseModel):
     lot_id: int
-    max_stops: Optional[int] = 10
+    # §59/Q2: None ⇒ serve all reserved in-window recipients up to ROUTE_HARD_CAP
+    # (the volunteer carries the whole lot), instead of a fixed 10 that sheds the rest.
+    max_stops: Optional[int] = None
 
 
 class FinishRouteRequest(BaseModel):

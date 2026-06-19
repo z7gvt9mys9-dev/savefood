@@ -48,6 +48,11 @@ MAX_DELIVERY_ATTEMPTS = 3  # §8: after 3 attempts the ticket is released
 # §59/Q1-A: a delivery window gates SELECTION, but against a look-ahead horizon
 # (the volunteer reaches the door later than the claim), not "this exact minute".
 DELIVERY_WINDOW_HORIZON_MIN = 120
+# §59/Q2 (light layer, no lot split): the volunteer carries the WHOLE lot, so with
+# no client-supplied max_stops we serve every reserved in-window recipient up to
+# this cap instead of shedding everyone past a fixed 10 (the surplus would ride
+# along undelivered). The cap bounds the O(n²) 2-opt and keeps the run doable.
+ROUTE_HARD_CAP = 20
 LOCAL_TZ_NAME = os.getenv("LOCAL_TZ", "Asia/Almaty")
 
 router = APIRouter()
@@ -263,7 +268,7 @@ def _optimize_stop_order(tickets, start):
     The old greedy interleave of (-score, distance) produced zig-zag routes:
     priority decides WHO gets food (selection), distance decides the ORDER —
     everyone selected is served on the same trip anyway.
-    With max_stops ≤ 10 the O(n²) 2-opt passes are effectively instant.
+    With max_stops ≤ ROUTE_HARD_CAP (20) the O(n²) 2-opt passes are instant.
     """
     if len(tickets) < 2:
         return list(tickets)
@@ -527,9 +532,15 @@ def start_route(volunteer_id: int, payload: vschemas.StartRouteRequest, current_
 
     # §14: priority decides WHO is served (selection), distance decides the
     # visiting ORDER (nearest-neighbour + 2-opt) — see _optimize_stop_order.
-    # Clamp: a negative max_stops would silently slice the HIGHEST-priority
-    # tickets off the end; >20 makes the 2-opt loop needlessly slow.
-    max_stops = max(1, min(20, payload.max_stops or 10))
+    # §59/Q2: the volunteer takes the whole lot, so every reserved in-window unit
+    # is already in their vehicle — serve as many as fit, not a fixed 10, or the
+    # surplus rides along undelivered. An omitted max_stops (the usual case — the
+    # client sends none) means "as many as feasible" = ROUTE_HARD_CAP; an explicit
+    # value is still honoured. Lots with more than ROUTE_HARD_CAP reserved tickets
+    # still shed the overflow (rare; full multi-route split is the v3.0 answer).
+    # A negative value would slice the HIGHEST-priority tickets off the end, hence
+    # the max(1, ...).
+    max_stops = max(1, min(ROUTE_HARD_CAP, payload.max_stops or ROUTE_HARD_CAP))
     selected = sorted(tickets, key=lambda t: -compute_score(t))[:max_stops]
     order = _optimize_stop_order(selected, (shop['lat'], shop['lon']))
 
