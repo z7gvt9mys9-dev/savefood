@@ -125,4 +125,7 @@ savefood.md
 # Claude Code local state (agent worktrees, settings)
 .claude/
 
+
+# Documentation
+docs/
 # End of file

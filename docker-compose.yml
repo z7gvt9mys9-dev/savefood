@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -18,16 +16,19 @@ services:
       timeout: 5s
       retries: 10
 
+  # API-бэкенд: Java/Spring Boot (backend-java). Заменил FastAPI-стек —
+  # все 7 HTTP-модулей + фоновые тики (@Scheduled) + нотификатор/пуш порт.
+  # Имя сервиса оставлено `backend`, чтобы nginx (proxy_pass http://backend:8000)
+  # и depends_on фронтенда не менялись.
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ./backend-java
+      dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     # Backend is reached only through nginx on the internal docker network.
-    # Exposing 8000 on the host would let attackers bypass nginx rate-limits.
     expose:
       - "8000"
     environment:
@@ -37,103 +38,67 @@ services:
       DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_PORT: 5432
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      # OAuth / Telegram account-linking (the Java /auth/telegram/* surface).
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
-      # true = long-polling (default), false = webhook via /telegram/webhook
-      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-true}
       SITE_URL: ${SITE_URL:-http://localhost}
-      VLESS_URL: ${VLESS_URL:-}
-      CORS_ORIGIN: ${CORS_ORIGIN:?CORS_ORIGIN must be set (no wildcards in production)}
-      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
-      # Telegram chat id of the support team for route-timeout alerts (§22.3)
-      SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
-      # AI support assistant in the bot (Google Gemini); empty = escalate to admin
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
-      # Social login (OAuth). Empty pair = the provider's button is hidden.
+      OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
-      # Public base URL for OAuth redirect_uri (defaults to SITE_URL)
-      OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
-      # Timezone used to interpret recipients' available_time windows
+      # Optional VLESS→xray SOCKS5 proxy for Telegram sends (proxy_service port).
+      VLESS_URL: ${VLESS_URL:-}
+      # Telegram support chat for route-timeout / anti-fraud alerts (§22.3/§27).
+      SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
+      # Gemini (support AI / OCR / KYC / photo moderation); empty ⇒ degraded.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
+      # Timezone used to interpret recipients' available_time windows.
       LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
-      # Maintenance loops run in the dedicated `worker` service, not in the API
-      BACKGROUND_TASKS: external
-      # Redis cache (hot reads: lots list, stats, volunteer locations)
-      REDIS_URL: redis://redis:6379/0
-      # Observability (optional)
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      SENTRY_ENV: ${SENTRY_ENV:-production}
+      # Maintenance ticks now run IN this service (Spring @Scheduled), replacing
+      # the Python `worker`. `embedded` = run them here (the Go geows only writes
+      # locations; nobody else runs these ticks, so exactly one scheduler owns them).
+      BACKGROUND_TASKS_JAVA: embedded
+      KYC_RETRY_BATCH: ${KYC_RETRY_BATCH:-100}
+      KYC_DOC_RETENTION_HOURS: ${KYC_DOC_RETENTION_HOURS:-0}
+      # Observability — METRICS_TOKEN gates GET /metrics (not exposed via nginx).
       METRICS_TOKEN: ${METRICS_TOKEN:-}
-      # Web Push / VAPID (optional — empty keys hide the subscribe toggle)
+      # Web Push / VAPID (optional — empty keys ⇒ /push 503, toggle hidden).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
-      # KYC is fully automated (§58.1): the AI verdict decides, no opt-in flag.
-      # Gate that blocks unverified volunteers from routes (default ON).
+      # Firebase Cloud Messaging — native Android push (off by default).
+      FCM_ENABLED: ${FCM_ENABLED:-false}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+      FCM_CREDENTIALS_JSON: ${FCM_CREDENTIALS_JSON:-}
+      FCM_CREDENTIALS_FILE: ${FCM_CREDENTIALS_FILE:-}
+      # KYC gate (blocks unverified volunteers from routes; default ON) + the
+      # Fernet key for document encryption-at-rest (empty ⇒ UNENCRYPTED dev only).
       VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
-      # Fernet key for KYC document encryption-at-rest. Empty = stored
-      # UNENCRYPTED (dev only). Generate: Fernet.generate_key().
       KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:-}
+      # Upload dirs on mounted volumes. Public lot photos (/uploads) and delivery
+      # photos (/volunteer_uploads) are served by nginx straight off these volumes;
+      # receipt + KYC dirs are private (reached only via auth-checked endpoints).
+      SHOP_UPLOAD_DIR: /data/shop_uploads
+      RECEIPT_UPLOAD_DIR: /data/receipt_uploads
+      VOLUNTEER_UPLOAD_DIR: /data/volunteer_uploads
+      VOLUNTEER_KYC_UPLOAD_DIR: /data/volunteer_kyc_uploads
+      NEEDY_UPLOAD_DIR: /data/needy_uploads
     healthcheck:
       # /readyz also checks DB reachability, so the container only reports
-      # healthy once it can actually serve requests (curl is in the image).
+      # healthy once it can actually serve requests (curl added in the Dockerfile).
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 40s
     volumes:
-      - shop_uploads:/app/backend/shop/uploads
-      - needy_uploads:/app/backend/needy/uploads
-      # without this volume delivery photos are lost on every container rebuild
-      - volunteer_uploads:/app/backend/volunteer/uploads
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    expose:
-      - "6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-  # Выделенный воркер фоновых задач (expiry лотов, таймауты маршрутов,
-  # GPS-антифрод §27) — backend/background.py. API-контейнер с
-  # BACKGROUND_TASKS=external циклы не запускает, поэтому его можно
-  # масштабировать на несколько реплик без дублирования задач.
-  worker:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    command: ["python", "-m", "backend.worker"]
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DB_HOST: postgres
-      DB_NAME: ${POSTGRES_DB:-savefood}
-      DB_USER: ${POSTGRES_USER:-postgres}
-      DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      DB_PORT: 5432
-      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
-      SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-      VLESS_URL: ${VLESS_URL:-}
-      LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
-      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
-      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
-      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      SENTRY_ENV: ${SENTRY_ENV:-production}
-      # Worker runs the KYC verification/retry tick → must decrypt documents.
-      KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:-}
-      KYC_DOC_RETENTION_HOURS: ${KYC_DOC_RETENTION_HOURS:-0}
+      - shop_uploads:/data/shop_uploads
+      - receipt_uploads:/data/receipt_uploads
+      - needy_uploads:/data/needy_uploads
+      - volunteer_uploads:/data/volunteer_uploads
+      - volunteer_kyc_uploads:/data/volunteer_kyc_uploads
 
   # Go-микросервис горячих путей (§31): WebSocket-фанаут уведомлений и
   # приём/чтение геокоординат волонтёров. Делит БД и SECRET_KEY с backend.
@@ -170,9 +135,16 @@ services:
         condition: service_healthy
       geows:
         condition: service_started
+    # Public upload files are now served straight off the volumes by nginx
+    # (the Java backend only writes them; the Python StaticFiles mounts are gone).
+    volumes:
+      - shop_uploads:/srv/uploads:ro
+      - volunteer_uploads:/srv/volunteer_uploads:ro
 
 volumes:
   postgres_data:
   shop_uploads:
+  receipt_uploads:
   needy_uploads:
   volunteer_uploads:
+  volunteer_kyc_uploads:

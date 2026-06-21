@@ -1,0 +1,110 @@
+server:
+  # The Python backend served on 8000; the Java service takes the same port so
+  # nginx routing (/admin → backend:8000) is unchanged during the migration.
+  port: ${SERVER_PORT:8000}
+
+spring:
+  application:
+    name: savefood-backend
+  datasource:
+    # Mirrors backend/database.py env vars (DB_HOST/DB_NAME/DB_USER/DB_PASS/DB_PORT).
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:savefood}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+  jackson:
+    serialization:
+      # Emit ISO-8601 timestamps (matching FastAPI/pydantic), not epoch millis.
+      write-dates-as-timestamps: false
+    default-property-inclusion: always
+    # camelCase DTO fields ⇄ snake_case JSON, matching the pydantic schemas
+    # (shop_id, expiry_date, unit_weight_kg, …). Map responses are unaffected —
+    # their keys are already literal snake_case.
+    property-naming-strategy: SNAKE_CASE
+
+savefood:
+  # Must match backend/auth.py SECRET_KEY (HS256). >= 32 chars or startup fails.
+  jwt-secret: ${SECRET_KEY:}
+  # Timezone for volunteer availability windows — backend §54 / LOCAL_TZ.
+  local-tz: ${LOCAL_TZ:Asia/Almaty}
+  # Where /volunteer_uploads delivery photos live on disk (rejected photos are
+  # deleted from here). Points at the Python backend's volunteer uploads dir so
+  # existing files are reachable during the migration.
+  volunteer-upload-dir: ${VOLUNTEER_UPLOAD_DIR:../backend/volunteer/uploads}
+  # Volunteer identity documents (§58): a SEPARATE dir, never served publicly —
+  # reachable only through the auth-checked flow, encrypted at rest. Defaults at
+  # the Python backend's volunteer kyc dir so files stay reachable in migration.
+  volunteer-kyc-upload-dir: ${VOLUNTEER_KYC_UPLOAD_DIR:../backend/volunteer/kyc_uploads}
+  # Only an 'approved' volunteer may claim routes (§58). Toggle off for trusted
+  # deployments / local dev where verification is handled out of band.
+  volunteer-kyc-required: ${VOLUNTEER_KYC_REQUIRED:true}
+  # Web Push (VAPID). Both keys present ⇒ /push/public_key + /push/subscribe are
+  # live; absent ⇒ 503, exactly like push_service.py is_configured(). The actual
+  # push fan-out stays on the Python notifier during the migration.
+  push:
+    vapid-public-key: ${VAPID_PUBLIC_KEY:}
+    vapid-private-key: ${VAPID_PRIVATE_KEY:}
+    # Contact URI in the VAPID JWT (RFC 8292). Mirrors VAPID_SUBJECT.
+    vapid-subject: ${VAPID_SUBJECT:mailto:support@savefood.local}
+    # FCM (native Android) — independent of Web Push, off by default. Both the
+    # project id and a service-account JSON (inline or file) are required.
+    fcm-enabled: ${FCM_ENABLED:false}
+    fcm-project-id: ${FCM_PROJECT_ID:}
+    fcm-credentials-json: ${FCM_CREDENTIALS_JSON:}
+    fcm-credentials-file: ${FCM_CREDENTIALS_FILE:}
+  # Background maintenance ticks (background.py). OFF by default during the
+  # migration: the Python `worker` owns them. Set to `embedded` only after the
+  # Python worker is stopped (its BACKGROUND_TASKS=off), so exactly one scheduler
+  # runs the ticks against the shared DB.
+  background-tasks: ${BACKGROUND_TASKS_JAVA:off}
+  kyc-retry-batch: ${KYC_RETRY_BATCH:100}
+  kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
+  # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27).
+  support-chat-id: ${SUPPORT_CHAT_ID:}
+  # Optional guard on GET /metrics (mirrors METRICS_TOKEN). Empty ⇒ open scrape.
+  metrics-token: ${METRICS_TOKEN:}
+  # Free-form support assistant model (ai_service.py). Falls back to the OCR model.
+  ai-model: ${AI_MODEL:${OCR_MODEL:gemini-2.5-flash}}
+  # Optional VLESS SOCKS5 proxy for the Telegram API (proxy_service.py). With no
+  # URL the proxy is a no-op and Telegram goes out directly. The xray binary must
+  # be supplied out of band (no JVM auto-download): point xray-binary at it.
+  proxy:
+    vless-url: ${VLESS_URL:}
+    xray-binary: ${XRAY_BINARY:./vendor/xray}
+  # Shop lot photos (served publicly at /uploads/…) and receipt photos (served
+  # only through the auth-checked receipt endpoint). Default at the Python
+  # backend/shop dirs so files stay reachable during the migration.
+  shop-upload-dir: ${SHOP_UPLOAD_DIR:../backend/shop/uploads}
+  receipt-upload-dir: ${RECEIPT_UPLOAD_DIR:../backend/shop/receipt_uploads}
+  # Receipt OCR (Gemini Vision). When the key is absent the OCR endpoint returns
+  # 503, exactly like the Python service with no GEMINI_API_KEY.
+  gemini-api-key: ${GEMINI_API_KEY:${GOOGLE_API_KEY:}}
+  ocr-model: ${OCR_MODEL:${AI_MODEL:gemini-2.5-flash}}
+  receipt-max-age-hours: ${RECEIPT_MAX_AGE_HOURS:48}
+  # Needy KYC eligibility documents (intentionally NOT served publicly). Defaults
+  # at the Python backend's needy uploads dir so files stay reachable during the
+  # migration; they are encrypted at rest with KYC_ENCRYPTION_KEY (§58).
+  needy-upload-dir: ${NEEDY_UPLOAD_DIR:../backend/needy/uploads}
+  # Fernet key for KYC document encryption-at-rest (kyc_crypto.py). Unset ⇒
+  # documents stored UNENCRYPTED (dev/CI only) with a startup warning, exactly
+  # like the Python module. Must match the Python KYC_ENCRYPTION_KEY in prod.
+  kyc-encryption-key: ${KYC_ENCRYPTION_KEY:}
+  kyc-model: ${KYC_MODEL:${AI_MODEL:gemini-2.5-flash}}
+  # Delivery photo pre-publication moderation (§36.1). Auto-moderation is opt-in:
+  # confident food auto-approved, clearly inappropriate auto-rejected; otherwise
+  # the photo waits in the admin queue.
+  photo-model: ${PHOTO_MODEL:${AI_MODEL:gemini-2.5-flash}}
+  photo-auto-moderate: ${PHOTO_AUTO_MODERATE:false}
+  photo-auto-approve-score: ${PHOTO_AUTO_APPROVE_SCORE:0.85}
+  # Social login / account linking (oauth_routes.py + telegram_routes.py
+  # /auth/* surface). An unconfigured provider returns 503 on start, exactly
+  # like the Python service, and is reported as false by /auth/oauth/providers.
+  oauth:
+    google-client-id: ${GOOGLE_CLIENT_ID:}
+    google-client-secret: ${GOOGLE_CLIENT_SECRET:}
+    yandex-client-id: ${YANDEX_CLIENT_ID:}
+    yandex-client-secret: ${YANDEX_CLIENT_SECRET:}
+    telegram-bot-token: ${TELEGRAM_BOT_TOKEN:}
+    telegram-bot-name: ${TELEGRAM_BOT_NAME:savefood_bot}
+    # Public URL the user's browser reaches — provider redirect_uri + SPA
+    # redirect target. Mirrors OAUTH_PUBLIC_URL / SITE_URL.
+    public-url: ${OAUTH_PUBLIC_URL:${SITE_URL:http://localhost:3000}}
