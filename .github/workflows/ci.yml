@@ -1,6 +1,6 @@
-# CI: backend unit tests + frontend production build + Go microservice build.
-# No database is needed — the pytest suite covers pure logic (routing 2-opt,
-# ESG math, receipt anti-fraud, billing gating, levels, forecast, auth).
+# CI: Java backend unit tests + frontend production build + Go microservice build.
+# No database needed — the Maven test suite covers pure logic (ESG math, billing
+# gating, gamification levels, forecast, auth/JWT, KYC crypto, availability windows).
 name: CI
 
 on:
@@ -11,22 +11,18 @@ on:
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend-java
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-java@v4
         with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Install dependencies
-        run: |
-          pip install -r backend/requirements.txt
-          pip install -r requirements-dev.txt
-      - name: Run pytest
-        env:
-          SECRET_KEY: ci-only-secret-key-0123456789abcdef0123456789
-          CORS_ORIGIN: http://localhost:3000
-        run: pytest tests/ -v
+          java-version: "21"
+          distribution: temurin
+          cache: maven
+      - name: Run Maven tests
+        run: mvn test -B --no-transfer-progress
 
   frontend-build:
     runs-on: ubuntu-latest
