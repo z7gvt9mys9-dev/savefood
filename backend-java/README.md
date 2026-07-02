@@ -24,7 +24,7 @@ FastAPI backend while the rest of the API is migrated module by module.
 | Framework | Spring Boot 3.3 (Web + JDBC) |
 | DB access | `JdbcTemplate` (raw SQL, mirroring the psycopg2 style) |
 | JWT | jjwt 0.12 (HS256) — validates tokens issued by `backend/auth.py` |
-| Build | Maven, Java 21 |
+| Build | Maven, Java 25 |
 
 ## What was ported
 

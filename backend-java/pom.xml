@@ -18,7 +18,7 @@
     <description>Java/Spring Boot port of the SaveFood backend — admin module first (full-backend migration, step 1).</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
         <jjwt.version>0.12.6</jjwt.version>
     </properties>
 
