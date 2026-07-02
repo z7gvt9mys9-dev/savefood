@@ -1,6 +1,16 @@
-# CI: Java backend unit tests + frontend production build + Go microservice build.
-# No database needed — the Maven test suite covers pure logic (ESG math, billing
-# gating, gamification levels, forecast, auth/JWT, KYC crypto, availability windows).
+# CI: builds and verifies the three deployable components, gated by changed paths.
+#
+# - backend-tests: `./mvnw test` in backend-java — runs the full JUnit suite
+#   (pure logic only: ESG math, billing gating, gamification levels, forecast,
+#   auth/JWT, KYC crypto, availability windows, routing, geo verification,
+#   receipt anti-fraud). No database and no Spring context needed.
+# - frontend-build: production React build of savefood/.
+# - geows-build: compile + vet of the Go websocket microservice.
+#
+# The `changes` job computes path filters; build jobs are skipped (not omitted)
+# when their paths are untouched, so required status checks still pass on PRs
+# that don't affect them. Every filter includes this workflow file, so editing
+# it re-runs all three jobs.
 name: CI
 
 on:
@@ -8,9 +18,47 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded PR pushes are cancelled, but every push to main runs to
+  # completion so no main commit lands unverified.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
-  backend-tests:
+  changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      geows: ${{ steps.filter.outputs.geows }}
+    steps:
+      # On pull_request the action reads changed files from the GitHub API;
+      # a checkout is only needed to diff push events.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend-java/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'savefood/**'
+              - '.github/workflows/ci.yml'
+            geows:
+              - 'go-services/geows/**'
+              - '.github/workflows/ci.yml'
+
+  backend-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend-java
@@ -21,11 +69,21 @@ jobs:
           java-version: "21"
           distribution: temurin
           cache: maven
-      - name: Run Maven tests
-        run: mvn test -B --no-transfer-progress
+      # setup-java's `cache: maven` covers only ~/.m2/repository; the wrapper
+      # downloads the Maven distribution into ~/.m2/wrapper.
+      - name: Cache Maven wrapper distribution
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/wrapper
+          key: maven-wrapper-${{ hashFiles('backend-java/.mvn/wrapper/maven-wrapper.properties') }}
+      - name: Run tests
+        run: ./mvnw -B --no-transfer-progress test
 
   frontend-build:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: savefood
@@ -42,7 +100,10 @@ jobs:
         run: npm run build
 
   geows-build:
+    needs: changes
+    if: needs.changes.outputs.geows == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: go-services/geows

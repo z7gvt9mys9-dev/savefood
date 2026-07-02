@@ -61,7 +61,7 @@ public class VolunteerService {
         {"аллергия", "нельзя", "не ем", "без ", "непереносимость", "не могу", "запрет"};
     private static final Pattern CLAUSE_SPLIT = Pattern.compile("[.,;\\n]+");
 
-    private static final double COARSE_GRID_DEG = 0.005;
+    static final double COARSE_GRID_DEG = 0.005;
 
     private final JdbcTemplate jdbc;
     private final VolunteerRepository repo;
@@ -704,7 +704,7 @@ public class VolunteerService {
         return out;
     }
 
-    private static double coarsenCoord(double value) {
+    static double coarsenCoord(double value) {
         double snapped = Math.round(value / COARSE_GRID_DEG) * COARSE_GRID_DEG;
         return Math.round(snapped * 1_000_000.0) / 1_000_000.0;
     }
@@ -778,7 +778,7 @@ public class VolunteerService {
      * §14: nearest-neighbour seed + 2-opt segment reversal until no improvement —
      * priority decides WHO is served, distance decides the visiting ORDER.
      */
-    private List<Map<String, Object>> optimizeStopOrder(List<Map<String, Object>> tickets, double[] start) {
+    List<Map<String, Object>> optimizeStopOrder(List<Map<String, Object>> tickets, double[] start) {
         if (tickets.size() < 2) {
             return new ArrayList<>(tickets);
         }
@@ -822,7 +822,7 @@ public class VolunteerService {
         return order;
     }
 
-    private double routeLength(List<Map<String, Object>> order, double[] start) {
+    double routeLength(List<Map<String, Object>> order, double[] start) {
         double total = 0.0;
         double[] cur = start;
         for (Map<String, Object> t : order) {
@@ -834,18 +834,12 @@ public class VolunteerService {
 
     // ── geo / availability helpers ───────────────────────────────────────────────
 
+    /** Great-circle distance in KILOMETRES (routing math works in km). */
     static double haversine(double lat1, double lon1, double lat2, double lon2) {
-        double r = 6371;
-        double rlat1 = Math.toRadians(lat1);
-        double rlat2 = Math.toRadians(lat2);
-        double dlat = Math.toRadians(lat2 - lat1);
-        double dlon = Math.toRadians(lon2 - lon1);
-        double h = Math.sin(dlat / 2) * Math.sin(dlat / 2)
-            + Math.cos(rlat1) * Math.cos(rlat2) * Math.sin(dlon / 2) * Math.sin(dlon / 2);
-        return 2 * r * Math.asin(Math.sqrt(h));
+        return kz.savefood.util.Geo.haversineMeters(lat1, lon1, lat2, lon2) / 1000.0;
     }
 
-    private void verifyPositionAgainstPings(int volunteerId, double lat, double lon) {
+    void verifyPositionAgainstPings(int volunteerId, double lat, double lon) {
         Map<String, Object> loc = repo.getVolunteerLocation(volunteerId);
         if (loc == null || loc.get("lat") == null || loc.get("lon") == null || loc.get("updated_at") == null) {
             return;
@@ -867,6 +861,11 @@ public class VolunteerService {
 
     /** Ticket {@code available_time} ("HH:MM-HH:MM", LOCAL_TZ) — open now? */
     boolean isAvailableNow(String availableTime) {
+        return isAvailableNow(availableTime, LocalTime.now(zone));
+    }
+
+    /** Explicit-{@code now} seam so tests don't depend on the wall clock. */
+    boolean isAvailableNow(String availableTime, LocalTime now) {
         if (availableTime == null || availableTime.isEmpty()) {
             return true;
         }
@@ -877,7 +876,6 @@ public class VolunteerService {
             }
             int[] s = hm(parts[0].strip());
             int[] e = hm(parts[1].strip());
-            LocalTime now = LocalTime.now(zone);
             int nowM = now.getHour() * 60 + now.getMinute();
             int startM = s[0] * 60 + s[1];
             int endM = e[0] * 60 + e[1];
@@ -889,7 +887,12 @@ public class VolunteerService {
 
     /** §59/Q1-A: open now OR opens within {@code horizonMinutes}. */
     boolean windowOpenWithin(String availableTime, int horizonMinutes) {
-        if (isAvailableNow(availableTime)) {
+        return windowOpenWithin(availableTime, horizonMinutes, LocalTime.now(zone));
+    }
+
+    /** Explicit-{@code now} seam so tests don't depend on the wall clock. */
+    boolean windowOpenWithin(String availableTime, int horizonMinutes, LocalTime now) {
+        if (isAvailableNow(availableTime, now)) {
             return true;
         }
         if (availableTime == null || availableTime.isEmpty() || horizonMinutes <= 0) {
@@ -902,7 +905,6 @@ public class VolunteerService {
         } catch (RuntimeException ex) {
             return true;
         }
-        LocalTime now = LocalTime.now(zone);
         int nowM = now.getHour() * 60 + now.getMinute();
         int delta = Math.floorMod(startM - nowM, 24 * 60);
         return delta <= horizonMinutes;

@@ -451,13 +451,6 @@ public class MaintenanceTasks {
 
     /** Great-circle distance in metres (utils.py haversine). */
     private static double haversine(double lat1, double lon1, double lat2, double lon2) {
-        double r = 6_371_000;
-        double phi1 = Math.toRadians(lat1);
-        double phi2 = Math.toRadians(lat2);
-        double dphi = Math.toRadians(lat2 - lat1);
-        double dlambda = Math.toRadians(lon2 - lon1);
-        double a = Math.sin(dphi / 2) * Math.sin(dphi / 2)
-            + Math.cos(phi1) * Math.cos(phi2) * Math.sin(dlambda / 2) * Math.sin(dlambda / 2);
-        return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return kz.savefood.util.Geo.haversineMeters(lat1, lon1, lat2, lon2);
     }
 }

@@ -20,6 +20,10 @@
     <properties>
         <java.version>21</java.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!-- Newer than the Boot 3.3.5 defaults so Mockito's inline mock maker
+             works on current JDKs (Byte Buddy must know the running JVM). -->
+        <mockito.version>5.23.0</mockito.version>
+        <byte-buddy.version>1.18.10</byte-buddy.version>
     </properties>
 
     <dependencies>

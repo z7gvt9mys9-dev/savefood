@@ -157,8 +157,8 @@ public class ReceiptService {
         }
     }
 
-    /** Coerce model output into the shapes the rest of the code relies on. */
-    private Map<String, Object> sanitize(JsonNode parsed) {
+    /** Coerce model output into the shapes the rest of the code relies on. Package-private for tests. */
+    Map<String, Object> sanitize(JsonNode parsed) {
         List<Map<String, Object>> items = new ArrayList<>();
         for (JsonNode it : parsed.path("items")) {
             if (!it.isObject()) {
