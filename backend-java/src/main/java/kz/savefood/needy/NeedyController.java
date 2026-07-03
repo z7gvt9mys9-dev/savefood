@@ -19,6 +19,7 @@ import kz.savefood.security.Auth;
 import kz.savefood.security.Authz;
 import kz.savefood.security.CurrentUser;
 import kz.savefood.shop.ShopRepository;
+import kz.savefood.telegram.TelegramService;
 import kz.savefood.upload.UploadService;
 import kz.savefood.web.ApiException;
 import kz.savefood.web.RateLimiter;
@@ -58,13 +59,14 @@ public class NeedyController {
     private final KycService kycService;
     private final PhotoModerationService photoModeration;
     private final RateLimiter rateLimiter;
+    private final TelegramService telegram;
     private final String needyUploadDir;
     private final String volunteerUploadDir;
 
     public NeedyController(NeedyRepository repo, NeedyService service, ShopRepository shopRepo,
                           CacheService cache, UploadService uploads, KycCrypto kycCrypto,
                           KycService kycService, PhotoModerationService photoModeration,
-                          RateLimiter rateLimiter,
+                          RateLimiter rateLimiter, TelegramService telegram,
                           @Value("${savefood.needy-upload-dir}") String needyUploadDir,
                           @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir) {
         this.repo = repo;
@@ -76,6 +78,7 @@ public class NeedyController {
         this.kycService = kycService;
         this.photoModeration = photoModeration;
         this.rateLimiter = rateLimiter;
+        this.telegram = telegram;
         this.needyUploadDir = needyUploadDir;
         this.volunteerUploadDir = volunteerUploadDir;
     }
@@ -163,7 +166,16 @@ public class NeedyController {
     public Map<String, Object> cancelTicket(@PathVariable int needyId, @PathVariable int ticketId,
                                             @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
-        service.cancelTicket(needyId, ticketId);
+        Integer volId = service.cancelTicket(needyId, ticketId);
+        if (volId != null) {
+            try {
+                // After the transaction, like Python's post-cursor send.
+                telegram.notifyVolunteer(volId,
+                    "❌ Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.");
+            } catch (RuntimeException ignore) {
+                // best-effort
+            }
+        }
         return Map.of("ok", true);
     }
 

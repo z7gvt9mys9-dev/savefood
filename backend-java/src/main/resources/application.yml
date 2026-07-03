@@ -11,6 +11,15 @@ spring:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:savefood}
     username: ${DB_USER:postgres}
     password: ${DB_PASS:postgres}
+  flyway:
+    # Schema management, replacing the removed alembic chain (0001–0014) and the
+    # Python init_db startup DDL. A database that already has the schema but no
+    # flyway_schema_history (i.e. today's production) is BASELINED at version 1 —
+    # V1__baseline.sql is recorded as applied, not executed. An empty database
+    # executes it. New schema changes ship as V2__…, V3__… in db/migration.
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: pre-flyway schema (alembic 0001-0014 + init_db DDL)
   jackson:
     serialization:
       # Emit ISO-8601 timestamps (matching FastAPI/pydantic), not epoch millis.

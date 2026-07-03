@@ -14,7 +14,9 @@ import kz.savefood.kyc.KycService;
 import kz.savefood.security.Auth;
 import kz.savefood.security.Authz;
 import kz.savefood.security.CurrentUser;
+import kz.savefood.telegram.TelegramService;
 import kz.savefood.upload.UploadService;
+import kz.savefood.util.Html;
 import kz.savefood.volunteer.dto.AvailabilityWindow;
 import kz.savefood.volunteer.dto.CompletePointRequest;
 import kz.savefood.volunteer.dto.FinishRouteRequest;
@@ -57,12 +59,13 @@ public class VolunteerController {
     private final KycCrypto kycCrypto;
     private final KycService kycService;
     private final WebhookService webhooks;
+    private final TelegramService telegram;
     private final boolean kycRequired;
     private final String kycUploadDir;
 
     public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
                               UploadService uploads, KycCrypto kycCrypto, KycService kycService,
-                              WebhookService webhooks,
+                              WebhookService webhooks, TelegramService telegram,
                               @Value("${savefood.volunteer-kyc-required:true}") boolean kycRequired,
                               @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}")
                                   String kycUploadDir) {
@@ -73,6 +76,7 @@ public class VolunteerController {
         this.kycCrypto = kycCrypto;
         this.kycService = kycService;
         this.webhooks = webhooks;
+        this.telegram = telegram;
         this.kycRequired = kycRequired;
         this.kycUploadDir = kycUploadDir;
     }
@@ -187,6 +191,27 @@ public class VolunteerController {
             webhooks.fire(result.shopId(), "lot.taken", data);
         } catch (RuntimeException e) {
             // best-effort, like the Python try/except around webhook_service.fire
+        }
+
+        // Telegram fan-out after the transaction, like Python's post-response
+        // BackgroundTasks. Names and lot descriptions originate from user input,
+        // so escape them before embedding into an HTML-parsed Telegram message.
+        String safeVolName = Html.escape(result.volName());
+        String lotDesc = result.lotDescription() == null || result.lotDescription().isEmpty()
+            ? "лот #" + payload.lotId() : result.lotDescription();
+        try {
+            telegram.notifyShop(result.shopId(), "🛒 Волонтёр <b>" + safeVolName + "</b> взял ваш лот «"
+                + Html.escape(lotDesc) + "». Маршрут #" + result.routeId() + " в пути.");
+        } catch (RuntimeException ignore) {
+            // best-effort
+        }
+        for (int[] pair : result.assignedNeedy()) {
+            try {
+                telegram.notifyNeedy(pair[0], "🚚 Волонтёр <b>" + safeVolName + "</b> принял вашу заявку #"
+                    + pair[1] + " и скоро поедет в магазин.");
+            } catch (RuntimeException ignore) {
+                // best-effort
+            }
         }
 
         Map<String, Object> out = new LinkedHashMap<>();

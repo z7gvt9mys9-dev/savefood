@@ -22,6 +22,7 @@ import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import kz.savefood.audit.AuditService;
 import kz.savefood.needy.NeedyRepository;
+import kz.savefood.telegram.TelegramService;
 import kz.savefood.volunteer.VolunteerRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -110,6 +111,7 @@ public class KycService {
     private final VolunteerRepository volunteerRepo;
     private final AuditService audit;
     private final KycCrypto crypto;
+    private final TelegramService telegram;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(60)).build();
     private final String apiKey;
@@ -121,7 +123,7 @@ public class KycService {
     });
 
     public KycService(JdbcTemplate jdbc, NeedyRepository repo, VolunteerRepository volunteerRepo,
-                      AuditService audit, KycCrypto crypto,
+                      AuditService audit, KycCrypto crypto, TelegramService telegram,
                       @Value("${savefood.gemini-api-key:}") String apiKey,
                       @Value("${savefood.kyc-model:${savefood.ocr-model:gemini-2.5-flash}}") String model) {
         this.jdbc = jdbc;
@@ -129,6 +131,7 @@ public class KycService {
         this.volunteerRepo = volunteerRepo;
         this.audit = audit;
         this.crypto = crypto;
+        this.telegram = telegram;
         this.apiKey = apiKey;
         this.model = model;
     }
@@ -248,11 +251,15 @@ public class KycService {
         }
         audit.log("auto-kyc", "kyc_auto_approve", "volunteer", volId,
             String.format("Auto-approved volunteer by AI KYC (score %.2f)", score));
+        String msg = "Ваш аккаунт волонтёра подтверждён автоматической проверкой — можно брать маршруты.";
         jdbc.update(
             "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            volId, "moderation_approved",
-            "Ваш аккаунт волонтёра подтверждён автоматической проверкой — можно брать маршруты.",
-            OffsetDateTime.now());
+            volId, "moderation_approved", msg, OffsetDateTime.now());
+        try {
+            telegram.notifyVolunteer(volId, "✅ " + msg);
+        } catch (RuntimeException ignore) {
+            // best-effort, like the Python try/except: pass
+        }
         log.info("[kyc] volunteer " + volId + " auto-approved (score " + score + ")");
         return true;
     }
@@ -263,11 +270,16 @@ public class KycService {
         }
         audit.log("auto-kyc", "kyc_auto_reject", "volunteer", volId,
             "Auto-rejected volunteer by AI KYC (score " + score + ")");
+        String msg = "Удостоверение не прошло автоматическую проверку. Загрузите корректный "
+            + "документ, удостоверяющий личность, чтобы брать маршруты.";
         jdbc.update(
             "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            volId, "moderation_rejected",
-            "Удостоверение не прошло автоматическую проверку. Загрузите корректный "
-            + "документ, удостоверяющий личность, чтобы брать маршруты.", OffsetDateTime.now());
+            volId, "moderation_rejected", msg, OffsetDateTime.now());
+        try {
+            telegram.notifyVolunteer(volId, "⚠️ " + msg);
+        } catch (RuntimeException ignore) {
+            // best-effort, like the Python try/except: pass
+        }
         log.info("[kyc] volunteer " + volId + " auto-rejected (score " + score + ")");
         return true;
     }
@@ -386,11 +398,15 @@ public class KycService {
         }
         audit.log("auto-kyc", "kyc_auto_approve", "needy", needyId,
             String.format("Auto-approved by AI KYC (score %.2f)", score));
+        String msg = "Ваша анкета одобрена автоматической проверкой — можете создавать заявки на получение продуктов.";
         jdbc.update(
             "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            needyId, "moderation_approved",
-            "Ваша анкета одобрена автоматической проверкой — можете создавать заявки на получение продуктов.",
-            OffsetDateTime.now());
+            needyId, "moderation_approved", msg, OffsetDateTime.now());
+        try {
+            telegram.notifyNeedy(needyId, "✅ " + msg);
+        } catch (RuntimeException ignore) {
+            // best-effort, like the Python try/except: pass
+        }
         log.info("[kyc] needy " + needyId + " auto-approved (score " + score + ")");
         return true;
     }
@@ -405,11 +421,16 @@ public class KycService {
         }
         audit.log("auto-kyc", "kyc_auto_reject", "needy", needyId,
             "Auto-rejected by AI KYC (score " + score + ")");
+        String msg = "Документ не прошёл автоматическую проверку. Загрузите корректный документ, "
+            + "подтверждающий право на помощь.";
         jdbc.update(
             "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            needyId, "moderation_rejected",
-            "Документ не прошёл автоматическую проверку. Загрузите корректный документ, "
-            + "подтверждающий право на помощь.", OffsetDateTime.now());
+            needyId, "moderation_rejected", msg, OffsetDateTime.now());
+        try {
+            telegram.notifyNeedy(needyId, "⚠️ " + msg);
+        } catch (RuntimeException ignore) {
+            // best-effort, like the Python try/except: pass
+        }
         log.info("[kyc] needy " + needyId + " auto-rejected (score " + score + ")");
         return true;
     }

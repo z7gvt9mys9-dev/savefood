@@ -30,7 +30,7 @@ class GeoVerificationTest {
             return stubbedLocation;
         }
     };
-    private final VolunteerService svc = new VolunteerService(null, repo, null, null, "Asia/Almaty");
+    private final VolunteerService svc = new VolunteerService(null, repo, null, null, null, null, "Asia/Almaty");
 
     // ── coarsenCoord ─────────────────────────────────────────────────────────────
 

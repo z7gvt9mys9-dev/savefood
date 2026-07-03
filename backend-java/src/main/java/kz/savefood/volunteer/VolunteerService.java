@@ -14,8 +14,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import kz.savefood.gamification.Gamification;
+import kz.savefood.needy.NeedyService;
 import kz.savefood.security.PasswordService;
+import kz.savefood.telegram.TelegramService;
 import kz.savefood.util.Clamp;
+import kz.savefood.util.Html;
 import kz.savefood.util.JoinCode;
 import kz.savefood.util.Qr;
 import kz.savefood.volunteer.dto.VolunteerCreate;
@@ -33,11 +36,11 @@ import org.springframework.transaction.annotation.Transactional;
  * verification (complete_point), delivery attempts, route finish (lot revert), and
  * corporate teams. Single-statement reads/writes live on {@link VolunteerRepository}.
  *
- * <p>As in the shop/needy ports, the best-effort Telegram fan-out (each wrapped in
- * {@code try/except: pass} in Python) stays with the Python notifier during the
- * migration; the in-app notification rows are written here in full. The enterprise
- * webhook ({@code lot.taken}) is fired by the controller after commit, like the
- * shop port's {@code lot.confirmed}.
+ * <p>The best-effort Telegram fan-out (each call wrapped in {@code try/except: pass}
+ * in Python) is sent through {@link TelegramService}, which also mirrors into
+ * Web Push / FCM; in-app notification rows are written here in full. The
+ * transactional {@code startRoute} defers its fan-out to the controller (after
+ * commit), like the enterprise webhook {@code lot.taken}.
  */
 @Service
 public class VolunteerService {
@@ -67,17 +70,21 @@ public class VolunteerService {
     private final VolunteerRepository repo;
     private final RouteRevertService routeRevert;
     private final PasswordService passwords;
+    private final NeedyService needyService;
+    private final TelegramService telegram;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ZoneId zone;
     private final String localTzName;
 
     public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
-                            PasswordService passwords,
+                            PasswordService passwords, NeedyService needyService, TelegramService telegram,
                             @Value("${savefood.local-tz:Asia/Almaty}") String localTz) {
         this.jdbc = jdbc;
         this.repo = repo;
         this.routeRevert = routeRevert;
         this.passwords = passwords;
+        this.needyService = needyService;
+        this.telegram = telegram;
         ZoneId z;
         try {
             z = ZoneId.of(localTz);
@@ -110,9 +117,11 @@ public class VolunteerService {
         }
     }
 
-    /** Carries the post-commit data the controller needs for the lot.taken webhook. */
+    /** Carries the post-commit data the controller needs for the lot.taken webhook
+     * and the Telegram fan-out ({@code assignedNeedy} = (needyId, ticketId) pairs). */
     public record StartRouteResult(int routeId, List<Map<String, Object>> points, int shopId,
-                                   String lotDescription, Object lotQuantity, String volName) {
+                                   String lotDescription, Object lotQuantity, String volName,
+                                   List<int[]> assignedNeedy) {
     }
 
     // ── start_route ────────────────────────────────────────────────────────────
@@ -232,6 +241,7 @@ public class VolunteerService {
 
         // Assign the selected tickets (guarded against competing routes).
         List<Integer> assignedIds = new ArrayList<>();
+        List<int[]> assignedNeedy = new ArrayList<>();  // (needy_id, ticket_id) — Telegram pings after commit
         for (Map<String, Object> t : order) {
             int tid = ((Number) t.get("id")).intValue();
             int rows = jdbc.update(
@@ -239,6 +249,7 @@ public class VolunteerService {
                 volunteerId, tid);
             if (rows > 0) {
                 assignedIds.add(tid);
+                assignedNeedy.add(new int[]{((Number) t.get("needy_id")).intValue(), tid});
                 jdbc.update(
                     "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
                     ((Number) t.get("needy_id")).intValue(), "volunteer_assigned",
@@ -296,7 +307,7 @@ public class VolunteerService {
             "Маршрут #" + routeId + " построен — посмотрите вкладку «Маршрут»", now);
 
         return new StartRouteResult(routeId, filteredPoints, ((Number) lot.get("shop_id")).intValue(),
-            str(lot.get("description"), null), lot.get("quantity"), volName);
+            str(lot.get("description"), null), lot.get("quantity"), volName, assignedNeedy);
     }
 
     // ── complete_point (discrete writes, like the per-block Python cursors) ──────
@@ -362,8 +373,10 @@ public class VolunteerService {
                     "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
             }
             try {
-                jdbc.update("UPDATE needy_profile SET last_received_at = ? WHERE needy_id = ?",
-                    OffsetDateTime.now(), ((Number) ticket.get("needy_id")).intValue());
+                // §59/Q1-C: getting helped also clears displaced_count (and upserts
+                // the profile row so the §3.2 weekly limit starts counting).
+                needyService.setProfileLastReceived(((Number) ticket.get("needy_id")).intValue(),
+                    OffsetDateTime.now());
             } catch (RuntimeException e) {
                 // best-effort, like the Python try/except around set_profile_last_received
             }
@@ -409,11 +422,19 @@ public class VolunteerService {
                     OffsetDateTime arrivalEnd = arrival.plusMinutes(30);
                     etaText = " с " + hhmm(arrival) + " до " + hhmm(arrivalEnd);
                 }
+                int needyId = ((Number) t.get("needy_id")).intValue();
                 jdbc.update(
                     "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-                    ((Number) t.get("needy_id")).intValue(), "volunteer_en_route",
+                    needyId, "volunteer_en_route",
                     "Волонтёр " + volName + " едет к вам (тикет " + p.get("ticket_id")
                     + "). Ожидаемое время прибытия" + etaText + ".", OffsetDateTime.now());
+                try {
+                    // vol_name is user-supplied — escape before HTML parse_mode.
+                    telegram.notifyNeedy(needyId, "🚗 Волонтёр " + Html.escape(volName) + " едет к вам (тикет "
+                        + p.get("ticket_id") + "). Ожидаемое время прибытия" + etaText + ".");
+                } catch (RuntimeException ignore) {
+                    // best-effort, like the Python try/except: pass
+                }
             }
         }
 
@@ -465,6 +486,11 @@ public class VolunteerService {
             jdbc.update(
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
                 needyId, "delivery_attempted", msg, OffsetDateTime.now());
+            try {
+                telegram.notifyNeedy(needyId, msg);
+            } catch (RuntimeException ignore) {
+                // best-effort, like the Python try/except: pass
+            }
         }
 
         repo.updateRoutePoints(((Number) route.get("id")).intValue(), writeJson(points));

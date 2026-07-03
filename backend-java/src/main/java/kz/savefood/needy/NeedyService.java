@@ -22,11 +22,10 @@ import org.springframework.transaction.annotation.Transactional;
  * cross-module read helpers ({@code get_all_needy}, {@code set_profile_last_received})
  * are kept here too, as they are called from other modules' services.
  *
- * <p>Single-statement reads/writes live on {@link NeedyRepository}; like the
- * shop/needs-match ports, the best-effort Telegram fan-out (each wrapped in
- * {@code try/except: pass} in Python) is not part of this backend module — it
- * stays with the Python notifier during the migration. The in-app notification
- * rows are written here in full.
+ * <p>Single-statement reads/writes live on {@link NeedyRepository}. The in-app
+ * notification rows are written here; the best-effort Telegram ping to an
+ * assigned volunteer is sent by the controller after the transaction commits
+ * (the service returns the volunteer id for that purpose).
  */
 @Service
 public class NeedyService {
@@ -154,10 +153,11 @@ public class NeedyService {
      * Cancel an open/assigned ticket on behalf of the recipient (routes.py
      * {@code cancel_ticket}): flip status, return the reserved unit to a still-active
      * lot, drop the stop from the assigned volunteer's in-progress route, and notify
-     * the volunteer in-app. The Telegram ping stays on the Python notifier.
+     * the volunteer in-app. Returns the assigned volunteer's id (or null) so the
+     * controller can send the Telegram ping after the transaction commits.
      */
     @Transactional
-    public void cancelTicket(int needyId, int ticketId) {
+    public Integer cancelTicket(int needyId, int ticketId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
         if (rows.isEmpty()) {
@@ -195,6 +195,7 @@ public class NeedyService {
                 "Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.",
                 OffsetDateTime.now());
         }
+        return volId;
     }
 
     /** Mark the cancelled recipient's stop done on the volunteer's active route, if present. */

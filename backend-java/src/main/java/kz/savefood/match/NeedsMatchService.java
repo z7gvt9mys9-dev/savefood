@@ -7,6 +7,9 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
+import kz.savefood.push.PushDispatchService;
+import kz.savefood.telegram.TelegramService;
+import kz.savefood.util.Html;
 import kz.savefood.volunteer.AvailabilityService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -18,10 +21,10 @@ import org.springframework.stereotype.Service;
  * available. Runs fire-and-forget (a daemon executor here, a daemon thread in
  * Python) so lot creation never waits on the fan-out.
  *
- * <p>The in-app feed notifications (DB inserts) are ported in full. The external
- * Telegram and Web-Push fan-out is best-effort in the Python source (each call
- * wrapped in {@code try/except: pass}) and is not part of this backend module;
- * it stays with the Python notifier during the migration.
+ * <p>The in-app feed notifications (DB inserts) are ported in full, and the
+ * external fan-out mirrors the Python source: Telegram reaches every match
+ * (best-effort, each send isolated), while the extra targeted Web Push goes only
+ * to recipients who kept the §48 geo-push toggle on.
  */
 @Service
 public class NeedsMatchService {
@@ -42,15 +45,20 @@ public class NeedsMatchService {
 
     private final JdbcTemplate jdbc;
     private final AvailabilityService availability;
+    private final TelegramService telegram;
+    private final PushDispatchService push;
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "needs-match");
         t.setDaemon(true);
         return t;
     });
 
-    public NeedsMatchService(JdbcTemplate jdbc, AvailabilityService availability) {
+    public NeedsMatchService(JdbcTemplate jdbc, AvailabilityService availability,
+                             TelegramService telegram, PushDispatchService push) {
         this.jdbc = jdbc;
         this.availability = availability;
+        this.telegram = telegram;
+        this.push = push;
     }
 
     /** Fire-and-forget entry point, the analogue of {@code start_needs_match}. */
@@ -106,16 +114,24 @@ public class NeedsMatchService {
             return;
         }
         List<Map<String, Object>> candidates = jdbc.queryForList(
-            "SELECT n.id AS needy_id, np.preferences "
+            "SELECT n.id AS needy_id, np.preferences, "
+            + "COALESCE(np.geo_push_enabled, TRUE) AS geo_push_enabled "
             + "FROM needy n JOIN needy_profile np ON np.needy_id = n.id "
             + "WHERE n.status = 'approved' "
             + "AND np.preferences IS NOT NULL AND TRIM(np.preferences) <> '' "
             + "AND np.city IS NOT NULL AND np.city = ?", lot.get("city"));
 
         List<Integer> matched = new ArrayList<>();
+        // Geo-push subscription (§48): in-app feed + Telegram reach every match, but
+        // the browser/PWA Web Push only goes to recipients who kept the toggle on.
+        List<Integer> pushTargets = new ArrayList<>();
         for (Map<String, Object> c : candidates) {
             if (matchesPreferences(category, (String) c.get("preferences"))) {
-                matched.add(((Number) c.get("needy_id")).intValue());
+                int needyId = ((Number) c.get("needy_id")).intValue();
+                matched.add(needyId);
+                if (Boolean.TRUE.equals(c.get("geo_push_enabled"))) {
+                    pushTargets.add(needyId);
+                }
                 if (matched.size() >= MAX_NOTIFIED_PER_LOT) {
                     break;
                 }
@@ -134,7 +150,23 @@ public class NeedsMatchService {
                 + "VALUES (?, ?, ?, ?, 0)",
                 needyId, "lot_match", text, now);
         }
-        log.info("[needs_match] lot " + lotId + " matched " + matched.size() + " recipients");
+        String safe = Html.escape(text);
+        for (Integer needyId : matched) {
+            try {
+                telegram.notifyNeedy(needyId, "🛒 " + safe);
+            } catch (RuntimeException ignore) {
+                // best-effort, like the Python try/except: pass
+            }
+        }
+        for (Integer needyId : pushTargets) {
+            try {
+                push.notifyRole("needy", needyId, text, "/");
+            } catch (RuntimeException ignore) {
+                // best-effort
+            }
+        }
+        log.info("[needs_match] lot " + lotId + " matched " + matched.size()
+            + " recipients (" + pushTargets.size() + " web-push)");
     }
 
     void notifyAvailableVolunteers(int lotId) {
@@ -181,6 +213,14 @@ public class NeedsMatchService {
                 "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
                 + "VALUES (?, ?, ?, ?, 0)",
                 ((Number) v.get("id")).intValue(), "lot_nearby", text, now);
+        }
+        String safe = Html.escape(text);
+        for (Map<String, Object> v : targets) {
+            try {
+                telegram.notifyVolunteer(((Number) v.get("id")).intValue(), "📦 " + safe);
+            } catch (RuntimeException ignore) {
+                // best-effort, like the Python try/except: pass
+            }
         }
         log.info("[needs_match] lot " + lotId + " pinged " + targets.size() + " available volunteers");
     }

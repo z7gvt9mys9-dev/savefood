@@ -45,6 +45,19 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- Schema management (replaces the removed alembic chain + Python init_db
+             DDL): runs classpath:db/migration/V*__*.sql at startup. Existing
+             databases are baselined at version 1 (V1__baseline.sql is skipped);
+             an empty database executes it. See src/main/resources/db/migration. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
 
         <!-- BCrypt only (no Spring Security auto-config): hashes are wire-compatible
              with the Python passlib bcrypt context used by backend/auth.py. -->

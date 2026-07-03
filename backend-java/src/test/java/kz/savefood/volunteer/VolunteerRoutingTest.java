@@ -19,7 +19,7 @@ class VolunteerRoutingTest {
      * so no mocks are needed.
      */
     private static VolunteerService newService(String tz) {
-        return new VolunteerService(null, null, null, null, tz);
+        return new VolunteerService(null, null, null, null, null, null, tz);
     }
 
     /** The Python tests monkeypatched datetime.now() to 12:00 local; the Java
