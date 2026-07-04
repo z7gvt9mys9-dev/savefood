@@ -23,3 +23,47 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Единый стиль чекбоксов для всего приложения (регистрация, лоты, профили).
+   Правило лежит в index.css, а страничные CSS исключают чекбоксы из своих
+   блочных правил для input — иначе width:100% / appearance:none из форм
+   растягивали чекбокс и прятали галочку («нельзя поставить чекбокс»).
+   ───────────────────────────────────────────────────────────────────────────── */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 2px solid #4a4a4a;
+  border-radius: 6px;
+  background: #111 center / 13px no-repeat;
+  cursor: pointer;
+  display: inline-block;
+  vertical-align: middle;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+input[type="checkbox"]:hover:not(:disabled) {
+  border-color: #4caf50;
+}
+
+input[type="checkbox"]:checked {
+  border-color: #4caf50;
+  background-color: #4caf50;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='10' viewBox='0 0 12 10'%3E%3Cpath d='M1 5.2 4.2 8.4 11 1.6' stroke='%23000' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+input[type="checkbox"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.35);
+}
+
+input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

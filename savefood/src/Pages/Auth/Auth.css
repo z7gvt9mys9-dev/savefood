@@ -57,8 +57,9 @@
   margin-bottom: 20px;
 }
 
-.auth-form input, 
-.auth-form textarea, 
+/* :not([type="checkbox"]) — чекбоксы оформляются единым правилом в index.css. */
+.auth-form input:not([type="checkbox"]),
+.auth-form textarea,
 .auth-form select {
   width: 100%;
   padding: 12px;
@@ -70,7 +71,7 @@
   box-sizing: border-box;
 }
 
-.auth-form input:focus {
+.auth-form input:not([type="checkbox"]):focus {
   outline: none;
   border-color: #ffffff;
 }

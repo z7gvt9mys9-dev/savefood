@@ -19,6 +19,9 @@ const AdminPanel = () => {
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
   const [heatmap, setHeatmap] = useState(null);
+  const [needyQueue, setNeedyQueue] = useState([]);
+  const [volQueue, setVolQueue] = useState([]);
+  const [kycBusy, setKycBusy] = useState({});
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
 
@@ -65,11 +68,24 @@ const AdminPanel = () => {
     } catch {}
   };
 
+  // Hybrid KYC (§58): pending needy/volunteers waiting for a human decision.
+  const fetchModeration = async () => {
+    try {
+      const [nRes, vRes] = await Promise.all([
+        fetch(`${API_URL}/admin/needy?status=pending`, { headers: authHeader }),
+        fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader }),
+      ]);
+      if (nRes.ok) setNeedyQueue(await nRes.json());
+      if (vRes.ok) setVolQueue(await vRes.json());
+    } catch {}
+  };
+
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
     if (activeTab === 'plans') fetchShops();
     if (activeTab === 'photos') fetchDeliveryPhotos();
+    if (activeTab === 'moderation') fetchModeration();
     if (activeTab === 'analytics' && !esgGlobal) {
       fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
@@ -114,6 +130,113 @@ const AdminPanel = () => {
       else alert(t('common.error'));
     } catch {}
   };
+
+  // KYC moderation (hybrid, §58): the AI auto-approves confident cases; everything
+  // else lands here for a human. The document is decrypted server-side on demand.
+  const handleViewDocument = async (kind, id) => {
+    try {
+      const res = await fetch(`${API_URL}/${kind}/${id}/document`, { headers: authHeader });
+      if (!res.ok) { alert(t('admin.kyc_no_doc')); return; }
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+    } catch { alert(t('common.connection_error')); }
+  };
+
+  const handleModerate = async (kind, id, status) => {
+    setKycBusy(prev => ({ ...prev, [`${kind}-${id}`]: true }));
+    try {
+      const res = await fetch(`${API_URL}/${kind}/${id}/moderation`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        if (kind === 'needy') setNeedyQueue(prev => prev.filter(x => x.id !== id));
+        else setVolQueue(prev => prev.filter(x => x.id !== id));
+      } else alert(t('common.error'));
+    } catch { alert(t('common.connection_error')); }
+    finally { setKycBusy(prev => ({ ...prev, [`${kind}-${id}`]: false })); }
+  };
+
+  const handleRecheck = async (kind, id) => {
+    setKycBusy(prev => ({ ...prev, [`${kind}-${id}`]: true }));
+    try {
+      const res = await fetch(`${API_URL}/${kind}/${id}/kyc_recheck`, { method: 'POST', headers: authHeader });
+      if (res.ok) {
+        const data = await res.json();
+        const patch = row => row.id === id
+          ? { ...row, kyc_verdict: data.kyc_verdict, kyc_score: data.kyc_score, kyc_notes: data.kyc_notes }
+          : row;
+        if (kind === 'needy') setNeedyQueue(prev => prev.map(patch));
+        else setVolQueue(prev => prev.map(patch));
+      } else {
+        const e = await res.json().catch(() => ({}));
+        alert(e.detail || t('common.error'));
+      }
+    } catch { alert(t('common.connection_error')); }
+    finally { setKycBusy(prev => ({ ...prev, [`${kind}-${id}`]: false })); }
+  };
+
+  const kycBadge = (verdict, score) => {
+    const colors = { likely_ok: '#5f5', review: '#fa0', likely_fraud: '#f55', unchecked: '#aaa' };
+    const labels = {
+      likely_ok: t('admin.kyc_likely_ok'),
+      review: t('admin.kyc_review'),
+      likely_fraud: t('admin.kyc_likely_fraud'),
+      unchecked: t('admin.kyc_unchecked'),
+    };
+    const v = verdict || 'unchecked';
+    const pct = score != null && score !== '' ? ` (${Math.round(Number(score) * 100)}%)` : '';
+    return <span style={{ color: colors[v] || '#aaa' }}>{labels[v] || v}{pct}</span>;
+  };
+
+  const renderKycQueue = (kind, rows) => (
+    rows.length === 0 ? (
+      <EmptyState icon="🪪" title={t('admin.kyc_empty')} description="" />
+    ) : (
+    <table className="admin-table">
+      <thead>
+        <tr>
+          <th>{t('admin.kyc_name')}</th>
+          <th>{t('admin.kyc_verdict')}</th>
+          <th>{t('admin.kyc_notes')}</th>
+          <th>{t('admin.col_actions')}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(r => {
+          const busy = !!kycBusy[`${kind}-${r.id}`];
+          return (
+            <tr key={r.id}>
+              <td>{r.name || `#${r.id}`}</td>
+              <td>{kycBadge(r.kyc_verdict, r.kyc_score)}</td>
+              <td style={{ fontSize: '0.8rem', opacity: 0.8, maxWidth: 320 }}>{r.kyc_notes || '—'}</td>
+              <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {r.document
+                  ? <button className="btn-small" disabled={busy} onClick={() => handleViewDocument(kind, r.id)}>{t('admin.kyc_view_doc')}</button>
+                  : <span style={{ opacity: 0.5, fontSize: '0.78rem' }}>{t('admin.kyc_no_doc')}</span>}
+                {r.document && <button className="btn-small" disabled={busy} onClick={() => handleRecheck(kind, r.id)}>{t('admin.kyc_recheck')}</button>}
+                <button className="btn-small btn-success" disabled={busy} onClick={() => handleModerate(kind, r.id, 'approved')}>{t('admin.kyc_approve')}</button>
+                <button className="btn-small btn-danger" disabled={busy} onClick={() => handleModerate(kind, r.id, 'rejected')}>{t('admin.kyc_reject')}</button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+    )
+  );
+
+  const renderModeration = () => (
+    <div className="admin-tab">
+      <h2>{t('admin.kyc_title')}</h2>
+      <p style={{ opacity: 0.75 }}>{t('admin.kyc_hint')}</p>
+      <h3>{t('admin.kyc_needy')}</h3>
+      {renderKycQueue('needy', needyQueue)}
+      <h3 style={{ marginTop: 24 }}>{t('admin.kyc_volunteers')}</h3>
+      {renderKycQueue('volunteers', volQueue)}
+    </div>
+  );
 
   // Delivery photo moderation: publish or drop a recipient photo before it
   // reaches the public Impact feed.
@@ -446,6 +569,7 @@ const AdminPanel = () => {
         <h2>SaveFood Admin</h2>
         <nav>
           <button className={activeTab === 'photos' ? 'active' : ''} onClick={() => setActiveTab('photos')}>{t('admin.photos')}</button>
+          <button className={activeTab === 'moderation' ? 'active' : ''} onClick={() => setActiveTab('moderation')}>{t('admin.kyc_tab')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>
           <button className={activeTab === 'plans' ? 'active' : ''} onClick={() => setActiveTab('plans')}>{t('admin.plans')}</button>
@@ -456,6 +580,7 @@ const AdminPanel = () => {
 
       <main className="main-content">
         {activeTab === 'photos' && renderPhotos()}
+        {activeTab === 'moderation' && renderModeration()}
         {activeTab === 'dispatcher' && renderDispatcher()}
         {activeTab === 'users' && renderUsers()}
         {activeTab === 'plans' && renderPlans()}

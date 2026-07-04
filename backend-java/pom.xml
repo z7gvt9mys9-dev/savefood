@@ -11,7 +11,7 @@
         <relativePath/>
     </parent>
 
-    <groupId>kz.savefood</groupId>
+    <groupId>ru.savefood</groupId>
     <artifactId>savefood-backend</artifactId>
     <version>0.1.0</version>
     <name>SaveFood Backend (Java)</name>

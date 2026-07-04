@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
 import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
 import { useTranslation } from 'react-i18next';
@@ -110,7 +111,8 @@ const RouteMapView = ({ points }) => {
 };
 
 const VolunteerDashboard = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const volunteerId = user?.relatedId;
   const authHeader = { Authorization: `Bearer ${user?.token}` };
@@ -137,43 +139,44 @@ const VolunteerDashboard = () => {
   const [teamBusy, setTeamBusy] = useState(false);
   const locationWatchRef = useRef(null);
   const locationIntervalRef = useRef(null);
-  const qrScannerRef = useRef(null);
   // The scanner effect only depends on `scanning`, so its decode callback would
   // capture a stale nextTicket if the route updates mid-scan — read via ref.
   const nextTicketRef = useRef(null);
 
-  const stopScanner = useCallback(() => {
-    if (qrScannerRef.current) {
-      qrScannerRef.current.stop()
-        .then(() => { qrScannerRef.current.clear(); qrScannerRef.current = null; })
-        .catch(() => { qrScannerRef.current = null; });
-    }
-  }, []);
-
+  // html5-qrcode's stop() may only run after start() has resolved: calling it
+  // while the camera is still warming up (user taps «Отмена» right away) throws
+  // synchronously and used to crash the dashboard. The cleanup below therefore
+  // chains the stop onto the start promise instead of racing it.
   useEffect(() => {
-    if (!scanning) { stopScanner(); return; }
+    if (!scanning) return;
     const scanner = new Html5Qrcode('qr-reader');
-    qrScannerRef.current = scanner;
-    scanner.start(
+    let handled = false;
+    const startPromise = scanner.start(
       { facingMode: 'environment' },
       { fps: 10, qrbox: 250 },
       async (decodedText) => {
-        stopScanner();
+        if (handled) return; // decode keeps firing ~10 fps until the camera stops
+        handled = true;
         const current = nextTicketRef.current;
         // SF-{id} or SF-{id}-{secret}; the full string (incl. secret) goes to
         // the server for verification, match[1] only routes it to the right stop.
         const match = decodedText.match(/^SF-(\d+)(?:-[A-Za-z0-9_-]+)?$/);
         if (match && current && parseInt(match[1]) === current.ticket_id) {
           await handleCompletePoint(current.ticket_id, { qrCode: decodedText });
-          setScanning(false);
         } else {
           alert(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
-          setScanning(false);
         }
+        setScanning(false); // cleanup stops the camera
       },
       () => {}
-    ).catch(() => { setScanning(false); });
-    return stopScanner;
+    );
+    startPromise.catch(() => setScanning(false)); // no camera / permission denied
+    return () => {
+      startPromise
+        .then(() => scanner.stop())
+        .then(() => scanner.clear())
+        .catch(() => {});
+    };
   }, [scanning]);
 
   // Single place that (re)loads the volunteer account into volunteerInfo —
@@ -705,38 +708,6 @@ const VolunteerDashboard = () => {
         {activeTab === 'stats' && (
           <div className="volunteer-tab">
             <h3>{t('volunteer.stats')}</h3>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={!!volunteerInfo?.has_thermal_bag}
-                onChange={(e) => toggleThermalBag(e.target.checked)}
-              />
-              <span>❄️ {t('volunteer.thermal_bag')}</span>
-            </label>
-            <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
-
-            <div style={{ background: '#1a1a26', border: '1px solid #2a2a3a', borderRadius: 12, padding: 12, marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 4px' }}>🗓️ {t('volunteer.availability_title')}</h4>
-              <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 10px' }}>{t('volunteer.availability_hint')}</p>
-              {availability.length === 0 && (
-                <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>
-              )}
-              {availability.map((w, i) => (
-                <div className="avail-row" key={i}>
-                  <select value={w.day} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, day: Number(e.target.value) } : x))}>
-                    {[0,1,2,3,4,5,6].map(d => <option key={d} value={d}>{t(`volunteer.day_${d}`)}</option>)}
-                  </select>
-                  <input type="time" value={w.start} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, start: e.target.value } : x))} />
-                  <span>—</span>
-                  <input type="time" value={w.end} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, end: e.target.value } : x))} />
-                  <button className="btn-small btn-danger" onClick={() => setAvailability(a => a.filter((_, j) => j !== i))}>✕</button>
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <button className="btn-small" onClick={() => setAvailability(a => [...a, { day: 1, start: '18:00', end: '21:00' }])}>+ {t('volunteer.availability_add')}</button>
-                <button className="btn-small btn-success" onClick={saveAvailability}>{t('volunteer.availability_save')}</button>
-              </div>
-            </div>
             {!stats ? (
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (
@@ -819,42 +790,52 @@ const VolunteerDashboard = () => {
                     ))}
                   </div>
                 )}
-                <h4 style={{ margin: '18px 0 8px' }}>{t('volunteer.team_title')}</h4>
+                <h4 style={{ margin: '18px 0 8px' }}>👥 {t('volunteer.team_title')}</h4>
                 {team === undefined ? (
                   <p className="empty-msg" style={{ fontSize: '0.85rem' }}>{t('common.loading')}</p>
                 ) : team ? (
-                  <div style={{ background: '#2196F312', border: '1px solid #2196F344', borderRadius: 12, padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                      <strong style={{ color: '#64B5F6' }}>🏢 {team.name}</strong>
-                      <span style={{ fontSize: '0.8rem', color: '#aaa' }}>
-                        {t('volunteer.team_members', { count: team.members })}
-                      </span>
+                  <div className="team-card">
+                    <div className="team-card-header">
+                      <span className="team-card-icon">🏢</span>
+                      <div className="team-card-title">
+                        <strong>{team.name}</strong>
+                        <span>{t('volunteer.team_members', { count: team.members })}</span>
+                      </div>
                     </div>
-                    <p style={{ fontSize: '0.85rem', margin: '8px 0 4px' }}>
-                      {team.deliveries} {t('volunteer.total_deliveries').toLowerCase()} · {Math.round(team.kg)} {t('volunteer.total_kg').toLowerCase()}
-                    </p>
-                    <p style={{ fontSize: '0.8rem', color: '#aaa', margin: '4px 0 8px' }}>
-                      {t('volunteer.team_code_hint')}: <code style={{ color: '#64B5F6' }}>{team.join_code}</code>
-                    </p>
+                    <div className="team-card-stats">
+                      <div className="team-stat">
+                        <span className="team-stat-value">{team.deliveries}</span>
+                        <span className="team-stat-label">{t('volunteer.total_deliveries')}</span>
+                      </div>
+                      <div className="team-stat">
+                        <span className="team-stat-value">{Math.round(team.kg)}</span>
+                        <span className="team-stat-label">{t('volunteer.total_kg')}</span>
+                      </div>
+                    </div>
+                    <div className="team-code-row">
+                      <span>{t('volunteer.team_code_hint')}:</span>
+                      <code className="team-code">{team.join_code}</code>
+                    </div>
                     <button className="btn-small btn-warning" disabled={teamBusy}
                       onClick={() => window.confirm(t('volunteer.team_leave_confirm')) && teamAction('leave')}>
                       {t('volunteer.team_leave')}
                     </button>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <p style={{ fontSize: '0.82rem', color: '#aaa', margin: 0 }}>{t('volunteer.team_intro')}</p>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <div className="team-join-card">
+                    <p className="team-intro">{t('volunteer.team_intro')}</p>
+                    <div className="team-join-row">
                       <input type="text" placeholder={t('volunteer.team_code_placeholder')} value={teamCode}
-                        onChange={e => setTeamCode(e.target.value.toUpperCase())} style={{ flex: 1, minWidth: 120 }} />
+                        onChange={e => setTeamCode(e.target.value.toUpperCase())} />
                       <button className="btn-small btn-success" disabled={teamBusy || !teamCode.trim()}
                         onClick={() => teamAction('join', { code: teamCode })}>
                         {t('volunteer.team_join')}
                       </button>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div className="team-join-divider"><span>{t('volunteer.team_or')}</span></div>
+                    <div className="team-join-row">
                       <input type="text" placeholder={t('volunteer.team_name_placeholder')} value={teamName}
-                        onChange={e => setTeamName(e.target.value)} style={{ flex: 1, minWidth: 120 }} />
+                        onChange={e => setTeamName(e.target.value)} />
                       <button className="btn-small" disabled={teamBusy || teamName.trim().length < 3}
                         onClick={() => teamAction('create', { name: teamName })}>
                         {t('volunteer.team_create')}
@@ -904,8 +885,6 @@ const VolunteerDashboard = () => {
                 </div>
               )}
             </div>
-            <AccountLinks dashboardPath="/volunteer" />
-            <PushToggle />
           {routes.length === 0 ? (
             <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
           ) : routes.map(r => (
@@ -919,6 +898,85 @@ const VolunteerDashboard = () => {
             ))}
           </div>
         )}
+        {activeTab === 'profile' && (
+          <div className="volunteer-tab profile-page">
+            <div className="profile-head">
+              <div className="profile-avatar">🚴</div>
+              <div className="profile-head-text">
+                <p className="profile-name">{volunteerInfo?.name || t('nav.roles.volunteer')}</p>
+                <p className="profile-role">{t('nav.roles.volunteer')}
+                  {kycStatus && (
+                    <span className={`kyc-chip kyc-${kycStatus}`}>
+                      {kycStatus === 'approved' ? `✓ ${t('volunteer.kyc_status_approved')}`
+                        : kycStatus === 'rejected' ? `✕ ${t('volunteer.kyc_status_rejected')}`
+                        : `⏳ ${t('volunteer.kyc_status_pending')}`}
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <div className="profile-section">
+              <h4>🪪 {t('volunteer.kyc_section')}</h4>
+              <p className="profile-hint">
+                {kycStatus === 'approved' ? t('volunteer.kyc_ok_hint')
+                  : kycStatus === 'rejected' ? t('volunteer.kyc_rejected_hint')
+                  : t('volunteer.kyc_pending_hint')}
+              </p>
+              <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block', width: 'auto' }}>
+                {kycBusy ? '…' : t('volunteer.kyc_upload')}
+                <input type="file" accept="image/*,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+                  onChange={(e) => { uploadKycDocument(e.target.files?.[0]); e.target.value = ''; }} />
+              </label>
+            </div>
+
+            <div className="profile-section">
+              <h4>⚙️ {t('volunteer.equipment_title')}</h4>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!!volunteerInfo?.has_thermal_bag}
+                  onChange={(e) => toggleThermalBag(e.target.checked)}
+                />
+                <span>❄️ {t('volunteer.thermal_bag')}</span>
+              </label>
+              <p className="profile-hint" style={{ marginTop: 6 }}>{t('volunteer.thermal_bag_hint')}</p>
+            </div>
+
+            <div className="profile-section">
+              <h4>🗓️ {t('volunteer.availability_title')}</h4>
+              <p className="profile-hint">{t('volunteer.availability_hint')}</p>
+              {availability.length === 0 && (
+                <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>
+              )}
+              {availability.map((w, i) => (
+                <div className="avail-row" key={i}>
+                  <select value={w.day} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, day: Number(e.target.value) } : x))}>
+                    {[0,1,2,3,4,5,6].map(d => <option key={d} value={d}>{t(`volunteer.day_${d}`)}</option>)}
+                  </select>
+                  <input type="time" value={w.start} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, start: e.target.value } : x))} />
+                  <span>—</span>
+                  <input type="time" value={w.end} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, end: e.target.value } : x))} />
+                  <button className="btn-small btn-danger" onClick={() => setAvailability(a => a.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button className="btn-small" onClick={() => setAvailability(a => [...a, { day: 1, start: '18:00', end: '21:00' }])}>+ {t('volunteer.availability_add')}</button>
+                <button className="btn-small btn-success" onClick={saveAvailability}>{t('volunteer.availability_save')}</button>
+              </div>
+            </div>
+
+            <AccountLinks dashboardPath="/volunteer" />
+            <PushToggle />
+
+            <button
+              className="profile-logout-btn"
+              onClick={() => { logout(); navigate('/'); }}
+            >
+              {t('profile.logout')}
+            </button>
+          </div>
+        )}
       </main>
 
       <nav className="mobile-nav">
@@ -926,6 +984,7 @@ const VolunteerDashboard = () => {
         <button className={activeTab === 'route' ? 'active' : ''} onClick={() => { setActiveTab('route'); fetchActiveRoute(); }}>{t('volunteer.route')}</button>
         <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('volunteer.history')}</button>
         <button className={activeTab === 'stats' ? 'active' : ''} onClick={() => { setActiveTab('stats'); fetchStats(); }}>{t('volunteer.stats')}</button>
+        <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => { setActiveTab('profile'); refreshVolunteerInfo(); }}>{t('common.profile')}</button>
       </nav>
     </div>
   );

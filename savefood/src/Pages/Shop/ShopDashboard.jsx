@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-qr-code';
 import { Html5Qrcode } from 'html5-qrcode';
@@ -28,7 +28,8 @@ const ShopDashboard = () => {
   const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [shopInfo, setShopInfo] = useState({});
-  const [photoFile, setPhotoFile] = useState(null);
+  // Photos of the lot being created: up to MAX_LOT_PHOTOS files with previews.
+  const [photoFiles, setPhotoFiles] = useState([]);
   const [editLot, setEditLot] = useState(null);
   const [labelLot, setLabelLot] = useState(null);
   const [embedCopied, setEmbedCopied] = useState(false);
@@ -37,7 +38,6 @@ const ShopDashboard = () => {
   const [pickupCode, setPickupCode] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupScanning, setPickupScanning] = useState(false);
-  const pickupScannerRef = useRef(null);
   const [plan, setPlan] = useState(null);
   const [forecast, setForecast] = useState(null);
   // OCR receipt flow: upload photo → review parsed lot drafts → confirm
@@ -306,6 +306,17 @@ const ShopDashboard = () => {
     win.document.close();
   };
 
+  const MAX_LOT_PHOTOS = 5;
+
+  const addPhotoFiles = (fileList) => {
+    const incoming = Array.from(fileList || []).filter(f => f.type.startsWith('image/'));
+    setPhotoFiles(prev => [...prev, ...incoming].slice(0, MAX_LOT_PHOTOS));
+  };
+
+  const removePhotoFile = (idx) => {
+    setPhotoFiles(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const handleCreateLot = async (e) => {
     e.preventDefault();
     if (!shopId) { alert(t('shop.error_no_shop')); return; }
@@ -317,7 +328,10 @@ const ShopDashboard = () => {
     if (newLot.address) fd.append('address', newLot.address);
     if (newLot.time_slot) fd.append('time_slot', newLot.time_slot);
     fd.append('requires_cold', String(!!newLot.requires_cold));
-    if (photoFile) fd.append('file', photoFile);
+    // Все фотографии уходят полем `files`; первое также дублируется в `file`,
+    // чтобы старый бэкенд (одно фото) продолжал принимать форму.
+    photoFiles.forEach(f => fd.append('files', f));
+    if (photoFiles[0]) fd.append('file', photoFiles[0]);
 
     try {
       const res = await fetch(`${API_URL}/shops/${shopId}/lots/upload`, {
@@ -326,13 +340,13 @@ const ShopDashboard = () => {
         body: fd,
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         alert(err.detail || t('shop.error_create'));
         return;
       }
       alert(t('shop.lot_created'));
       setNewLot({ description: '', quantity: 1, category: 'Выпечка', expiry_date: '', address: '', time_slot: '18:00 - 20:00', requires_cold: false });
-      setPhotoFile(null);
+      setPhotoFiles([]);
       fetchShopData();
       setActiveTab('active');
     } catch {
@@ -366,21 +380,15 @@ const ShopDashboard = () => {
     }
   };
 
-  const stopPickupScanner = useCallback(() => {
-    if (pickupScannerRef.current) {
-      pickupScannerRef.current.stop()
-        .then(() => { pickupScannerRef.current.clear(); pickupScannerRef.current = null; })
-        .catch(() => { pickupScannerRef.current = null; });
-    }
-  }, []);
-
   // Camera scan for the recipient's QR (SF-{id}-{secret}) — the secret is too
   // long to type, so scanning is the primary path; the text field is a fallback.
+  // stop() may only run after start() has resolved: racing them (user taps
+  // «Отмена» while the camera is warming up) threw synchronously and broke the
+  // page, so the cleanup chains onto the start promise.
   useEffect(() => {
-    if (!pickupScanning) { stopPickupScanner(); return; }
+    if (!pickupScanning) return;
     const scanner = new Html5Qrcode('pickup-qr-reader');
-    pickupScannerRef.current = scanner;
-    scanner.start(
+    const startPromise = scanner.start(
       { facingMode: 'environment' },
       { fps: 10, qrbox: 250 },
       (decodedText) => {
@@ -390,9 +398,15 @@ const ShopDashboard = () => {
         }
       },
       () => {},
-    ).catch(() => { setPickupScanning(false); });
-    return stopPickupScanner;
-  }, [pickupScanning, stopPickupScanner]);
+    );
+    startPromise.catch(() => setPickupScanning(false));
+    return () => {
+      startPromise
+        .then(() => scanner.stop())
+        .then(() => scanner.clear())
+        .catch(() => {});
+    };
+  }, [pickupScanning]);
 
   const handleConfirmTransfer = async (lotId) => {
     try {
@@ -591,10 +605,31 @@ const ShopDashboard = () => {
         />
 
         <div className="form-group">
-          <label>{t('shop.photo')}{shopInfo.kind === 'private' && ' *'}</label>
-          <input type="file" onChange={(e) => setPhotoFile(e.target.files[0])} required={shopInfo.kind === 'private'} />
+          <label>{t('shop.photos')}{shopInfo.kind === 'private' && ' *'}</label>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            onChange={(e) => { addPhotoFiles(e.target.files); e.target.value = ''; }}
+            required={shopInfo.kind === 'private' && photoFiles.length === 0}
+          />
+          <p style={{ fontSize: '0.78rem', color: '#888', margin: '4px 0 0' }}>
+            {t('shop.photos_hint', { max: MAX_LOT_PHOTOS })}
+          </p>
           {shopInfo.kind === 'private' && (
             <p style={{ fontSize: '0.78rem', color: '#FFB74D', margin: '4px 0 0' }}>{t('donor.photo_required')}</p>
+          )}
+          {photoFiles.length > 0 && (
+            <div className="photo-preview-row">
+              {photoFiles.map((f, i) => (
+                <div key={i} className="photo-preview">
+                  <img src={URL.createObjectURL(f)} alt={f.name} onLoad={(e) => URL.revokeObjectURL(e.target.src)} />
+                  <button type="button" className="photo-preview-remove" title={t('common.delete')}
+                    onClick={() => removePhotoFile(i)}>✕</button>
+                  {i === 0 && <span className="photo-preview-main">{t('shop.photo_main')}</span>}
+                </div>
+              ))}
+            </div>
           )}
         </div>
 

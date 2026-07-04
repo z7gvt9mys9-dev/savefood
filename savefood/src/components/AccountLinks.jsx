@@ -46,6 +46,16 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
     }
   }, []);
 
+  // While the Telegram deep-link is on screen and the account is still not
+  // linked, poll the status so the row flips to «привязан» by itself once the
+  // user presses Start in the bot (no manual «Обновить» needed).
+  useEffect(() => {
+    if (!tgLink || links?.telegram) return;
+    const timer = setInterval(loadLinks, 3000);
+    const stop = setTimeout(() => clearInterval(timer), 120000);
+    return () => { clearInterval(timer); clearTimeout(stop); };
+  }, [tgLink, links?.telegram]);
+
   const handleLink = async (provider) => {
     setBusy(provider);
     try {

@@ -41,6 +41,9 @@ services:
       # OAuth / Telegram account-linking (the Java /auth/telegram/* surface).
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
+      # Inbound bot: getUpdates long-polling (link/login deep-links, commands,
+      # volunteer↔recipient relay). true по умолчанию — иначе бот молчит.
+      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-true}
       SITE_URL: ${SITE_URL:-http://localhost}
       OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -55,7 +58,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
       # Timezone used to interpret recipients' available_time windows.
-      LOCAL_TZ: ${LOCAL_TZ:-Asia/Almaty}
+      LOCAL_TZ: ${LOCAL_TZ:-Europe/Moscow}
       # Maintenance ticks now run IN this service (Spring @Scheduled), replacing
       # the Python `worker`. `embedded` = run them here (the Go geows only writes
       # locations; nobody else runs these ticks, so exactly one scheduler owns them).

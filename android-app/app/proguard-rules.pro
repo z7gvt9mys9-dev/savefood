@@ -7,11 +7,11 @@
 -keepclasseswithmembers class kotlinx.serialization.json.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
--keep,includedescriptorclasses class kz.savefood.app.**$$serializer { *; }
--keepclassmembers class kz.savefood.app.** {
+-keep,includedescriptorclasses class ru.savefood.app.**$$serializer { *; }
+-keepclassmembers class ru.savefood.app.** {
     *** Companion;
 }
--keepclasseswithmembers class kz.savefood.app.** {
+-keepclasseswithmembers class ru.savefood.app.** {
     kotlinx.serialization.KSerializer serializer(...);
 }
 

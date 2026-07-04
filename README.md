@@ -141,7 +141,7 @@ BACKGROUND_TASKS=embedded
 REDIS_URL=                               # redis://host:6379/0; пусто = кэш выключен (no-op)
 
 # Прочее
-LOCAL_TZ=Asia/Almaty                     # часовой пояс окон available_time
+LOCAL_TZ=Europe/Moscow                     # часовой пояс окон available_time
 APP_PORT=80
 VLESS_URL=                               # опциональный прокси для Telegram API
 ```

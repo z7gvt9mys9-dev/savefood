@@ -21,11 +21,11 @@ fun secret(name: String): String =
     (project.findProperty(name) as String?) ?: ""
 
 android {
-    namespace = "kz.savefood.app"
+    namespace = "ru.savefood.app"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "kz.savefood.app"
+        applicationId = "ru.savefood.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

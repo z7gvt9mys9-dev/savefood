@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-qr-code';
 import { YMaps, Map, Placemark } from '@pbe/react-yandex-maps';
@@ -32,6 +33,7 @@ const CATEGORIES = ['Выпечка', 'Овощи/Фрукты', 'Готовая
 
 const NeedyDashboard = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const needyId = user?.relatedId;
 
@@ -355,6 +357,11 @@ const NeedyDashboard = () => {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
   const deleteAccount = async () => {
     if (!needyId) return;
     if (!window.confirm(t('needy.delete_confirm'))) return;
@@ -426,6 +433,10 @@ const NeedyDashboard = () => {
           <button type="button" className="btn btn-danger" onClick={deleteAccount}>{t('needy.delete_account')}</button>
         </div>
       </div>
+
+      <button type="button" className="profile-logout-btn" onClick={handleLogout}>
+        {t('profile.logout')}
+      </button>
     </div>
   );
 
@@ -508,7 +519,18 @@ const NeedyDashboard = () => {
             <div className="lot-grid">
               {group.lots.map(lot => (
                 <div key={lot.id} className="lot-card-compact">
-                  {lot.photo && (
+                  {Array.isArray(lot.photos) && lot.photos.length > 1 ? (
+                    <div className="lot-photo-strip">
+                      {lot.photos.map((p, i) => (
+                        <img
+                          key={i}
+                          src={`${API_URL}${p}`}
+                          alt={`${lot.description} ${i + 1}`}
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      ))}
+                    </div>
+                  ) : lot.photo && (
                     <img
                       src={`${API_URL}${lot.photo}`}
                       alt={lot.description}

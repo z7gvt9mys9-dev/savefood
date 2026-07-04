@@ -52,11 +52,14 @@
   padding: 0 24px;
 }
 
+/* Заголовки секций («Как это работает», «Кто может участвовать»,
+   «Контакты» и остальные) выровнены по центру страницы. */
 .about-section h2 {
   font-size: clamp(1.4rem, 3vw, 2rem);
   text-transform: uppercase;
   letter-spacing: 2px;
   margin: 0 0 36px;
+  text-align: center;
 }
 
 .about-section p {
@@ -73,6 +76,10 @@
   gap: 60px;
   align-items: center;
 }
+
+/* «Наша миссия» живёт в колонке грида — центрирование внутри полуширины
+   выглядит как сдвиг, поэтому здесь заголовок остаётся слева. */
+.about-grid-2 h2 { text-align: left; }
 
 .about-values {
   display: grid;
@@ -197,6 +204,9 @@
 .about-privacy {
   max-width: 700px;
   font-size: 0.95rem;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
 }
 
 /* ─── CTA ─── */
@@ -244,7 +254,9 @@
 }
 
 /* ─── FAQ ─── */
-.faq-list { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+/* margin: 0 auto — блок был прижат к левому краю и «съезжал»
+   относительно центрированного заголовка секции. */
+.faq-list { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; }
 .faq-item {
   background: #0a0a0a;
   border: 1px solid #555;
@@ -260,11 +272,14 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 20px;
   max-width: 760px;
+  margin: 0 auto;
 }
 .contact-item {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  align-items: center;
+  text-align: center;
 }
 .contact-label {
   font-size: 0.72rem;

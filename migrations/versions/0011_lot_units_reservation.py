@@ -8,6 +8,11 @@ Create Date: 2026-06-12 10:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 
+revision = "0011"
+down_revision = "0010"
+branch_labels = None
+depends_on = None
+
 def upgrade():
     # 1. Update lots table
     op.add_column('lots', sa.Column('unit', sa.String(), nullable=False, server_default='кг'))

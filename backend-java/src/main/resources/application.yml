@@ -2,10 +2,22 @@ server:
   # The Python backend served on 8000; the Java service takes the same port so
   # nginx routing (/admin → backend:8000) is unchanged during the migration.
   port: ${SERVER_PORT:8000}
+  tomcat:
+    # Не обрывать соединение, когда тело больше лимита — иначе браузер видит
+    # connection reset («Ошибка подключения к серверу») вместо чистого 413.
+    max-swallow-size: -1
 
 spring:
   application:
     name: savefood-backend
+  servlet:
+    multipart:
+      # Spring-дефолт 1MB рвал любую загрузку фото с телефона (фото лота,
+      # KYC-документ). Пофайловый лимит держим выше UploadService (5MB),
+      # чтобы пользователь получал внятное 413 из него, а не обрыв соединения.
+      max-file-size: 15MB
+      # До 5 фотографий лота + текстовые поля формы.
+      max-request-size: 60MB
   datasource:
     # Mirrors backend/database.py env vars (DB_HOST/DB_NAME/DB_USER/DB_PASS/DB_PORT).
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:savefood}
@@ -34,7 +46,7 @@ savefood:
   # Must match backend/auth.py SECRET_KEY (HS256). >= 32 chars or startup fails.
   jwt-secret: ${SECRET_KEY:}
   # Timezone for volunteer availability windows — backend §54 / LOCAL_TZ.
-  local-tz: ${LOCAL_TZ:Asia/Almaty}
+  local-tz: ${LOCAL_TZ:Europe/Moscow}
   # Where /volunteer_uploads delivery photos live on disk (rejected photos are
   # deleted from here). Points at the Python backend's volunteer uploads dir so
   # existing files are reachable during the migration.
@@ -69,6 +81,10 @@ savefood:
   kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
   # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27).
   support-chat-id: ${SUPPORT_CHAT_ID:}
+  # Inbound Telegram bot (TelegramBotService): getUpdates long-polling. Handles
+  # /start link_/login_ deep-links (account linking + login), /help /status
+  # /unlink /chat and the volunteer↔recipient text relay with the AI fallback.
+  telegram-polling: ${TELEGRAM_POLLING:true}
   # Optional guard on GET /metrics (mirrors METRICS_TOKEN). Empty ⇒ open scrape.
   metrics-token: ${METRICS_TOKEN:}
   # Free-form support assistant model (ai_service.py). Falls back to the OCR model.

@@ -58,10 +58,16 @@
   background: none;
   border: none;
   color: #666;
-  font-size: 0.8rem;
+  /* 5 вкладок (…, Статистика, Профиль) должны умещаться на узких экранах */
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
   text-transform: uppercase;
   font-weight: bold;
-  padding: 10px;
+  padding: 10px 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mobile-nav button.active {
@@ -288,4 +294,225 @@
   color: #4CAF50;
   border: 1px solid #4CAF5044;
   margin-bottom: 4px;
+}
+
+/* ─── Страница профиля ─── */
+.profile-page {
+  gap: 0;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.profile-avatar {
+  width: 54px;
+  height: 54px;
+  min-width: 54px;
+  border-radius: 50%;
+  background: #1c1c1c;
+  border: 1px solid #2c2c2c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+}
+
+.profile-name {
+  margin: 0 0 4px;
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.profile-role {
+  margin: 0;
+  color: #888;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kyc-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.kyc-chip.kyc-approved { background: #4CAF5022; color: #4CAF50; border: 1px solid #4CAF5044; }
+.kyc-chip.kyc-pending  { background: #FFC10722; color: #FFC107; border: 1px solid #FFC10744; }
+.kyc-chip.kyc-rejected { background: #f4433622; color: #ef5350; border: 1px solid #f4433644; }
+
+.profile-section {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+
+.profile-section h4 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.profile-hint {
+  font-size: 0.78rem;
+  color: #888;
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+
+/* Красная кнопка «Выйти» — всегда в самом низу страницы профиля. */
+.profile-logout-btn {
+  display: block;
+  width: 100%;
+  margin-top: 22px;
+  padding: 14px;
+  background: transparent;
+  border: 1px solid #e53935;
+  border-radius: 10px;
+  color: #ef5350;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.profile-logout-btn:hover {
+  background: #e53935;
+  color: #fff;
+}
+
+/* ─── Блок «Команда» ─── */
+.team-card {
+  background: linear-gradient(160deg, #10151f 0%, #0d1117 100%);
+  border: 1px solid #2196F344;
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.team-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.team-card-icon {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border-radius: 10px;
+  background: #2196F31c;
+  border: 1px solid #2196F344;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.team-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.team-card-title strong {
+  color: #90CAF9;
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+.team-card-title span { color: #8a93a5; font-size: 0.78rem; }
+
+.team-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.team-stat {
+  background: #ffffff08;
+  border: 1px solid #ffffff12;
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+}
+.team-stat-value { display: block; font-size: 1.25rem; font-weight: 700; color: #fff; }
+.team-stat-label { font-size: 0.7rem; color: #8a93a5; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.team-code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #8a93a5;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.team-code {
+  background: #2196F31c;
+  border: 1px dashed #2196F366;
+  border-radius: 6px;
+  padding: 3px 10px;
+  color: #90CAF9;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.team-join-card {
+  background: #111;
+  border: 1px solid #222;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.team-intro { font-size: 0.82rem; color: #aaa; margin: 0; line-height: 1.5; }
+
+.team-join-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.team-join-row input {
+  flex: 1;
+  min-width: 140px;
+  background: #0d0d0d;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  outline: none;
+}
+.team-join-row input:focus { border-color: #4CAF50; }
+
+.team-join-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #555;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.team-join-divider::before,
+.team-join-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #222;
 }

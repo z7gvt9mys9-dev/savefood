@@ -289,7 +289,10 @@
     "embed_title": "\"We saved food\" widget",
     "embed_hint": "Paste this code on your shop website:",
     "embed_copy": "Copy code",
-    "embed_copied": "Copied!"
+    "embed_copied": "Copied!",
+    "photos": "Lot photos",
+    "photos_hint": "You can pick up to {{max}} photos — the first one becomes the cover.",
+    "photo_main": "Cover"
   },
   "volunteer": {
     "dashboard": "Volunteer Dashboard",
@@ -395,7 +398,14 @@
     "day_3": "Thu",
     "day_4": "Fri",
     "day_5": "Sat",
-    "day_6": "Sun"
+    "day_6": "Sun",
+    "kyc_section": "Documents",
+    "kyc_ok_hint": "Identity verified — routes are available. You can upload a new document if needed.",
+    "kyc_status_approved": "Verified",
+    "kyc_status_pending": "Under review",
+    "kyc_status_rejected": "Rejected",
+    "equipment_title": "Equipment",
+    "team_or": "or"
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -557,6 +567,18 @@
     "esg_meals": "Meals provided",
     "kyc_recheck": "🔁 Re-run AI check",
     "photos": "Photos",
+    "kyc_tab": "KYC",
+    "kyc_title": "KYC moderation",
+    "kyc_hint": "The AI auto-approves confident cases; disputed, suspicious and unchecked documents are decided by a moderator.",
+    "kyc_needy": "Recipients",
+    "kyc_volunteers": "Volunteers",
+    "kyc_name": "Name",
+    "kyc_verdict": "AI verdict",
+    "kyc_notes": "Notes",
+    "kyc_view_doc": "Open document",
+    "kyc_no_doc": "No document uploaded",
+    "kyc_empty": "Queue is empty",
+    "kyc_unchecked": "Unchecked",
     "photo_queue": "Delivery photo moderation",
     "photo_hint": "Recipient photos are published to the Impact feed only after approval. AI pre-checks that the photo really shows food.",
     "publish": "Publish",
@@ -709,7 +731,11 @@
     "enabled_hint": "Notifications are on for this device — delivery updates arrive even with the tab closed.",
     "disabled_hint": "Get delivery updates right in your browser/app — no need to open Telegram.",
     "enable": "Enable notifications",
-    "disable": "Disable"
+    "disable": "Disable",
+    "enabled_badge": "Enabled",
+    "error_denied": "Notifications are blocked in the browser. Allow them for this site in browser settings and try again.",
+    "error_server": "The server rejected the subscription — please try again later.",
+    "error_generic": "Could not enable notifications. Check your connection and try again."
   },
   "onboarding": {
     "title": "First steps",
@@ -725,5 +751,8 @@
   "donor": {
     "badge": "Private donor",
     "photo_required": "Private donors must attach a photo — recipients need to see exactly what you're giving away."
+  },
+  "profile": {
+    "logout": "Log out"
   }
 }
