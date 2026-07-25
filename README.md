@@ -33,19 +33,24 @@
 
 | Слой | Технология |
 |---|---|
-| Backend | Python 3.11, FastAPI, PostgreSQL 15 |
+| Backend | Java 21, Spring Boot 3.3, JdbcTemplate + рукописный SQL, PostgreSQL 15 |
+| Схема БД | Flyway (`backend-java/src/main/resources/db/migration/`), baseline-on-migrate |
 | Микросервис горячих путей | Go 1.24 (`go-services/geows`): WebSocket-фанаут + геокоординаты |
 | Frontend | React 18, Vite, react-router-dom v7 |
 | Карты | Yandex Maps + Geosuggest/Геокодер (подсказки адресов) |
 | i18n | react-i18next (ru / en) |
-| Мобильное приложение | Capacitor 8 (Android / iOS) |
-| Уведомления | Telegram Bot (aiogram 3.x), WebSocket |
-| ИИ-помощник поддержки | Google Gemini (`backend/ai_service.py`), эскалация на админа |
-| ИИ: OCR чеков + антифрод | Gemini Vision (`backend/receipt_service.py`): позиции, категории, подлинность |
-| ИИ: Auto-KYC документов | Gemini Vision (`backend/kyc_service.py`): вердикт для очереди модерации |
-| SaaS-тарифы / ESG | `backend/billing.py` (гейтинг, квоты), `backend/esg.py` (CO₂-методология v1) |
+| Мобильное приложение | Нативный Android: Kotlin, Jetpack Compose, Hilt (`android-app/`) |
+| Уведомления | Telegram Bot (HTTP Bot API, входящий вебхук), Web Push, FCM, WebSocket |
+| ИИ-помощник поддержки | Google Gemini (`ai/AiService`), эскалация на админа |
+| ИИ: OCR чеков + антифрод | Gemini Vision (`receipt/ReceiptService`): позиции, категории, подлинность |
+| ИИ: Auto-KYC документов | Gemini Vision (`kyc/KycService`): вердикт для очереди модерации |
+| SaaS-тарифы / ESG | `billing/BillingService` (гейтинг, квоты), `esg/EsgService` (CO₂-методология v1) |
+| Кэш | Caffeine, in-process (`cache/CacheService`) |
 | Авторизация | JWT HS256, bcrypt |
 | Деплой | Docker Compose, Nginx, Cloudflare Tunnel |
+
+> Python/FastAPI-бэкенд удалён 21.06.2026 и заменён на Java. Если в каком-то
+> документе ещё встречается `backend/*.py`, `uvicorn` или `alembic` — он устарел.
 
 ---
 
@@ -64,13 +69,19 @@
 git clone https://github.com/your-username/savefood.git
 cd savefood
 
-cp .env.example .env
-# Заполнить .env (см. ниже)
+# создать .env в корне репозитория — шаблон в разделе
+# «Переменные окружения» ниже, скопируйте блок целиком и заполните значения
+$EDITOR .env
 
 docker compose up -d --build
 ```
 
+> `.env.example` в репозиторий не входит (он в `.gitignore`) — исходником для
+> `.env` служит блок ниже.
+
 Приложение будет доступно на `http://localhost` (порт меняется через `APP_PORT`).
+
+Схему БД накатит Flyway при старте бэкенда, отдельного шага миграций не нужно.
 
 ### Переменные окружения (.env)
 
@@ -81,8 +92,12 @@ POSTGRES_USER=postgres
 POSTGRES_PASSWORD=strong-password
 
 # Backend (обязательные)
-SECRET_KEY=random-string-64-chars        # python -c "import secrets; print(secrets.token_urlsafe(64))"
-CORS_ORIGIN=https://yourdomain.com       # список origins через запятую, без wildcard
+SECRET_KEY=random-string-64-chars        # openssl rand -base64 64 | tr -d '\n'
+DB_HOST=db                               # в compose — имя сервиса Postgres
+DB_PORT=5432
+DB_USER=postgres
+DB_PASS=strong-password
+DB_NAME=savefood
 
 # Frontend (Vite, передаются при сборке)
 VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-key
@@ -103,28 +118,45 @@ OCR_MODEL=                               # vision-модель для чеков
 KYC_MODEL=                               # vision-модель для документов (по умолчанию = AI_MODEL)
 PHOTO_MODEL=                             # vision-модель для модерации фото доставок (по умолчанию = AI_MODEL)
 RECEIPT_MAX_AGE_HOURS=48                 # максимальный возраст чека для антифрода
-KYC_AUTO_APPROVE=false                   # Auto-KYC v2: авто-одобрение уверенных likely_ok
-KYC_AUTO_APPROVE_SCORE=0.85              # порог скора для авто-одобрения
 PHOTO_AUTO_MODERATE=false                # авто-модерация фото ленты: одобрять уверенную еду, отклонять недопустимое
 PHOTO_AUTO_APPROVE_SCORE=0.85            # порог скора для авто-одобрения фото
+
+# KYC (§58/§58.1)
+KYC_ENCRYPTION_KEY=                      # Fernet-ключ шифрования документов at-rest;
+                                         # пусто = dev-passthrough с предупреждением в логе
+KYC_OK_THRESHOLD=0.7                     # score ≥ порога → likely_ok → авто-одобрение
+KYC_FRAUD_THRESHOLD=0.3                  # score ≤ порога → likely_fraud → авто-отказ
+                                         # между порогами → review → ручная модерация
+KYC_RETRY_BATCH=20                       # размер пачки для kycRetryTick
+KYC_DOC_RETENTION_HOURS=0                # 0 = документы не удаляются (подотчётность)
+VOLUNTEER_KYC_REQUIRED=true              # гейт: волонтёр без approved не берёт маршрут
 
 # Мониторинг (опционально)
 SENTRY_DSN=                              # ошибки в Sentry; пусто = выключено
 SENTRY_ENV=production
+SENTRY_TRACES_SAMPLE_RATE=0.05
 METRICS_TOKEN=                           # если задан, GET /metrics требует Bearer-токен
 
+# Каталоги загрузок. docker-compose задаёт их явно (тома), но дефолты в
+# application.yml всё ещё указывают на `../backend/...` — layout удалённого
+# Python-бэкенда. Для локального запуска вне Docker задайте пути сами.
+SHOP_UPLOAD_DIR=
+RECEIPT_UPLOAD_DIR=
+NEEDY_UPLOAD_DIR=
+VOLUNTEER_UPLOAD_DIR=
+VOLUNTEER_KYC_UPLOAD_DIR=
+
 # Web Push / VAPID (опционально; без ключей кнопка подписки скрыта)
-# Генерация пары:
-#   python -c "from cryptography.hazmat.primitives.asymmetric import ec; \
-# from cryptography.hazmat.primitives import serialization; import base64; \
-# k = ec.generate_private_key(ec.SECP256R1()); \
-# priv = k.private_numbers().private_value.to_bytes(32,'big'); \
-# pub = k.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint); \
-# print('VAPID_PRIVATE_KEY=' + base64.urlsafe_b64encode(priv).decode().rstrip('=')); \
-# print('VAPID_PUBLIC_KEY=' + base64.urlsafe_b64encode(pub).decode().rstrip('='))"
+# Генерация пары: npx web-push generate-vapid-keys
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
 VAPID_SUBJECT=mailto:admin@example.com
+
+# Push в Android-приложение через FCM (опционально)
+FCM_ENABLED=false
+FCM_PROJECT_ID=
+FCM_CREDENTIALS_FILE=                    # путь к service-account JSON …
+FCM_CREDENTIALS_JSON=                    # … либо сам JSON строкой
 
 # Соц-вход (опционально; кнопка появляется, только если задана пара ключей)
 GOOGLE_CLIENT_ID=...
@@ -133,16 +165,17 @@ YANDEX_CLIENT_ID=...
 YANDEX_CLIENT_SECRET=...
 OAUTH_PUBLIC_URL=                        # база для redirect_uri (по умолчанию SITE_URL)
 
-# Фоновые задачи и кэш
-# embedded (default) = циклы в API-процессе; external = отдельный контейнер worker
-# (docker-compose уже настроен: backend=external + сервис worker); off = выключено
-BACKGROUND_TASKS=embedded
-REDIS_URL=                               # redis://host:6379/0; пусто = кэш выключен (no-op)
+# Фоновые задачи
+# embedded = тики в API-процессе; off = выключено. Ровно один процесс в кластере
+# должен быть embedded, иначе тики задвоятся. В docker-compose это backend.
+BACKGROUND_TASKS_JAVA=embedded
 
 # Прочее
-LOCAL_TZ=Europe/Moscow                     # часовой пояс окон available_time
-APP_PORT=80
+LOCAL_TZ=Europe/Moscow                   # часовой пояс окон available_time
+APP_PORT=80                              # внешний порт nginx
+SERVER_PORT=8000                         # порт Java-бэкенда
 VLESS_URL=                               # опциональный прокси для Telegram API
+XRAY_BINARY=./vendor/xray                # бинарник xray для VLESS-прокси
 ```
 
 ---
@@ -151,25 +184,30 @@ VLESS_URL=                               # опциональный прокси
 
 ### Backend
 
-```bash
-# из корня репозитория
-python -m venv venv
-source venv/bin/activate
-pip install -r backend/requirements.txt
+Требуется JDK 21. Maven ставить не нужно — в репозитории лежит wrapper.
 
+```bash
 # база данных
 docker run -d --name savefood-pg -v savefood_pgdata:/var/lib/postgresql/data \
   -e POSTGRES_DB=savefood -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
   -p 5432:5432 postgres:15-alpine
 
-# сервер (SECRET_KEY и CORS_ORIGIN обязательны)
-SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(64))") \
-CORS_ORIGIN=http://localhost:3000 \
+# сервер (SECRET_KEY обязателен)
+cd backend-java
+SECRET_KEY=$(openssl rand -base64 64 | tr -d '\n') \
 DB_HOST=localhost DB_USER=postgres DB_PASS=postgres DB_NAME=savefood \
-uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
+./mvnw spring-boot:run
 ```
 
-API документация: `http://localhost:8000/docs`
+Бэкенд слушает `127.0.0.1:8000` (`SERVER_PORT`). Flyway накатывает схему на
+старте сам; на непустой базе срабатывает baseline-on-migrate и `V1__baseline.sql`
+не выполняется.
+
+CORS не настраивается: фронт и API ходят через один origin (в dev — прокси Vite,
+в проде — nginx). Отдельного `CORS_ORIGIN` в Java-бэкенде нет.
+
+Swagger UI отсутствует — springdoc не подключён. Список эндпоинтов см. ниже
+в разделе [API](#api) и в контроллерах `backend-java/src/main/java/ru/savefood/*/`.
 
 ### Frontend
 
@@ -192,7 +230,11 @@ DB_PASS=postgres DB_NAME=savefood PORT=8001 go run .
 ```
 
 Чтобы dev-прокси Vite направлял горячие пути в Go, добавьте в `savefood/.env`:
-`VITE_GO_URL=http://127.0.0.1:8001` (пусто → эти пути обслуживает Python, как раньше).
+`VITE_GO_URL=http://127.0.0.1:8001` (пусто → эти пути обслуживает Java-бэкенд).
+
+> **Контракт:** GET и PATCH одного эндпоинта обязаны идти в один сервис. У Go нет
+> Redis-клиента, а координаты кэшируются в процессе — расщепление чтений и записей
+> между geows и Java отдаёт устаревшие данные.
 
 ### Доступ с другого устройства (Cloudflare Tunnel)
 
@@ -203,34 +245,65 @@ cloudflared tunnel --url http://localhost:3000   # dev-сервер
 
 Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js` (`server.allowedHosts`). Quick-туннель живёт, пока работает процесс `cloudflared`; при перезапуске URL меняется.
 
-### Миграции (опционально)
+### Миграции (Flyway)
+
+Схема живёт в `backend-java/src/main/resources/db/migration/` и накатывается
+**автоматически при старте бэкенда** (`flyway-core` как зависимость). Отдельных
+maven-целей нет — `flyway-maven-plugin` не подключён, так что `./mvnw flyway:*`
+не сработает. Что уже применено, смотрите в самой базе:
 
 ```bash
-alembic upgrade head
+psql -d savefood -c \
+  'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank'
 ```
 
-> База данных также инициализируется автоматически при первом запуске через `CREATE TABLE IF NOT EXISTS`.
+Изменение схемы = **новый** файл `V{N}__описание.sql`. Уже применённые файлы не
+редактировать: Flyway сверяет контрольные суммы и упадёт на расхождении.
+
+> Номер версии должен быть уникален. Две миграции с одним `V{N}` git сливает
+> молча (имена файлов разные → конфликта нет), а Flyway затем падает на старте
+> с `Found more than one migration with version N`. При слиянии веток проверяйте
+> `ls backend-java/src/main/resources/db/migration/` глазами.
 
 ---
 
 ## Мобильное приложение (Android APK)
 
-```bash
-cd savefood
-npm run build
-npx cap sync android
+Клиент нативный (Kotlin + Jetpack Compose + Hilt), лежит в `android-app/` и
+собирается независимо от React-фронтенда.
 
-cd android
-./gradlew assembleDebug
+```bash
+cd android-app
+./gradlew :app:assembleDevDebug -x lint
 ```
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`
+APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
 
-**Требования:** Java 21, Android SDK 36, Gradle 8.14+
+Два флейвора по измерению `env` — они отличаются только базовым URL API:
+
+| Флейвор | API по умолчанию | Переопределение |
+|---|---|---|
+| `dev` | `http://10.0.2.2:8000` (хост из эмулятора) | `-PdevApiBaseUrl=https://…` |
+| `prod` | `https://api.savefood.kz` | `-PprodApiBaseUrl=https://…` |
+
+Например, для сборки на физическое устройство через туннель:
+
+```bash
+./gradlew :app:assembleDevDebug -PdevApiBaseUrl=https://your-tunnel.trycloudflare.com
+```
+
+**Требования:** JDK 21, Android SDK 36 (`compileSdk`/`targetSdk` = 36, `minSdk` = 26).
+Если системного JDK нет, подойдёт тот, что идёт с Android Studio:
+`JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
 
 ### SSL pinning перед релизом
 
-Перед сборкой release APK замените плейсхолдеры в `savefood/android/app/src/main/res/xml/network_security_config.xml` реальными SHA-256-пинами:
+Сейчас `android-app/app/src/main/res/xml/network_security_config.xml` **запрещает
+cleartext, но пин-сета ещё не содержит** — его добавляют, когда известны боевой
+домен и сертификат. У флейвора `dev` свой оверрайд в `android-app/app/src/dev/res/xml/`,
+разрешающий cleartext на `10.0.2.2` и `localhost`; в `prod`-сборку он не попадает.
+
+Перед релизом добавьте в `main`-конфиг `<pin-set>` с реальными SHA-256 SPKI-пинами:
 
 ```bash
 # Получить primary pin (запускать с доступом к прод-серверу)
@@ -261,47 +334,57 @@ openssl s_client -connect api.yourdomain.com:443 -servername api.yourdomain.com 
 
 ```
 savefood/
-├── backend/                 # FastAPI приложение
-│   ├── main.py              # Точка входа, CORS, фоновые циклы (expire / reassign / antifraud)
-│   ├── auth.py              # JWT, ensure_owner_or_admin
-│   ├── auth_routes.py       # /auth/login, /auth/refresh
-│   ├── limiter.py           # Rate limiting (slowapi, CF-Connecting-IP)
-│   ├── ai_service.py        # ИИ-помощник поддержки (Google Gemini API)
-│   ├── receipt_service.py   # OCR чеков + классификация + антифрод (Gemini Vision)
-│   ├── kyc_service.py       # Auto-KYC: ИИ-предпроверка документов нуждающихся
-│   ├── billing.py           # SaaS-тарифы: гейтинг OCR/ESG, квоты лотов
-│   ├── esg.py               # ESG-отчёты: CO₂-методология v1, разбивки
-│   ├── telegram_routes.py   # Бот: команды, relay-чат, ИИ-фоллбэк, webhook
-│   ├── telegram_service.py  # Отправка уведомлений в Telegram
-│   ├── proxy_service.py     # Опциональный VLESS-прокси для Telegram API
-│   ├── shop/                # Роуты, БД, схемы магазинов
-│   ├── volunteer/           # Роуты, БД, схемы волонтёров (+ маршрутизация)
-│   ├── needy/               # Роуты, БД, схемы получателей (+ WebSocket)
-│   ├── admin/               # Роуты администратора
-│   └── requirements.txt
+├── backend-java/                    # Spring Boot приложение (Java 21)
+│   ├── src/main/java/ru/savefood/
+│   │   ├── SaveFoodApplication.java # Точка входа
+│   │   ├── auth/                    # Логин, OAuth, привязка аккаунтов
+│   │   ├── security/                # JWT, фильтры, @Admin, резолверы
+│   │   ├── web/                     # ApiException, ClientIp, обработчик ошибок
+│   │   ├── shop/                    # Магазины: лоты, чеки, самовывоз
+│   │   ├── volunteer/               # Волонтёры: маршруты, 2-opt, GPS, доступность
+│   │   ├── needy/                   # Получатели: заявки, профиль, WebSocket
+│   │   ├── admin/                   # Админка: модерация, диспетчер, тарифы
+│   │   ├── match/                   # Отбор заявок по приоритетному score
+│   │   ├── background/              # Фоновые тики (expire / reassign / antifraud / TTL)
+│   │   ├── ai/ receipt/ kyc/ photo/ # Gemini: помощник, OCR, Auto-KYC, модерация фото
+│   │   ├── billing/ esg/            # Тарифы и квоты; CO₂-методология
+│   │   ├── telegram/                # Вебхук бота + исходящие уведомления
+│   │   ├── push/ webhook/           # Web Push, FCM; исходящие вебхуки партнёров
+│   │   ├── chat/                    # Чат волонтёр ↔ получатель (§53)
+│   │   ├── cache/ audit/ monitoring/# Caffeine-кэш, audit log, /metrics
+│   │   └── util/                    # Geo, Clamp, Html, FoodCategories
+│   ├── src/main/resources/
+│   │   ├── application.yml          # Вся конфигурация и ENV-плейсхолдеры
+│   │   └── db/migration/            # Flyway: V1__baseline → V2 → V3 …
+│   ├── src/test/java/ru/savefood/   # JUnit: юниты + it/ (Testcontainers)
+│   └── Dockerfile
 │
-├── savefood/                # React приложение (Vite)
+├── savefood/                        # React приложение (Vite)
 │   ├── src/
-│   │   ├── Pages/           # Shop, Volunteer, Needy, Admin, Auth, About
-│   │   ├── components/      # EmptyState, ProtectedRoute
-│   │   ├── context/         # AuthContext
-│   │   ├── i18n/            # Переводы ru/en
-│   │   └── api.js           # API_URL (VITE_API_URL)
-│   ├── android/             # Capacitor Android проект
-│   ├── nginx.conf           # Прод-прокси (rate limit, WS, security headers)
-│   ├── vite.config.js       # Dev-прокси, allowedHosts для туннеля
-│   └── capacitor.config.ts
+│   │   ├── Pages/                   # Shop, Volunteer, Needy, Admin, Auth, About
+│   │   ├── components/              # EmptyState, ProtectedRoute
+│   │   ├── context/                 # AuthContext
+│   │   ├── i18n/                    # Переводы ru/en
+│   │   ├── utils/                   # geo.js (haversine) и прочее
+│   │   └── api.js                   # API_URL (VITE_API_URL)
+│   ├── nginx.conf                   # Прод-прокси (rate limit, WS, security headers)
+│   ├── vite.config.js               # Dev-прокси, allowedHosts для туннеля
+│   └── Dockerfile
+│
+├── android-app/                     # Нативный Android (Kotlin + Compose + Hilt)
+│   └── app/src/main/java/ru/savefood/app/
+│       ├── core/                    # designsystem, datastore, device (камера, QR, GPS)
+│       └── feature/                 # Экраны по ролям
 │
 ├── go-services/
-│   └── geows/               # Go-микросервис: WS-фанаут уведомлений, геокоординаты
-│       ├── main.go          # hub с общим поллером БД, JWT (общий SECRET_KEY)
-│       └── Dockerfile       # multi-stage, ~10 MB образ
+│   └── geows/                       # Go-микросервис: WS-фанаут, геокоординаты
+│       ├── main.go                  # hub с общим поллером БД, JWT (общий SECRET_KEY)
+│       └── Dockerfile               # multi-stage, ~10 MB образ
 │
-├── migrations/              # Alembic миграции (raw SQL)
+├── scripts/                         # db_backup.sh / db_restore.sh / DEPLOY.md
+├── .github/workflows/ci.yml
 ├── docker-compose.yml
-├── Dockerfile.backend
-├── cloudflare-tunnel.sh     # Quick tunnel для внешнего доступа
-└── .env.example
+└── cloudflare-tunnel.sh             # Quick tunnel для внешнего доступа
 ```
 
 ---
@@ -332,13 +415,22 @@ savefood/
 | `GET` | `/volunteers/{id}/stats` | Статистика + достижения |
 | `PATCH` | `/volunteers/{id}/location` | Пуш координат (каждые 20 с, питает антифрод) |
 | `POST` | `/needy/{id}/ticket` | Создать заявку (доставка / самовывоз) |
-| `PATCH` | `/needy/{id}/moderation` | Одобрить/отклонить (admin) |
+| `GET` | `/tickets/{id}/messages` | Чат волонтёр ↔ получатель (§53) |
+| `POST` | `/tickets/{id}/messages` | Отправить сообщение в чат |
+| `GET` | `/admin/needy?status=pending` | Очередь модерации получателей |
+| `GET` | `/admin/volunteers?status=pending` | Очередь модерации волонтёров |
+| `PATCH` | `/admin/needy/{id}/moderation` | Ручное решение по KYC получателя |
+| `PATCH` | `/admin/volunteers/{id}/moderation` | Ручное решение по KYC волонтёра |
 | `GET` | `/admin/stats` | Статистика платформы |
 | `GET` | `/admin/esg` | ESG платформы + топ-10 магазинов |
 | `PATCH` | `/admin/shops/{id}/plan` | Сменить тариф магазина (audit log) |
+| `POST` | `/telegram/webhook` | Входящие апдейты бота (сверяет secret-токен) |
 | `WS` | `/ws/needy/{id}` | WebSocket уведомлений (auth первым сообщением) |
+| `GET` | `/healthz`, `/readyz` | Liveness / readiness |
+| `GET` | `/metrics` | Prometheus; закрыт на приватные сети + `METRICS_TOKEN` |
 
-Полная документация: `/docs` (Swagger UI)
+Swagger UI нет (springdoc не подключён) — источник правды по контракту это
+контроллеры в `backend-java/src/main/java/ru/savefood/*/` и `ARCHITECTURE.md`.
 
 ---
 
@@ -382,29 +474,50 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/
 
 ## Особенности безопасности
 
-- Документы нуждающихся скачиваются только владельцем/админом и удаляются сразу после модерации
+- **KYC-документы недоступны человеку вообще** (§58.1): шифруются at-rest (`KYC_ENCRYPTION_KEY`), расшифровываются только в память на время ИИ-проверки. Эндпоинтов выдачи документа и ре-проверки нет; очередь модерации отдаёт лишь флаг `has_document`, решение принимается по `kyc_verdict` / `kyc_score` / `kyc_notes`. По умолчанию документы не удаляются (`KYC_DOC_RETENTION_HOURS=0`) — хранятся зашифрованными для подотчётности
 - Пароли хранятся только в виде bcrypt-хеша
 - JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные (`ensure_owner_or_admin` на всех приватных эндпоинтах)
 - Подтверждение доставки: QR-код и GPS-радиус 100 м проверяются **на сервере**
 - Rate limiting на `/auth/login` и `/register`: 5 запросов в минуту с одного IP (за Cloudflare Tunnel клиент определяется по `CF-Connecting-IP`)
 - **Антифрод (волонтёры)**: если волонтёр взял лот и удаляется от магазина — авто-пинг «Всё в порядке?», при отсутствии реакции маршрут снимается и еда возвращается на витрину
 - **Антифрод (чеки)**: дубликаты по sha256 и fingerprint (магазин+дата+сумма), проверка свежести даты, ИИ-оценка подлинности фото; `fraud_score ≥ 0.7` блокирует создание лотов
-- **Auto-KYC**: ИИ предпроверяет документы нуждающихся (тип, ФИО, следы редактирования), но финальное решение принимает модератор; фото чеков и документы недоступны по публичным URL
+- **Auto-KYC**: ИИ предпроверяет документы (тип, ФИО, следы редактирования). `score ≥ KYC_OK_THRESHOLD` → авто-одобрение, `≤ KYC_FRAUD_THRESHOLD` → авто-отказ, между порогами → `review` и очередь ручной модерации. Фото чеков и документы недоступны по публичным URL
 - Заблокированный админом пользователь теряет доступ немедленно (проверка на каждом запросе)
-- **SSL pinning (mobile):** Android — `network_security_config.xml` с SHA-256 SPKI pin-set, cleartext-трафик заблокирован; iOS — `NSAppTransportSecurity` отключает `NSAllowsArbitraryLoads`, Certificate Transparency включена для прод-домена
+- **Транспорт (Android):** cleartext заблокирован в `main`-конфиге; исключение для `10.0.2.2`/`localhost` живёт только во флейворе `dev` и в `prod`-сборку не попадает. SSL pinning **ещё не настроен** — `<pin-set>` добавляется, когда будут известны боевой домен и сертификат (см. раздел выше)
 
 ---
 
 ## Тестирование
 
-Юнит-тесты: `tests/` (pytest, без БД — чистая логика: 2-opt-маршрутизация, окна `available_time`, приоритетный score, ESG-математика, антифрод чеков, биллинг-гейтинг, уровни геймификации, прогноз списаний, матчинг предпочтений, JWT/пароли, API-ключи и HMAC-подпись вебхуков, решение Auto-KYC v2, коды команд).
+**Бэкенд** — JUnit, без БД (чистая логика: 2-opt-маршрутизация, окна `available_time`,
+приоритетный score, ESG-математика, антифрод чеков, биллинг-гейтинг, уровни
+геймификации, JWT/пароли, решение Auto-KYC, QR, грузоподъёмность):
 
 ```bash
-pip install -r requirements-dev.txt
-SECRET_KEY=<32+ символов> CORS_ORIGIN=http://localhost:3000 pytest tests/ -v
+cd backend-java
+./mvnw -B clean test
 ```
 
-CI: GitHub Actions (`.github/workflows/ci.yml`) — pytest + production-сборка фронтенда + `go build`/`go vet` микросервиса geows на каждый push/PR.
+Интеграционные тесты (Testcontainers, нужен запущенный Docker) — отдельный профиль:
+
+```bash
+./mvnw -B -Pintegration verify
+```
+
+Если Testcontainers не поднимается (Docker Desktop отвергает запрошенную
+API-версию, ошибка маскируется под «Could not find a valid Docker environment»),
+можно подсунуть внешнюю базу: `SAVEFOOD_IT_JDBC_URL=jdbc:postgresql://localhost:5432/savefood_it`.
+
+**Фронтенд** — Vitest (паритет ключей ru/en, геоутилиты):
+
+```bash
+cd savefood && npm test
+```
+
+**CI** — GitHub Actions (`.github/workflows/ci.yml`), джобы запускаются по путям
+изменений: `backend-tests`, `backend-integration`, `frontend-build` (тесты +
+production-сборка), `android-build` (`:app:assembleDevDebug`), `geows-build`
+(`go build` / `go vet`).
 
 Дополнительно — сквозной runtime-смоук против живого сервера: регистрации (включая негативные 401/403/409/422), модерация, заявки, маршрут с QR/GPS-проверками, самовывоз, рейтинг, ачивки, антифрод-цикл. Сценарий описан в `savefood.md` §21.
 
@@ -434,8 +547,12 @@ CI: GitHub Actions (`.github/workflows/ci.yml`) — pytest + production-сбор
 - Кнопка OCR требует тариф «Профи»+: ответ 402 означает, что магазину нужно сменить тариф (админ → вкладка «Тарифы»)
 
 **Проблемы при сборке APK**
-- Обновите Java: `java -version` (требуется Java 21+)
-- Очистите кеш: `./gradlew clean`
+- Требуется JDK 21: `java -version`. Если системного нет — `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
+- После переименования пакетов или смены JDK чистите кеш: `./gradlew clean` — Hilt и KSP кешируют сгенерированный код и продолжают ссылаться на старые классы
+- Собирайте конкретный вариант: `./gradlew :app:assembleDevDebug -x lint`
+
+**`./mvnw` или `./gradlew`: permission denied**
+- У враппера потерян бит исполнения: `git update-index --chmod=+x backend-java/mvnw android-app/gradlew`
 
 ---
 
@@ -450,9 +567,11 @@ CI: GitHub Actions (`.github/workflows/ci.yml`) — pytest + production-сбор
 5. Откройте Pull Request с описанием изменений
 
 Перед отправкой убедитесь:
-- Код работает локально
-- Переводы добавлены для обоих языков (ru/en)
-- При изменении схемы БД добавлена/обновлена соответствующая Alembic-миграция (`0001`–`0003`, см. `savefood.md` §18)
+- Тесты проходят: `./mvnw -B clean test` в `backend-java` и `npm test` в `savefood`
+- Переводы добавлены для **обоих** языков (ru/en) — паритет ключей проверяется тестом
+- При изменении схемы БД добавлен **новый** файл `V{N}__описание.sql` в
+  `backend-java/src/main/resources/db/migration/` с уникальным номером версии.
+  Уже применённые миграции не редактировать — Flyway сверяет контрольные суммы
 
 ---
 
