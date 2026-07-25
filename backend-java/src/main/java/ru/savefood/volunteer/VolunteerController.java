@@ -31,6 +31,7 @@ import ru.savefood.volunteer.dto.TeamJoin;
 import ru.savefood.volunteer.dto.VolunteerCreate;
 import ru.savefood.volunteer.dto.VolunteerUpdate;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
 import org.springframework.beans.factory.annotation.Value;
@@ -97,7 +98,7 @@ public class VolunteerController {
 
     @PostMapping("/volunteers/register")
     public Map<String, Object> register(@RequestBody VolunteerCreate vol, HttpServletRequest request) {
-        rateLimiter.check("volunteers:register", request.getRemoteAddr(), 5);
+        rateLimiter.check("volunteers:register", ClientIp.of(request), 5);
         if (isBlank(vol.username()) || isBlank(vol.password())) {
             throw new ApiException(400, "Укажите логин и пароль");
         }
@@ -109,7 +110,7 @@ public class VolunteerController {
     public Map<String, Object> uploadDocument(@PathVariable int volunteerId,
                                               @RequestParam(required = false) MultipartFile file,
                                               @Auth CurrentUser user, HttpServletRequest request) {
-        rateLimiter.check("volunteers:document", request.getRemoteAddr(), 10);
+        rateLimiter.check("volunteers:document", ClientIp.of(request), 10);
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
         Map<String, Object> vol = repo.getVolunteerById(volunteerId);
         if (vol == null) {
@@ -275,7 +276,8 @@ public class VolunteerController {
             availabilityJson = availabilityJson(payload.availability());
         }
         Map<String, Object> updated = repo.updateVolunteer(volunteerId, payload.name(), payload.contact(),
-            payload.lat(), payload.lon(), payload.city(), payload.hasThermalBag(), availabilityJson);
+            payload.lat(), payload.lon(), payload.city(), payload.hasThermalBag(), payload.capacityKg(),
+            availabilityJson);
         if (updated == null) {
             throw new ApiException(404, "Volunteer not found");
         }

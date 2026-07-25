@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import './Header.css';
 
 const ROLE_PATHS = { shop: '/shop', volunteer: '/volunteer', needy: '/needy', admin: '/admin' };
-const LANGS = [{ code: 'ru', label: 'RU' }, { code: 'kk', label: 'KZ' }, { code: 'en', label: 'EN' }];
+const LANGS = [{ code: 'ru', label: 'RU' }, { code: 'en', label: 'EN' }];
 
 const Header = () => {
   const { user, logout } = useAuth();

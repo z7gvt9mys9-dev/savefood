@@ -10,14 +10,23 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Port of backend/background.py revert_route_lot. Releases a route's lot and
- * resolves its tickets when a route is torn down (admin reset / timeout / anti-
- * fraud). Reverts the lot FIRST, then branches on whether it came back to
- * 'active':
+ * Releases a route's lot and resolves its tickets when a route is torn down
+ * (finish / admin reset / timeout / anti-fraud).
+ *
+ * <p>First question: <b>did the volunteer already pick the food up?</b> The shop
+ * point carries that answer ({@code done}), and the two cases are genuinely
+ * different:
  * <ul>
- *   <li>revert hit → reopen the route's assigned tickets to 'open';</li>
- *   <li>revert missed (lot already confirmed/expired/removed) → cancel the
- *       tickets and notify, so they don't strand 'open' on a dead lot.</li>
+ *   <li><b>Picked up</b> — the food is in the volunteer's car. Putting the lot
+ *       back to 'active' would advertise stock the shop does not have, and would
+ *       close the shop's «Подтвердить передачу» window for good (that handler
+ *       requires 'taken'). So the lot stays 'taken' and only the undelivered
+ *       tickets are cancelled.</li>
+ *   <li><b>Not picked up</b> — the food never left the shelf, so the lot goes
+ *       back on the витрина. Then branch on whether the revert actually hit:
+ *       revert hit → reopen the assigned tickets to 'open'; revert missed (lot
+ *       meanwhile confirmed/expired/removed) → cancel them, so they don't strand
+ *       'open' on a dead lot.</li>
  * </ul>
  * Must run inside the caller's transaction (the reset endpoint is @Transactional).
  */
@@ -40,9 +49,48 @@ public class RouteRevertService {
         this.jdbc = jdbc;
     }
 
+    /**
+     * True once the volunteer confirmed pickup at the shop — the food has
+     * physically left the shelf and the lot must not go back onto the витрина.
+     */
+    static boolean pickedUp(String pointsJson, ObjectMapper mapper) {
+        if (pointsJson == null || pointsJson.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode points = mapper.readTree(pointsJson);
+            if (points != null && points.isArray()) {
+                for (JsonNode p : points) {
+                    JsonNode kind = p.get("kind");
+                    if (kind != null && "shop".equals(kind.asText())) {
+                        JsonNode done = p.get("done");
+                        return done != null && done.asBoolean(false);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // malformed points → treat as "not picked up", the conservative branch
+        }
+        return false;
+    }
+
     public void revertRouteLot(Integer lotId, String pointsJson) {
         Timestamp now = Timestamp.from(Instant.now());
         List<Integer> ticketIds = ticketIds(pointsJson);
+
+        // The food already left the shop: putting the lot back on the витрина
+        // would advertise stock that is physically in the volunteer's car, and it
+        // would also slam shut the shop's «Подтвердить передачу» window (that
+        // handler requires status='taken'). Leave the lot 'taken' and only resolve
+        // the undelivered tickets.
+        if (pickedUp(pointsJson, mapper)) {
+            for (Integer tid : ticketIds) {
+                cancelAssignedTicket(tid, now,
+                    "Заявка #" + tid + " отменена: доставка не состоялась, лот уже забран из магазина. "
+                    + "Выберите другой лот — недельный лимит не потрачен.");
+            }
+            return;
+        }
 
         boolean lotGone = false;
         if (lotId != null) {
@@ -64,19 +112,23 @@ public class RouteRevertService {
         // Lot is gone (confirmed/expired/removed): cancel the tickets and notify,
         // freeing the recipient's one-active-ticket slot (audit Q4 / §57).
         for (Integer tid : ticketIds) {
-            List<Integer> needyIds = jdbc.query(
-                "UPDATE tickets SET status = 'cancelled' WHERE id = ? AND status = 'assigned' "
-                + "RETURNING needy_id",
-                (rs, n) -> (Integer) rs.getObject("needy_id"), tid);
-            if (!needyIds.isEmpty() && needyIds.get(0) != null) {
-                jdbc.update(
-                    "INSERT INTO notifications (needy_id, type, payload, created_at, read) "
-                    + "VALUES (?, ?, ?, ?, 0)",
-                    needyIds.get(0), "ticket_cancelled",
-                    "Заявка #" + tid + " отменена: лот уже передан или снят магазином. "
-                    + "Выберите другой лот — недельный лимит не потрачен.",
-                    now);
-            }
+            cancelAssignedTicket(tid, now,
+                "Заявка #" + tid + " отменена: лот уже передан или снят магазином. "
+                + "Выберите другой лот — недельный лимит не потрачен.");
+        }
+    }
+
+    /** Cancel one still-assigned ticket and tell its recipient why. */
+    private void cancelAssignedTicket(Integer ticketId, Timestamp now, String message) {
+        List<Integer> needyIds = jdbc.query(
+            "UPDATE tickets SET status = 'cancelled' WHERE id = ? AND status = 'assigned' "
+            + "RETURNING needy_id",
+            (rs, n) -> (Integer) rs.getObject("needy_id"), ticketId);
+        if (!needyIds.isEmpty() && needyIds.get(0) != null) {
+            jdbc.update(
+                "INSERT INTO notifications (needy_id, type, payload, created_at, read) "
+                + "VALUES (?, ?, ?, ?, 0)",
+                needyIds.get(0), "ticket_cancelled", message, now);
         }
     }
 

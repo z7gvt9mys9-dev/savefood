@@ -49,6 +49,8 @@ export default defineConfig(({ mode }) => {
         '^/impact/': apiProxy,
         '^/push/': apiProxy,
         '^/api/': apiProxy,
+        // In-app ticket chat (§53) — the same path nginx used to miss.
+        '^/tickets/': apiProxy,
         '^/uploads/': apiProxy,
         '^/needy_uploads/': apiProxy,
         '^/volunteer_uploads/': apiProxy,

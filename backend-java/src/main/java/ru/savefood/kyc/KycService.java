@@ -48,8 +48,13 @@ public class KycService {
 
     private static final Logger log = Logger.getLogger(KycService.class.getName());
 
-    private static final double OK_THRESHOLD = 0.7;
-    private static final double FRAUD_THRESHOLD = 0.3;
+    // Decision bands. Above OK ⇒ auto-approve, below FRAUD ⇒ auto-reject, the
+    // middle is handed to a human moderator (PATCH /admin/{needy,volunteers}/{id}/moderation).
+    // Widening the middle band trades moderator workload for fewer wrong automatic
+    // decisions; narrowing it does the opposite. Configurable so that trade-off can
+    // be tuned per deployment without a rebuild.
+    private final double okThreshold;
+    private final double fraudThreshold;
     private static final String VERDICT_OK = "likely_ok";
     private static final String VERDICT_REVIEW = "review";
     private static final String VERDICT_FRAUD = "likely_fraud";
@@ -126,7 +131,9 @@ public class KycService {
     public KycService(JdbcTemplate jdbc, NeedyRepository repo, VolunteerRepository volunteerRepo,
                       AuditService audit, KycCrypto crypto, TelegramService telegram,
                       @Value("${savefood.gemini-api-key:}") String apiKey,
-                      @Value("${savefood.kyc-model:${savefood.ocr-model:gemini-2.5-flash}}") String model) {
+                      @Value("${savefood.kyc-model:${savefood.ocr-model:gemini-2.5-flash}}") String model,
+                      @Value("${savefood.kyc.ok-threshold:0.7}") double okThreshold,
+                      @Value("${savefood.kyc.fraud-threshold:0.3}") double fraudThreshold) {
         this.jdbc = jdbc;
         this.repo = repo;
         this.volunteerRepo = volunteerRepo;
@@ -135,6 +142,8 @@ public class KycService {
         this.telegram = telegram;
         this.apiKey = apiKey;
         this.model = model;
+        this.okThreshold = okThreshold;
+        this.fraudThreshold = fraudThreshold;
     }
 
     /** Fire-and-forget entry point, the analogue of {@code start_kyc_check}. */
@@ -356,8 +365,8 @@ public class KycService {
 
     private Scored finalize(double score, List<String> notes, JsonNode parsed) {
         score = Math.max(0.0, Math.min(1.0, Math.round(score * 100.0) / 100.0));
-        String verdict = score >= OK_THRESHOLD ? VERDICT_OK
-            : score <= FRAUD_THRESHOLD ? VERDICT_FRAUD : VERDICT_REVIEW;
+        String verdict = score >= okThreshold ? VERDICT_OK
+            : score <= fraudThreshold ? VERDICT_FRAUD : VERDICT_REVIEW;
         String summary = parsed.path("summary").asText("");
         String docType = parsed.path("document_type").asText("");
         String prefix = docType.isBlank() || "null".equals(docType) ? "" : "[" + docType + "] ";

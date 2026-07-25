@@ -119,8 +119,14 @@ coverage/
 # Build output
 savefood/build/
 
+# Внутренние документы: продуктовое видение, бизнес-модель, техкарта и аудит.
+# Намеренно не публикуются в GitHub — держатся только локально.
+# Ссылаются друг на друга, поэтому игнорируются одним блоком: вынос любого
+# одного файла в репозиторий сделает его ссылки на остальные битыми.
 CLAUDE.md
 savefood.md
+ARCHITECTURE.md
+AUDIT_2026-07-25.md
 
 # Claude Code local state (agent worktrees, settings)
 .claude/
@@ -128,4 +134,8 @@ savefood.md
 
 # Documentation
 docs/
+
+# Скомпилированный бинарник Go-микросервиса: собирается из main.go в Docker,
+# в репозитории ему делать нечего (15 МБ на коммит).
+go-services/geows/geows
 # End of file

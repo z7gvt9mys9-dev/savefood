@@ -10,6 +10,8 @@ public record VolunteerUpdate(
     Double lon,
     String city,
     Boolean hasThermalBag,
+    /** Self-declared carrying capacity in kg; null leaves it unchanged. */
+    Double capacityKg,
     List<AvailabilityWindow> availability
 ) {
 }

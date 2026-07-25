@@ -7,6 +7,16 @@ server:
     # connection reset («Ошибка подключения к серверу») вместо чистого 413.
     max-swallow-size: -1
 
+sentry:
+  # Error reporting (§39). No DSN ⇒ the SDK stays inert, so this is safe to leave
+  # configured in every environment.
+  dsn: ${SENTRY_DSN:}
+  environment: ${SENTRY_ENV:production}
+  # Sampling: every error, plus a thin slice of traces for latency context.
+  traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.05}
+  # Never ship request bodies — they carry addresses, documents and chat text.
+  send-default-pii: false
+
 spring:
   application:
     name: savefood-backend
@@ -79,12 +89,17 @@ savefood:
   background-tasks: ${BACKGROUND_TASKS_JAVA:off}
   kyc-retry-batch: ${KYC_RETRY_BATCH:100}
   kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
-  # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27).
+  # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27) and
+  # the questions the AI assistant escalates (§16).
   support-chat-id: ${SUPPORT_CHAT_ID:}
-  # Inbound Telegram bot (TelegramBotService): getUpdates long-polling. Handles
-  # /start link_/login_ deep-links (account linking + login), /help /status
-  # /unlink /chat and the volunteer↔recipient text relay with the AI fallback.
-  telegram-polling: ${TELEGRAM_POLLING:true}
+  telegram:
+    # Shared secret echoed by Telegram in X-Telegram-Bot-Api-Secret-Token on every
+    # webhook delivery. Unset ⇒ POST /telegram/webhook ignores all updates: an
+    # unauthenticated intake would let anyone forge a message from any chat id and
+    # hijack an account link. Register with
+    #   curl "https://api.telegram.org/bot<TOKEN>/setWebhook\
+    #        ?url=<PUBLIC_URL>/telegram/webhook&secret_token=<SECRET>"
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
   # Optional guard on GET /metrics (mirrors METRICS_TOKEN). Empty ⇒ open scrape.
   metrics-token: ${METRICS_TOKEN:}
   # Free-form support assistant model (ai_service.py). Falls back to the OCR model.
@@ -114,6 +129,13 @@ savefood:
   # like the Python module. Must match the Python KYC_ENCRYPTION_KEY in prod.
   kyc-encryption-key: ${KYC_ENCRYPTION_KEY:}
   kyc-model: ${KYC_MODEL:${AI_MODEL:gemini-2.5-flash}}
+  kyc:
+    # Auto-KYC decision bands: score ≥ ok ⇒ approve, ≤ fraud ⇒ reject, and the
+    # middle goes to a human via PATCH /admin/{needy,volunteers}/{id}/moderation.
+    # Widening the middle means fewer wrong automatic calls but more moderator
+    # work; narrowing it does the reverse.
+    ok-threshold: ${KYC_OK_THRESHOLD:0.7}
+    fraud-threshold: ${KYC_FRAUD_THRESHOLD:0.3}
   # Delivery photo pre-publication moderation (§36.1). Auto-moderation is opt-in:
   # confident food auto-approved, clearly inappropriate auto-rejected; otherwise
   # the photo waits in the admin queue.

@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import ru.savefood.push.PushDispatchService;
 import ru.savefood.telegram.TelegramService;
+import ru.savefood.util.FoodCategories;
 import ru.savefood.util.Html;
 import ru.savefood.volunteer.AvailabilityService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,15 +31,6 @@ import org.springframework.stereotype.Service;
 public class NeedsMatchService {
 
     private static final Logger log = Logger.getLogger(NeedsMatchService.class.getName());
-
-    private static final Map<String, List<String>> CATEGORY_KEYWORDS = Map.of(
-        "Молочные продукты", List.of("молок", "молоч", "сыр", "творог", "кефир", "йогурт", "сметан"),
-        "Выпечка", List.of("хлеб", "выпечк", "булк", "батон", "лаваш"),
-        "Овощи/Фрукты", List.of("овощ", "фрукт", "яблок", "картофел", "капуст", "морков"),
-        "Готовая еда", List.of("готовая еда", "готовой еды", "обед", "консерв", "крупа", "каш"));
-
-    private static final List<String> RESTRICTION_WORDS =
-        List.of("аллергия", "нельзя", "не ем", "без ", "непереносимость", "не могу", "запрет");
 
     private static final int MAX_NOTIFIED_PER_LOT = 20;
     private static final int MAX_VOLUNTEERS_PER_LOT = 10;
@@ -77,27 +69,13 @@ public class NeedsMatchService {
         });
     }
 
+    /**
+     * Delegates to the shared catalogue so the needs-map and the routing
+     * scorer can never drift apart again (they used to keep two different
+     * keyword tables). Kept as a static seam for the unit tests.
+     */
     static boolean matchesPreferences(String category, String preferences) {
-        List<String> kws = CATEGORY_KEYWORDS.get(category == null ? "" : category);
-        if (kws == null || preferences == null) {
-            return false;
-        }
-        boolean matched = false;
-        for (String raw : preferences.split("[.,;\\n]+")) {
-            String clause = raw.strip().toLowerCase();
-            if (clause.isEmpty()) {
-                continue;
-            }
-            boolean hasKw = kws.stream().anyMatch(clause::contains);
-            if (!hasKw) {
-                continue;
-            }
-            if (RESTRICTION_WORDS.stream().anyMatch(clause::contains)) {
-                return false; // explicit restriction beats any positive mention
-            }
-            matched = true;
-        }
-        return matched;
+        return FoodCategories.preferenceSignal(category, preferences) == FoodCategories.Signal.MATCH;
     }
 
     void notifyMatchingNeedy(int lotId) {

@@ -19,8 +19,10 @@ import ru.savefood.esg.EsgService;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.Admin;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.telegram.TelegramService;
 import ru.savefood.volunteer.AvailabilityService;
 import ru.savefood.volunteer.RouteRevertService;
+import ru.savefood.volunteer.VolunteerRepository;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -46,44 +48,143 @@ public class AdminController {
 
     private final JdbcTemplate jdbc;
     private final NeedyService needyService;
+    private final VolunteerRepository volunteerRepo;
     private final EsgService esgService;
     private final AuditService audit;
     private final RouteRevertService routeRevert;
     private final AvailabilityService availability;
+    private final TelegramService telegram;
     private final String volunteerUploadDir;
 
-    public AdminController(JdbcTemplate jdbc, NeedyService needyService, EsgService esgService,
+    public AdminController(JdbcTemplate jdbc, NeedyService needyService,
+                           VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
-                           AvailabilityService availability,
+                           AvailabilityService availability, TelegramService telegram,
                            @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir) {
         this.jdbc = jdbc;
         this.needyService = needyService;
+        this.volunteerRepo = volunteerRepo;
         this.esgService = esgService;
         this.audit = audit;
         this.routeRevert = routeRevert;
         this.availability = availability;
+        this.telegram = telegram;
         this.volunteerUploadDir = volunteerUploadDir;
     }
 
     // ── Moderation ───────────────────────────────────────────────────────────
 
+    /**
+     * Manual KYC moderation (§5) restored on top of Auto-KYC.
+     *
+     * <p>Auto-KYC keeps deciding the confident cases on its own; everything it is
+     * unsure about (verdict {@code review}) used to sit in {@code pending} forever
+     * because no human endpoint existed. These two handlers are that missing
+     * escape hatch — and they also let an admin overturn a wrong automatic
+     * decision, so the status is set unconditionally rather than guarded on
+     * {@code pending}.
+     *
+     * <p><b>The moderator never sees the document itself.</b> That is deliberate
+     * (§58.1: no human access to the file, to remove the leak path). The decision
+     * is made from what the AI extracted — {@code kyc_verdict}, {@code kyc_score}
+     * and {@code kyc_notes} (document type + summary + the reasons that moved the
+     * score) — which the queue endpoints below return.
+     */
+    @PatchMapping("/needy/{needyId}/moderation")
+    public Map<String, Object> moderateNeedy(@PathVariable int needyId,
+                                             @RequestBody ModerationDecision payload,
+                                             @Admin CurrentUser user) {
+        String status = requireDecision(payload);
+        Map<String, Object> updated = needyService.setNeedyStatusManually(needyId, status);
+        if (updated == null) {
+            throw new ApiException(404, "Needy not found");
+        }
+        audit.log(user.sub(), "kyc_manual_" + status, "needy", needyId,
+            "Ручное решение модератора: " + status + reasonSuffix(payload));
+        notifyModerationOutcome("needy", needyId, status,
+            "Ваша анкета одобрена модератором — можете создавать заявки на получение продуктов.",
+            "Документ не принят модератором. Загрузите корректный документ, подтверждающий "
+            + "право на помощь.");
+        return updated;
+    }
+
+    @PatchMapping("/volunteers/{volunteerId}/moderation")
+    public Map<String, Object> moderateVolunteer(@PathVariable int volunteerId,
+                                                 @RequestBody ModerationDecision payload,
+                                                 @Admin CurrentUser user) {
+        String status = requireDecision(payload);
+        Map<String, Object> updated = volunteerRepo.setVolunteerStatus(volunteerId, status, null);
+        if (updated == null) {
+            throw new ApiException(404, "Volunteer not found");
+        }
+        audit.log(user.sub(), "kyc_manual_" + status, "volunteer", volunteerId,
+            "Ручное решение модератора: " + status + reasonSuffix(payload));
+        notifyModerationOutcome("volunteer", volunteerId, status,
+            "Ваш аккаунт волонтёра подтверждён модератором — можно брать маршруты.",
+            "Удостоверение не принято модератором. Загрузите корректный документ, "
+            + "удостоверяющий личность, чтобы брать маршруты.");
+        return updated;
+    }
+
+    /** Moderation queue: recipients, newest first. {@code status=pending} for the backlog. */
     @GetMapping("/needy")
     public List<Map<String, Object>> listNeedy(@RequestParam(required = false) String status,
                                                @Admin CurrentUser user) {
         return needyService.getAllNeedy(status);
     }
 
-    /** Volunteer KYC moderation queue (hybrid KYC, §58): pending identity documents. */
+    /** Moderation queue: volunteers (§58). Mirrors {@link #listNeedy}. */
     @GetMapping("/volunteers")
     public List<Map<String, Object>> listVolunteers(@RequestParam(required = false) String status,
                                                     @Admin CurrentUser user) {
-        String cols = "id, name, contact, city, status, document, kyc_score, kyc_verdict, "
-            + "kyc_notes, kyc_checked_at, created_at";
+        String columns = "id, name, contact, city, status, kyc_score, kyc_verdict, kyc_notes, "
+            + "kyc_checked_at, created_at, (document IS NOT NULL) AS has_document";
         if (status != null && !status.isBlank()) {
             return jdbc.queryForList(
-                "SELECT " + cols + " FROM volunteers WHERE status = ? ORDER BY created_at DESC", status);
+                "SELECT " + columns + " FROM volunteers WHERE status = ? ORDER BY created_at DESC",
+                status);
         }
-        return jdbc.queryForList("SELECT " + cols + " FROM volunteers ORDER BY created_at DESC");
+        return jdbc.queryForList("SELECT " + columns + " FROM volunteers ORDER BY created_at DESC");
+    }
+
+    private static String requireDecision(ModerationDecision payload) {
+        String status = payload == null || payload.status() == null ? "" : payload.status().strip();
+        if (!"approved".equals(status) && !"rejected".equals(status)) {
+            throw new ApiException(422, "status должен быть 'approved' или 'rejected'");
+        }
+        return status;
+    }
+
+    private static String reasonSuffix(ModerationDecision payload) {
+        String reason = payload == null ? null : payload.reason();
+        return reason == null || reason.isBlank() ? "" : " — " + reason.strip();
+    }
+
+    /**
+     * In-app row + best-effort external ping, mirroring the Auto-KYC wording so a
+     * manual decision is indistinguishable from an automatic one to the applicant.
+     *
+     * @param role {@code "needy"} or {@code "volunteer"} — picks both the
+     *             notifications column and the Telegram fan-out target
+     */
+    private void notifyModerationOutcome(String role, int recipientId, String status,
+                                         String approvedMsg, String rejectedMsg) {
+        boolean approved = "approved".equals(status);
+        String message = approved ? approvedMsg : rejectedMsg;
+        jdbc.update(
+            "INSERT INTO notifications (" + ("needy".equals(role) ? "needy_id" : "volunteer_id")
+            + ", type, payload, created_at, read) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
+            recipientId, approved ? "moderation_approved" : "moderation_rejected", message);
+        try {
+            String prefixed = (approved ? "✅ " : "⚠️ ") + message;
+            if ("needy".equals(role)) {
+                telegram.notifyNeedy(recipientId, prefixed);
+            } else {
+                telegram.notifyVolunteer(recipientId, prefixed);
+            }
+        } catch (RuntimeException ignore) {
+            // best-effort, like the Auto-KYC path
+        }
     }
 
     // ── Delivery photo moderation (public Impact feed, §36.1) ──────────────────

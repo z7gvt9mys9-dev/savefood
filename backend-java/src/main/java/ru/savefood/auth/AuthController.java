@@ -9,6 +9,7 @@ import ru.savefood.security.CurrentUser;
 import ru.savefood.security.JwtService;
 import ru.savefood.security.PasswordService;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -56,7 +57,7 @@ public class AuthController {
     public Map<String, Object> login(@RequestParam("username") String username,
                                      @RequestParam("password") String password,
                                      HttpServletRequest request) {
-        rateLimiter.check("auth:login", request.getRemoteAddr(), 5);
+        rateLimiter.check("auth:login", ClientIp.of(request), 5);
 
         List<Map<String, Object>> rows = jdbc.query(
             "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ?",

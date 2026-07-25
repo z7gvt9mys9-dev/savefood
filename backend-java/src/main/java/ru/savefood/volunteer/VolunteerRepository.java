@@ -40,7 +40,8 @@ public class VolunteerRepository {
     }
 
     public Map<String, Object> updateVolunteer(int volId, String name, String contact, Double lat, Double lon,
-                                               String city, Boolean hasThermalBag, String availabilityJson) {
+                                               String city, Boolean hasThermalBag, Double capacityKg,
+                                               String availabilityJson) {
         Map<String, Object> v = getVolunteerById(volId);
         if (v == null) {
             return null;
@@ -51,12 +52,13 @@ public class VolunteerRepository {
         Object newLon = lon != null ? lon : v.get("lon");
         Object newCity = city != null ? city : v.get("city");
         Object newBag = hasThermalBag != null ? hasThermalBag : v.get("has_thermal_bag");
+        Object newCapacity = capacityKg != null ? capacityKg : v.get("capacity_kg");
         // availability was decoded to a node on read; fall back to the raw stored text.
         Object newAvail = availabilityJson != null ? availabilityJson : rawAvailability(volId);
         jdbc.update(
             "UPDATE volunteers SET name = ?, contact = ?, lat = ?, lon = ?, city = ?, "
-            + "has_thermal_bag = ?, availability = ? WHERE id = ?",
-            newName, newContact, newLat, newLon, newCity, newBag, newAvail, volId);
+            + "has_thermal_bag = ?, capacity_kg = ?, availability = ? WHERE id = ?",
+            newName, newContact, newLat, newLon, newCity, newBag, newCapacity, newAvail, volId);
         return getVolunteerById(volId);
     }
 

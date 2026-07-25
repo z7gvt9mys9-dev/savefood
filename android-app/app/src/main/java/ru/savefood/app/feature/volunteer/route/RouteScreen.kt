@@ -48,6 +48,7 @@ import ru.savefood.app.core.designsystem.component.SaveFoodCard
 import ru.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
 import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.StatusBadge
+import ru.savefood.app.core.device.Navigation
 import ru.savefood.app.core.device.camera.CameraPreview
 import ru.savefood.app.core.device.camera.captureToFile
 import ru.savefood.app.core.device.camera.rememberCameraPermissionState
@@ -258,6 +259,17 @@ private fun RoutePointCard(
             }
 
             if (!done) {
+                // Hand navigation to a maps app: it knows the traffic, we don't.
+                val lat = point.lat
+                val lon = point.lon
+                if (lat != null && lon != null) {
+                    val context = LocalContext.current
+                    SaveFoodOutlinedButton(
+                        text = stringResource(R.string.vol_route_navigate_btn),
+                        onClick = { Navigation.openRoute(context, listOf(lat to lon)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 if (isShop) {
                     SaveFoodButton(
                         text = stringResource(R.string.vol_route_pickup_btn),

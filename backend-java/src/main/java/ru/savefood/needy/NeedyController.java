@@ -25,6 +25,7 @@ import ru.savefood.shop.ShopRepository;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -97,7 +98,7 @@ public class NeedyController {
 
     @PostMapping("/needy/register")
     public Map<String, Object> registerNeedy(@RequestBody NeedyCreate payload, HttpServletRequest request) {
-        rateLimiter.check("needy:register", request.getRemoteAddr(), 5);
+        rateLimiter.check("needy:register", ClientIp.of(request), 5);
         // An account is mandatory: a needy row without credentials can never log in.
         if (isBlank(payload.username()) || isBlank(payload.password())) {
             throw new ApiException(400, "Укажите логин и пароль");
@@ -208,7 +209,7 @@ public class NeedyController {
     public Map<String, Object> uploadImpactPhoto(@PathVariable int needyId, @PathVariable int ticketId,
                                                  @RequestParam MultipartFile file, @Auth CurrentUser user,
                                                  HttpServletRequest request) {
-        rateLimiter.checkHourly("needy:impact_photo", request.getRemoteAddr(), 3);
+        rateLimiter.checkHourly("needy:impact_photo", ClientIp.of(request), 3);
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
 
         // Reuse the volunteer uploads directory for the public impact feed.

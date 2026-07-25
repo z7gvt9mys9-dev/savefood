@@ -370,9 +370,12 @@ public class NeedyService {
         jdbc.update("DELETE FROM notifications WHERE needy_id = ?", needyId);
         jdbc.update("DELETE FROM needy_profile WHERE needy_id = ?", needyId);
         jdbc.update("DELETE FROM users WHERE role = 'needy' AND related_id = ?", needyId);
+        // The AI's judgement about a person must not outlive the person's account:
+        // score, verdict and check timestamp go with the notes.
         jdbc.update(
             "UPDATE needy SET name = 'Удалённый аккаунт', contact = NULL, status = 'deleted', "
-            + "document = NULL, kyc_notes = NULL WHERE id = ?", needyId);
+            + "document = NULL, kyc_notes = NULL, kyc_score = NULL, kyc_verdict = NULL, "
+            + "kyc_checked_at = NULL WHERE id = ?", needyId);
         return new EraseResult(document, photos);
     }
 
@@ -393,16 +396,30 @@ public class NeedyService {
         }
     }
 
+    /**
+     * Moderation queue feed. Exposes only whether a document was uploaded, never
+     * its path: a moderator decides from the AI's extraction ({@code kyc_verdict},
+     * {@code kyc_score}, {@code kyc_notes}), and §58.1 deliberately leaves no human
+     * route to the file itself.
+     */
     public List<Map<String, Object>> getAllNeedy(String status) {
+        String select = "SELECT n.*, (np.document IS NOT NULL) AS has_document, "
+            + "np.family_size, np.city FROM needy n "
+            + "LEFT JOIN needy_profile np ON n.id = np.needy_id ";
         if (status != null && !status.isBlank()) {
-            return jdbc.queryForList(
-                "SELECT n.*, np.document FROM needy n "
-                + "LEFT JOIN needy_profile np ON n.id = np.needy_id "
-                + "WHERE n.status = ? ORDER BY n.created_at DESC", status);
+            return jdbc.queryForList(select + "WHERE n.status = ? ORDER BY n.created_at DESC", status);
         }
-        return jdbc.queryForList(
-            "SELECT n.*, np.document FROM needy n "
-            + "LEFT JOIN needy_profile np ON n.id = np.needy_id ORDER BY n.created_at DESC");
+        return jdbc.queryForList(select + "ORDER BY n.created_at DESC");
+    }
+
+    /**
+     * Unconditional status write for the admin moderation endpoint. Unlike the
+     * Auto-KYC path (which guards on {@code pending} so it can never overwrite a
+     * human decision) a moderator is allowed to overturn anything — including a
+     * wrong automatic approve or reject.
+     */
+    public Map<String, Object> setNeedyStatusManually(int needyId, String status) {
+        return repo.setNeedyStatus(needyId, status, null);
     }
 
     private static Integer asInt(Object v) {

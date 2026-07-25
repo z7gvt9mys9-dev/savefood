@@ -13,7 +13,6 @@ import ru.savefood.app.R
  */
 enum class AppLanguage(val tag: String, val labelRes: Int) {
     RU("ru", R.string.lang_ru),
-    KK("kk", R.string.lang_kk),
     EN("en", R.string.lang_en);
 
     companion object {

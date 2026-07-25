@@ -10,6 +10,7 @@ import ru.savefood.security.CurrentUser;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.util.Html;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -55,7 +56,7 @@ public class ChatController {
     @PostMapping("/tickets/{ticketId}/messages")
     public Map<String, Object> postMessage(@PathVariable int ticketId, @RequestBody MessageIn payload,
                                            @Auth CurrentUser user, HttpServletRequest request) {
-        rateLimiter.check("chat:post", request.getRemoteAddr(), 30);
+        rateLimiter.check("chat:post", ClientIp.of(request), 30);
         if (payload.body() == null || payload.body().isEmpty() || payload.body().length() > MAX_BODY) {
             throw new ApiException(422, "body: длина должна быть от 1 до " + MAX_BODY + " символов");
         }

@@ -155,7 +155,8 @@
     "profile": "Profile",
     "comment": "Comment",
     "connection_error": "Server connection error",
-    "auth_required": "Authorization required"
+    "auth_required": "Authorization required",
+    "open": "Open"
   },
   "empty": {
     "lots_title": "No lots yet",
@@ -405,7 +406,13 @@
     "kyc_status_pending": "Under review",
     "kyc_status_rejected": "Rejected",
     "equipment_title": "Equipment",
-    "team_or": "or"
+    "team_or": "or",
+    "capacity": "Carrying capacity",
+    "capacity_any": "No limit",
+    "capacity_foot": "On foot (up to 10 kg)",
+    "capacity_bike": "Bicycle (up to 25 kg)",
+    "capacity_car": "Car (up to 100 kg)",
+    "capacity_hint": "A lot is always claimed whole, so lots heavier than this will not be offered to you."
   },
   "needy": {
     "dashboard": "Recipient Dashboard",
@@ -594,7 +601,15 @@
     "heatmap_needy": "Recipients",
     "heatmap_vols": "Volunteers",
     "heatmap_gap": "Gap",
-    "heatmap_available": "Free now"
+    "heatmap_available": "Free now",
+    "kyc_hint": "Auto-KYC settles the confident cases on its own. What lands here is what the model was unsure about, plus anything you need to overturn. The document itself is never shown: the decision is made from what the model extracted.",
+    "kyc_needy": "Recipients",
+    "kyc_volunteers": "Volunteers",
+    "kyc_empty_group": "Nothing awaiting review.",
+    "kyc_family": "family",
+    "kyc_doc_present": "📎 Document uploaded",
+    "kyc_doc_missing": "⚠️ No document uploaded",
+    "kyc_unchecked": "Not checked"
   },
   "footer": {
     "tagline": "Turning surplus food into real help.",
@@ -754,5 +769,15 @@
   },
   "profile": {
     "logout": "Log out"
+  },
+  "addr": {
+    "street_placeholder": "Street and building",
+    "apartment": "Apartment",
+    "apt_placeholder": "e.g. 42",
+    "floor": "Floor",
+    "floor_placeholder": "e.g. 3",
+    "entrance": "Entrance",
+    "entrance_hint": "Helps the volunteer find you faster",
+    "entrance_placeholder": "e.g. 2"
   }
 }

@@ -30,7 +30,9 @@ import ru.savefood.shop.dto.ReceiptLotDraft;
 import ru.savefood.shop.dto.SelfPickupConfirm;
 import ru.savefood.shop.dto.ShopCreate;
 import ru.savefood.shop.dto.ShopUpdate;
+import ru.savefood.util.FoodCategories;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
 import org.springframework.beans.factory.annotation.Value;
@@ -100,7 +102,7 @@ public class ShopController {
 
     @PostMapping("/shops/register")
     public Map<String, Object> registerShop(@RequestBody ShopCreate payload, HttpServletRequest request) {
-        rateLimiter.check("shops:register", request.getRemoteAddr(), 5);
+        rateLimiter.check("shops:register", ClientIp.of(request), 5);
         if (isBlank(payload.username()) || isBlank(payload.password())) {
             throw new ApiException(400, "Укажите логин и пароль");
         }
@@ -132,7 +134,7 @@ public class ShopController {
         }
         int lotId = service.createLot(shopId, payload.description(), payload.quantity(),
             payload.expiryDate(), payload.photo(), payload.address(), payload.timeSlot(),
-            payload.category(), payload.comment(),
+            requireKnownCategory(payload.category()), payload.comment(),
             Boolean.TRUE.equals(payload.requiresCold()), unit, weight);
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
@@ -182,7 +184,8 @@ public class ShopController {
             photoUrls.add("/uploads/" + uploads.validateAndSave(f, uploadDir));
         }
         int lotId = service.createLotWithPhotos(shopId, description, quantity, parseDate(expiryDate),
-            photoUrls, address, timeSlot, category, comment, requiresCold, unit, weight);
+            photoUrls, address, timeSlot, requireKnownCategory(category), comment, requiresCold, unit,
+            weight);
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }
@@ -223,7 +226,7 @@ public class ShopController {
             newWeight = 1.0;
         }
         Map<String, Object> updated = repo.updateLot(lotId, payload.description(), payload.quantity(),
-            payload.expiryDate(), payload.address(), payload.category(), payload.comment(),
+            payload.expiryDate(), payload.address(), requireKnownCategory(payload.category()), payload.comment(),
             payload.requiresCold(), payload.unit(), newWeight);
         if (updated == null) {
             throw new ApiException(404, "Lot not found or cannot be updated");
@@ -311,7 +314,7 @@ public class ShopController {
     public Map<String, Object> uploadReceipt(@PathVariable int shopId,
                                              @RequestParam MultipartFile file,
                                              @Auth CurrentUser user, HttpServletRequest request) {
-        rateLimiter.check("shops:receipts", request.getRemoteAddr(), 10);
+        rateLimiter.check("shops:receipts", ClientIp.of(request), 10);
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         billing.requireFeature(shopId, "ocr");
@@ -498,7 +501,7 @@ public class ShopController {
     public Map<String, Object> confirmSelfPickup(@PathVariable int shopId,
                                                  @RequestBody SelfPickupConfirm payload,
                                                  @Auth CurrentUser user, HttpServletRequest request) {
-        rateLimiter.check("shops:self_pickup", request.getRemoteAddr(), 20);
+        rateLimiter.check("shops:self_pickup", ClientIp.of(request), 20);
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         String code = payload.code() == null ? "" : payload.code().strip();
         Matcher m = SF_CODE.matcher(code);
@@ -573,6 +576,24 @@ public class ShopController {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    /**
+     * Reject a category outside the shared catalogue. Free text used to be
+     * accepted, which is how the routing scorer ended up matching only some of
+     * the values the UI produces; keeping the column to a known set is what makes
+     * dietary restrictions and ESG weights reliable.
+     */
+    private static String requireKnownCategory(String category) {
+        if (category == null || category.isBlank()) {
+            return null;  // optional field — a lot may stay uncategorised
+        }
+        String value = category.strip();
+        if (!FoodCategories.isKnown(value)) {
+            throw new ApiException(422, "category должен быть одним из: "
+                + String.join(", ", FoodCategories.NAMES));
+        }
+        return value;
     }
 
     private static double resolveWeight(String unit, Double weight) {

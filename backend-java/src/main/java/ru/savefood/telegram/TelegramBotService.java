@@ -1,495 +1,386 @@
 package ru.savefood.telegram;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.URI;
-import java.net.URL;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 import ru.savefood.ai.AiService;
-import ru.savefood.proxy.ProxyService;
+import ru.savefood.chat.ChatService;
+import ru.savefood.push.PushDispatchService;
 import ru.savefood.util.Html;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Java port of backend/telegram_routes.py — the inbound side of the bot that the
- * migration had left behind (the Python webhook/aiogram poller used to fill the
- * link/login tokens; without it «Подключить Telegram» never completed and the bot
- * was silent). Long-polls {@code getUpdates} on a daemon thread and handles:
+ * The inbound half of the Telegram channel (§16), restored after the Python
+ * aiogram bot was removed with the rest of that stack.
  *
+ * <p>Without this, the whole channel was one-way and therefore dead end-to-end:
+ * {@code telegram_link_tokens} rows were minted by {@code /auth/telegram/init-link}
+ * and never redeemed, so {@code users.telegram_chat_id} could never be set for a
+ * new account — which in turn meant every outbound {@code TelegramService.notify*}
+ * had nobody to deliver to, and {@code /auth/telegram/login/poll} could never
+ * leave {@code pending}.
+ *
+ * <p>Handled updates:
  * <ul>
- *   <li>{@code /start link_<token>} — attach this chat to the SaveFood account
- *       that created the token via {@code /auth/telegram/init-link};</li>
- *   <li>{@code /start login_<token>} — confirm a pending browser login
- *       ({@code /auth/telegram/login/start} + {@code /login/poll});</li>
- *   <li>{@code /help}, {@code /status}, {@code /chat}, {@code /unlink};</li>
- *   <li>free text — relayed to the counterpart of the active delivery
- *       (volunteer ↔ recipient), otherwise answered by the AI assistant with
- *       escalation to SUPPORT_CHAT_ID.</li>
+ *   <li>{@code /start link_<token>} — redeem an account-link token: write the
+ *       sender's chat id onto the user and drop the token;</li>
+ *   <li>{@code /start login_<token>} — bind an already-linked account to a
+ *       pending login attempt, which is what the SPA is polling for;</li>
+ *   <li>{@code /start}, {@code /help}, {@code /status}, {@code /chat},
+ *       {@code /unlink};</li>
+ *   <li>any other text — relayed to the counterpart of the sender's active
+ *       delivery (§22.7), or answered by {@link AiService} with escalation to
+ *       {@code SUPPORT_CHAT_ID}.</li>
  * </ul>
  *
- * <p>Enabled when {@code TELEGRAM_POLLING=true} (default) and a bot token is set.
- * Telegram API calls go through the optional VLESS SOCKS5 proxy, mirroring
- * {@link TelegramService}.
+ * <p>Every handler is best-effort and never throws: the webhook must always
+ * answer 200, or Telegram redelivers the same update forever.
  */
 @Service
 public class TelegramBotService {
 
     private static final Logger log = Logger.getLogger(TelegramBotService.class.getName());
 
-    private static final int POLL_TIMEOUT_SECONDS = 25;
-
-    private static final String HELP_TEXT = """
-        📋 <b>Команды SaveFood-бота</b>
-
-        /start — добро пожаловать / привязать аккаунт
-        /help — это сообщение
-        /status — проверить, привязан ли аккаунт и текущий статус
-        /chat — как переписываться с волонтёром или получателем
-        /unlink — отвязать Telegram от аккаунта SaveFood
-
-        💬 Просто отправьте текст — он будет переслан вашему волонтёру/получателю \
-        при наличии активного маршрута.
-        🤖 Если активной доставки нет — на вопрос ответит ИИ-помощник, \
-        а сложные вопросы он передаст администратору.""";
+    /** Same TTL the link/login token issuers use (auth/OAuthController). */
+    private static final int TOKEN_TTL_MINUTES = 10;
 
     private final JdbcTemplate jdbc;
-    private final TelegramService telegramService;
-    private final ProxyService proxyService;
-    private final AiService aiService;
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    private final String botToken;
-    private final boolean pollingEnabled;
-    private final String siteUrl;
+    private final TelegramService telegram;
+    private final ChatService chat;
+    private final AiService ai;
+    private final PushDispatchService push;
     private final String supportChatId;
+    private final String siteUrl;
 
-    private volatile boolean running;
-    private Thread pollThread;
-
-    public TelegramBotService(JdbcTemplate jdbc, TelegramService telegramService,
-                              ProxyService proxyService, AiService aiService,
-                              @Value("${savefood.oauth.telegram-bot-token:}") String botToken,
-                              @Value("${savefood.telegram-polling:true}") boolean pollingEnabled,
-                              @Value("${savefood.oauth.public-url:http://localhost}") String siteUrl,
-                              @Value("${savefood.support-chat-id:}") String supportChatId) {
+    public TelegramBotService(JdbcTemplate jdbc, TelegramService telegram, ChatService chat,
+                              AiService ai, PushDispatchService push,
+                              @Value("${savefood.support-chat-id:}") String supportChatId,
+                              @Value("${savefood.oauth.public-url:}") String siteUrl) {
         this.jdbc = jdbc;
-        this.telegramService = telegramService;
-        this.proxyService = proxyService;
-        this.aiService = aiService;
-        this.botToken = botToken == null ? "" : botToken;
-        this.pollingEnabled = pollingEnabled;
-        this.siteUrl = siteUrl.replaceAll("/+$", "");
+        this.telegram = telegram;
+        this.chat = chat;
+        this.ai = ai;
+        this.push = push;
         this.supportChatId = supportChatId == null ? "" : supportChatId;
+        this.siteUrl = siteUrl == null ? "" : siteUrl;
     }
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────────
-
-    @PostConstruct
-    void start() {
-        if (!pollingEnabled || botToken.isEmpty()) {
-            log.info("[telegram] Bot polling disabled (TELEGRAM_POLLING=false or no token)");
-            return;
-        }
-        running = true;
-        pollThread = new Thread(this::pollLoop, "telegram-bot-poll");
-        pollThread.setDaemon(true);
-        pollThread.start();
-        log.info("[telegram] Bot long-polling started");
-    }
-
-    @PreDestroy
-    void stop() {
-        running = false;
-        if (pollThread != null) {
-            pollThread.interrupt();
-        }
-    }
-
-    private void pollLoop() {
-        registerCommands();
-        // Drop the webhook in case one was configured earlier — getUpdates and a
-        // webhook are mutually exclusive on Telegram's side.
-        api("deleteWebhook", Map.of("drop_pending_updates", false));
-        long offset = 0;
-        while (running) {
-            try {
-                Map<String, Object> req = new LinkedHashMap<>();
-                req.put("timeout", POLL_TIMEOUT_SECONDS);
-                req.put("allowed_updates", List.of("message"));
-                if (offset > 0) {
-                    req.put("offset", offset);
-                }
-                JsonNode resp = api("getUpdates", req);
-                if (resp == null || !resp.path("ok").asBoolean(false)) {
-                    Thread.sleep(3000);
-                    continue;
-                }
-                for (JsonNode update : resp.path("result")) {
-                    offset = Math.max(offset, update.path("update_id").asLong() + 1);
-                    try {
-                        handleUpdate(update);
-                    } catch (Exception e) {
-                        log.log(Level.WARNING, "[telegram] update handling failed", e);
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            } catch (Exception e) {
-                log.warning("[telegram] poll error: " + e.getMessage());
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
+    /** Entry point for one Telegram update. Never throws. */
+    public void handleUpdate(JsonNode update) {
+        try {
+            JsonNode message = update.path("message");
+            if (message.isMissingNode() || message.isNull()) {
+                return;  // edited messages, callbacks, channel posts — not used
             }
+            String chatId = message.path("chat").path("id").asText("");
+            String text = message.path("text").asText("").strip();
+            if (chatId.isEmpty() || text.isEmpty()) {
+                return;
+            }
+            dispatch(chatId, text);
+        } catch (RuntimeException e) {
+            log.warning("[telegram] update handling failed: " + e.getMessage());
         }
     }
 
-    /** Push the command menu to Telegram so it shows up in the client UI. */
-    private void registerCommands() {
-        api("setMyCommands", Map.of("commands", List.of(
-            Map.of("command", "start", "description", "Добро пожаловать / привязать аккаунт"),
-            Map.of("command", "help", "description", "Список команд"),
-            Map.of("command", "status", "description", "Статус аккаунта и активных задач"),
-            Map.of("command", "chat", "description", "Как переписываться через бота"),
-            Map.of("command", "unlink", "description", "Отвязать Telegram от SaveFood"))));
-    }
-
-    // ── Update dispatch ──────────────────────────────────────────────────────────
-
-    private void handleUpdate(JsonNode update) {
-        JsonNode message = update.path("message");
-        String text = message.path("text").asText("");
-        String chatId = message.path("chat").path("id").asText("");
-        if (chatId.isEmpty() || text.isEmpty()) {
+    private void dispatch(String chatId, String text) {
+        if (text.startsWith("/start")) {
+            String arg = text.length() > "/start".length() ? text.substring("/start".length()).strip() : "";
+            if (arg.startsWith("link_")) {
+                handleLink(chatId, arg.substring("link_".length()));
+            } else if (arg.startsWith("login_")) {
+                handleLogin(chatId, arg.substring("login_".length()));
+            } else {
+                telegram.sendMessage(chatId, greeting());
+            }
             return;
         }
-        String trimmed = text.strip();
-        if (trimmed.startsWith("/start")) {
-            handleStart(chatId, trimmed.length() > 6 ? trimmed.substring(6).strip() : "");
-        } else if (trimmed.startsWith("/help")) {
-            reply(chatId, HELP_TEXT);
-        } else if (trimmed.startsWith("/status")) {
+        if (text.startsWith("/help")) {
+            telegram.sendMessage(chatId, helpText());
+            return;
+        }
+        if (text.startsWith("/status")) {
             handleStatus(chatId);
-        } else if (trimmed.startsWith("/unlink")) {
+            return;
+        }
+        if (text.startsWith("/chat")) {
+            telegram.sendMessage(chatId,
+                "💬 Просто напишите сообщение сюда — оно уйдёт второй стороне активной доставки "
+                + "(волонтёру или получателю) и появится в чате заявки на сайте.\n\n"
+                + "Если активной доставки нет, вопрос уйдёт в поддержку.");
+            return;
+        }
+        if (text.startsWith("/unlink")) {
             handleUnlink(chatId);
-        } else if (trimmed.startsWith("/chat")) {
-            reply(chatId, "💬 Просто напишите сообщение в этот чат — оно будет переслано "
-                + "волонтёру/получателю, если у вас есть активный маршрут.");
-        } else if (trimmed.startsWith("/")) {
-            reply(chatId, "❓ Неизвестная команда. Введите /help чтобы посмотреть список команд.");
-        } else {
-            handleRelay(chatId, trimmed);
-        }
-    }
-
-    // ── /start (welcome, link_<token>, login_<token>) ────────────────────────────
-
-    private void handleStart(String chatId, String args) {
-        if (args.startsWith("link_")) {
-            handleLink(chatId, args.substring(5));
             return;
         }
-        if (args.startsWith("login_")) {
-            handleLogin(chatId, args.substring(6));
-            return;
-        }
-        reply(chatId, "👋 Добро пожаловать в <b>SaveFood</b>!\n\n"
-            + "Мы соединяем магазины, волонтёров и нуждающихся "
-            + "в единую систему распределения еды.\n\n"
-            + "🔗 <a href=\"" + siteUrl + "\">Открыть платформу</a>\n\n"
-            + "Войдите в аккаунт и подключите Telegram в настройках профиля "
-            + "для получения уведомлений.");
+        handleFreeText(chatId, text);
     }
+
+    // ── /start link_<token> ────────────────────────────────────────────────────
 
     private void handleLink(String chatId, String token) {
         List<Integer> userIds = jdbc.query(
             "SELECT user_id FROM telegram_link_tokens "
-                + "WHERE token = ? AND created_at >= NOW() - INTERVAL '10 minutes'",
-            (rs, n) -> rs.getInt("user_id"), token);
+            + "WHERE token = ? AND created_at >= NOW() - (? * INTERVAL '1 minute')",
+            (rs, n) -> rs.getInt("user_id"), token, TOKEN_TTL_MINUTES);
         if (userIds.isEmpty()) {
-            reply(chatId, "❌ Ссылка устарела или недействительна. "
-                + "Создайте новую в настройках профиля.");
+            telegram.sendMessage(chatId,
+                "⌛ Ссылка привязки устарела или уже использована. "
+                + "Откройте профиль на сайте и нажмите «Подключить Telegram» ещё раз.");
             return;
         }
-        jdbc.update("UPDATE users SET telegram_chat_id = ? WHERE id = ?", chatId, userIds.get(0));
-        jdbc.update("DELETE FROM telegram_link_tokens WHERE token = ?", token);
-        reply(chatId, "✅ <b>Telegram успешно подключён</b> к вашему аккаунту SaveFood!\n\n"
-            + "Теперь вы будете получать уведомления о доставках прямо сюда.");
+        int userId = userIds.get(0);
+        // One chat id per account: if this chat was linked to someone else, move it.
+        jdbc.update("UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ? AND id <> ?",
+            chatId, userId);
+        jdbc.update("UPDATE users SET telegram_chat_id = ? WHERE id = ?", chatId, userId);
+        jdbc.update("DELETE FROM telegram_link_tokens WHERE user_id = ?", userId);
+        telegram.sendMessage(chatId,
+            "✅ Telegram привязан. Теперь уведомления о лотах, маршрутах и доставках "
+            + "будут приходить сюда.\n\n" + helpText());
     }
+
+    // ── /start login_<token> ───────────────────────────────────────────────────
 
     private void handleLogin(String chatId, String token) {
-        Map<String, Object> user = findUserByChat(chatId);
-        if (user == null) {
-            reply(chatId, "❌ Этот Telegram не привязан ни к одному аккаунту SaveFood.\n"
-                + "Войдите на платформу по паролю и нажмите «Подключить Telegram» в профиле — "
-                + "после этого вход через Telegram заработает.");
+        Integer userId = jdbc.query(
+            "SELECT id FROM users WHERE telegram_chat_id = ?",
+            rs -> rs.next() ? rs.getInt("id") : null, chatId);
+        if (userId == null) {
+            telegram.sendMessage(chatId,
+                "🔗 Этот Telegram ещё не привязан ни к одному аккаунту, поэтому войти по нему нельзя.\n\n"
+                + "Войдите на сайте логином и паролем, откройте профиль и нажмите "
+                + "«Подключить Telegram» — после этого вход одной кнопкой заработает.");
             return;
         }
-        int confirmed = jdbc.update(
+        int updated = jdbc.update(
             "UPDATE telegram_login_tokens SET user_id = ? "
-                + "WHERE token = ? AND user_id IS NULL "
-                + "AND created_at >= NOW() - INTERVAL '10 minutes'",
-            user.get("id"), token);
-        if (confirmed > 0) {
-            reply(chatId, "✅ Вход подтверждён для аккаунта <b>"
-                + Html.escape((String) user.get("username")) + "</b>.\n"
-                + "Вернитесь на вкладку с сайтом — вы уже вошли.");
-        } else {
-            reply(chatId, "❌ Ссылка для входа устарела или уже использована. Начните вход заново.");
+            + "WHERE token = ? AND user_id IS NULL "
+            + "AND created_at >= NOW() - (? * INTERVAL '1 minute')",
+            userId, token, TOKEN_TTL_MINUTES);
+        if (updated == 0) {
+            telegram.sendMessage(chatId, "⌛ Ссылка для входа устарела — начните вход на сайте заново.");
+            return;
         }
+        telegram.sendMessage(chatId, "✅ Вход подтверждён — возвращайтесь на сайт, страница уже открылась.");
     }
 
-    // ── /status ──────────────────────────────────────────────────────────────────
+    // ── /status ────────────────────────────────────────────────────────────────
 
     private void handleStatus(String chatId) {
-        Map<String, Object> user = findUserByChat(chatId);
+        Map<String, Object> user = linkedUser(chatId);
         if (user == null) {
-            reply(chatId, "❌ Аккаунт <b>не привязан</b>.\n\n"
-                + "Войдите на <a href=\"" + siteUrl + "\">платформу</a> "
-                + "и подключите Telegram в настройках профиля.");
+            telegram.sendMessage(chatId,
+                "🔗 Этот Telegram не привязан к аккаунту SaveFood.\n"
+                + "Откройте профиль на сайте и нажмите «Подключить Telegram».");
             return;
         }
-        Map<String, String> roleLabels = Map.of(
-            "shop", "Магазин", "volunteer", "Волонтёр", "needy", "Получатель", "admin", "Администратор");
         String role = (String) user.get("role");
-        Integer relatedId = (Integer) user.get("related_id");
-        List<String> lines = new ArrayList<>();
-        lines.add("✅ Аккаунт привязан");
-        lines.add("👤 " + Html.escape((String) user.get("username"))
-            + " · " + roleLabels.getOrDefault(role, role));
-
-        if ("volunteer".equals(role) && relatedId != null) {
-            List<Integer> routes = jdbc.query(
-                "SELECT id FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' "
-                    + "ORDER BY started_at DESC LIMIT 1",
-                (rs, n) -> rs.getInt("id"), relatedId);
-            lines.add(routes.isEmpty() ? "🟢 Нет активного маршрута"
-                : "🚗 Активный маршрут #" + routes.get(0));
-        } else if ("needy".equals(role) && relatedId != null) {
-            List<Map<String, Object>> tickets = jdbc.query(
-                "SELECT id, status FROM tickets WHERE needy_id = ? AND status IN ('open','assigned') LIMIT 1",
-                (rs, n) -> Map.of("id", (Object) rs.getInt("id"), "status", (Object) rs.getString("status")),
-                relatedId);
-            if (tickets.isEmpty()) {
-                lines.add("🟢 Нет активных заявок");
-            } else {
-                String statusLabel = "assigned".equals(tickets.get(0).get("status"))
-                    ? "назначен волонтёр" : "ожидает";
-                lines.add("📦 Активная заявка #" + tickets.get(0).get("id") + " — " + statusLabel);
-            }
-        } else if ("shop".equals(role) && relatedId != null) {
-            Integer cnt = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'active'",
-                Integer.class, relatedId);
-            lines.add("🏪 Активных лотов: " + (cnt == null ? 0 : cnt));
+        Integer relatedId = user.get("related_id") instanceof Number n ? n.intValue() : null;
+        StringBuilder sb = new StringBuilder();
+        sb.append("👤 Аккаунт: <b>").append(Html.escape(String.valueOf(user.get("username"))))
+          .append("</b>\nРоль: ").append(roleLabel(role)).append('\n');
+        if (Boolean.TRUE.equals(user.get("is_blocked"))) {
+            sb.append("\n⛔ Аккаунт заблокирован администратором.");
+            telegram.sendMessage(chatId, sb.toString());
+            return;
         }
-        reply(chatId, String.join("\n", lines));
+        if (relatedId != null) {
+            switch (role == null ? "" : role) {
+                case "volunteer" -> appendVolunteerStatus(sb, relatedId);
+                case "needy" -> appendNeedyStatus(sb, relatedId);
+                case "shop" -> appendShopStatus(sb, relatedId);
+                default -> { }
+            }
+        }
+        telegram.sendMessage(chatId, sb.toString());
     }
 
-    // ── /unlink ──────────────────────────────────────────────────────────────────
+    private void appendVolunteerStatus(StringBuilder sb, int volunteerId) {
+        String status = jdbc.query("SELECT status FROM volunteers WHERE id = ?",
+            rs -> rs.next() ? rs.getString("status") : null, volunteerId);
+        sb.append("Верификация: ").append(verificationLabel(status)).append('\n');
+        Integer routeId = jdbc.query(
+            "SELECT id FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress'",
+            rs -> rs.next() ? rs.getInt("id") : null, volunteerId);
+        sb.append(routeId == null ? "Активного маршрута нет." : "🚚 Активный маршрут #" + routeId);
+    }
+
+    private void appendNeedyStatus(StringBuilder sb, int needyId) {
+        String status = jdbc.query("SELECT status FROM needy WHERE id = ?",
+            rs -> rs.next() ? rs.getString("status") : null, needyId);
+        sb.append("Анкета: ").append(verificationLabel(status)).append('\n');
+        Map<String, Object> ticket = firstRow(
+            "SELECT id, status FROM tickets WHERE needy_id = ? AND status IN ('open','assigned') "
+            + "ORDER BY id DESC LIMIT 1", needyId);
+        if (ticket == null) {
+            sb.append("Активной заявки нет.");
+        } else {
+            sb.append("📦 Заявка #").append(ticket.get("id"))
+              .append("assigned".equals(ticket.get("status")) ? " — волонтёр в пути" : " — ждёт волонтёра");
+        }
+    }
+
+    private void appendShopStatus(StringBuilder sb, int shopId) {
+        Integer active = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'active'", Integer.class, shopId);
+        Integer taken = jdbc.queryForObject(
+            "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'taken'", Integer.class, shopId);
+        sb.append("🏪 Лотов на витрине: ").append(active == null ? 0 : active)
+          .append("\nЗабрано волонтёрами: ").append(taken == null ? 0 : taken);
+    }
+
+    // ── /unlink ────────────────────────────────────────────────────────────────
 
     private void handleUnlink(String chatId) {
-        List<String> usernames = jdbc.query(
-            "UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ? RETURNING username",
-            (rs, n) -> rs.getString("username"), chatId);
-        if (usernames.isEmpty()) {
-            reply(chatId, "❓ Этот чат не был привязан ни к одному аккаунту.");
-        } else {
-            reply(chatId, "✅ Telegram отвязан от аккаунта <b>" + Html.escape(usernames.get(0))
-                + "</b>.\nУведомления больше не будут приходить сюда.");
-        }
+        int rows = jdbc.update("UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ?", chatId);
+        telegram.sendMessage(chatId, rows > 0
+            ? "🔌 Telegram отвязан. Уведомления сюда больше не придут — привязать заново можно в профиле."
+            : "Этот Telegram и так не привязан ни к одному аккаунту.");
     }
 
-    // ── Free text: relay to the delivery counterpart or the AI assistant ─────────
+    // ── free text: relay to the delivery counterpart, else support ─────────────
 
-    private void handleRelay(String chatId, String text) {
-        Map<String, Object> sender = findUserByChat(chatId);
-        if (sender == null) {
-            aiAnswerOrEscalate(chatId, text, null);
-            return;
-        }
-        String role = (String) sender.get("role");
-        Integer relatedId = (Integer) sender.get("related_id");
-        String senderName = (String) sender.get("username");
-
-        if ("volunteer".equals(role) && relatedId != null) {
-            List<String> pointsJson = jdbc.query(
-                "SELECT points FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' "
-                    + "ORDER BY started_at DESC LIMIT 1",
-                (rs, n) -> rs.getString("points"), relatedId);
-            if (pointsJson.isEmpty()) {
-                aiAnswerOrEscalate(chatId, text, sender);
+    private void handleFreeText(String chatId, String text) {
+        Map<String, Object> user = linkedUser(chatId);
+        if (user != null && !Boolean.TRUE.equals(user.get("is_blocked"))) {
+            String role = (String) user.get("role");
+            Integer relatedId = user.get("related_id") instanceof Number n ? n.intValue() : null;
+            if (relatedId != null && relayToCounterpart(chatId, role, relatedId, text)) {
                 return;
             }
-            List<Integer> needyIds = pendingNeedyIds(pointsJson.get(0));
-            if (needyIds.isEmpty()) {
-                reply(chatId, "Нет активных получателей для пересылки.");
-                return;
-            }
-            String msg = "💬 Волонтёр " + Html.escape(senderName) + ": " + Html.escape(text);
-            needyIds.stream().distinct().forEach(nid -> telegramService.notifyNeedy(nid, msg));
-            reply(chatId, "✅ Сообщение отправлено");
-            return;
         }
-
-        if ("needy".equals(role) && relatedId != null) {
-            List<Integer> volunteerIds = jdbc.query(
-                "SELECT assigned_volunteer_id FROM tickets "
-                    + "WHERE needy_id = ? AND status = 'assigned' AND assigned_volunteer_id IS NOT NULL LIMIT 1",
-                (rs, n) -> rs.getInt("assigned_volunteer_id"), relatedId);
-            if (volunteerIds.isEmpty()) {
-                aiAnswerOrEscalate(chatId, text, sender);
-                return;
-            }
-            telegramService.notifyVolunteer(volunteerIds.get(0),
-                "💬 Получатель " + Html.escape(senderName) + ": " + Html.escape(text));
-            reply(chatId, "✅ Сообщение отправлено");
-            return;
-        }
-
-        // Shops/admins have no relay counterpart — route to the AI assistant.
-        aiAnswerOrEscalate(chatId, text, sender);
-    }
-
-    /** Ticket points of the active route that are not delivered yet → needy ids. */
-    private List<Integer> pendingNeedyIds(String pointsJson) {
-        List<Integer> needyIds = new ArrayList<>();
-        try {
-            JsonNode points = mapper.readTree(pointsJson == null || pointsJson.isBlank() ? "[]" : pointsJson);
-            for (JsonNode p : points) {
-                if (!"ticket".equals(p.path("kind").asText()) || p.path("done").asBoolean(false)) {
-                    continue;
-                }
-                int ticketId = p.path("ticket_id").asInt(0);
-                if (ticketId <= 0) {
-                    continue;
-                }
-                List<Integer> ids = jdbc.query("SELECT needy_id FROM tickets WHERE id = ?",
-                    (rs, n) -> rs.getInt("needy_id"), ticketId);
-                needyIds.addAll(ids);
-            }
-        } catch (Exception e) {
-            log.warning("[telegram] points parse failed: " + e.getMessage());
-        }
-        return needyIds;
-    }
-
-    /** Free-form question → AI assistant; on ESCALATE / failure — human admin. */
-    private void aiAnswerOrEscalate(String chatId, String text, Map<String, Object> sender) {
-        String role = sender == null ? "guest" : (String) sender.get("role");
-        String username = sender == null ? null : (String) sender.get("username");
-        String answer = aiService.askSupportAi(text, role, username);
-        if (answer != null && !AiService.ESCALATE.equals(answer.strip())) {
-            reply(chatId, Html.escape(answer));
-            return;
-        }
-        if (!supportChatId.isEmpty()) {
-            String who = username != null ? role + " " + username : "гость (chat " + chatId + ")";
-            telegramService.sendMessage(supportChatId,
-                "🆘 Вопрос пользователя требует администратора\n"
-                    + "От: " + Html.escape(who) + "\n"
-                    + "Сообщение: " + Html.escape(text));
-            reply(chatId, "🤝 Я не уверен в ответе, поэтому передал ваш вопрос администратору — "
-                + "он ответит вам здесь или на платформе.");
-        } else {
-            reply(chatId, "❓ Не могу ответить на этот вопрос. Напишите в поддержку на платформе "
-                + "или используйте /help для списка команд.");
-        }
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────────
-
-    private Map<String, Object> findUserByChat(String chatId) {
-        List<Map<String, Object>> rows = jdbc.query(
-            "SELECT id, username, role, related_id FROM users WHERE telegram_chat_id = ?",
-            (rs, n) -> {
-                Map<String, Object> u = new LinkedHashMap<>();
-                u.put("id", rs.getInt("id"));
-                u.put("username", rs.getString("username"));
-                u.put("role", rs.getString("role"));
-                u.put("related_id", rs.getObject("related_id") == null ? null : rs.getInt("related_id"));
-                return u;
-            }, chatId);
-        return rows.isEmpty() ? null : rows.get(0);
-    }
-
-    /** Reply into the chat: HTML parse mode, link previews off (welcome message). */
-    private void reply(String chatId, String html) {
-        api("sendMessage", Map.of(
-            "chat_id", chatId,
-            "text", html,
-            "parse_mode", "HTML",
-            "disable_web_page_preview", true));
+        askSupport(chatId, user, text);
     }
 
     /**
-     * Bare Telegram Bot API call over {@code HttpURLConnection} (honours the SOCKS
-     * proxy, unlike the JDK HttpClient). Returns the parsed JSON or null; never throws.
+     * Forward the message to the other side of an in-flight delivery and record it
+     * in the ticket thread, so Telegram and the in-app chat (§53) are one
+     * conversation rather than two.
+     *
+     * @return true when the message was relayed
      */
-    private JsonNode api(String method, Map<String, Object> payload) {
-        if (botToken.isEmpty()) {
-            return null;
+    private boolean relayToCounterpart(String chatId, String role, int relatedId, String text) {
+        Map<String, Object> row;
+        boolean toNeedy;
+        if ("volunteer".equals(role)) {
+            // The next undelivered stop of the active route is the counterpart.
+            row = firstRow(
+                "SELECT t.id AS ticket_id, t.needy_id AS counterpart_id FROM tickets t "
+                + "JOIN volunteer_routes vr ON vr.volunteer_id = t.assigned_volunteer_id "
+                + "WHERE t.assigned_volunteer_id = ? AND t.status = 'assigned' "
+                + "AND vr.status = 'in_progress' ORDER BY t.id ASC LIMIT 1", relatedId);
+            toNeedy = true;
+        } else if ("needy".equals(role)) {
+            row = firstRow(
+                "SELECT id AS ticket_id, assigned_volunteer_id AS counterpart_id FROM tickets "
+                + "WHERE needy_id = ? AND status = 'assigned' AND assigned_volunteer_id IS NOT NULL "
+                + "ORDER BY id DESC LIMIT 1", relatedId);
+            toNeedy = false;
+        } else {
+            return false;
         }
+        if (row == null) {
+            return false;
+        }
+        int ticketId = ((Number) row.get("ticket_id")).intValue();
+        int counterpartId = ((Number) row.get("counterpart_id")).intValue();
+
+        chat.addMessage(ticketId, role, relatedId, text);
+        String safe = Html.escape(text);
         try {
-            byte[] body = mapper.writeValueAsBytes(payload);
-            URL url = URI.create("https://api.telegram.org/bot" + botToken + "/" + method).toURL();
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection(proxy());
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(10_000);
-            // Read timeout must sit above the long-poll window or getUpdates
-            // would time out client-side before Telegram responds.
-            conn.setReadTimeout((POLL_TIMEOUT_SECONDS + 10) * 1000);
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(body);
+            if (toNeedy) {
+                telegram.notifyNeedy(counterpartId, "💬 Волонтёр: " + safe);
+                push.notifyRole("needy", counterpartId, "Сообщение от волонтёра: " + text, "/needy");
+            } else {
+                telegram.notifyVolunteer(counterpartId, "💬 Получатель: " + safe);
+                push.notifyRole("volunteer", counterpartId, "Сообщение от получателя: " + text, "/volunteer");
             }
-            int status = conn.getResponseCode();
-            try (InputStream is = status >= 400 ? conn.getErrorStream() : conn.getInputStream()) {
-                JsonNode json = is == null ? null : mapper.readTree(is);
-                if (status != 200) {
-                    log.warning("[telegram] " + method + " → " + status
-                        + (json != null ? " " + json.path("description").asText("") : ""));
-                }
-                return json;
-            } finally {
-                conn.disconnect();
-            }
-        } catch (Exception e) {
-            log.warning("[telegram] " + method + " failed: " + e.getMessage());
-            return null;
+        } catch (RuntimeException ignore) {
+            // best-effort mirror; the message is already stored in the thread
         }
+        telegram.sendMessage(chatId, "✅ Отправлено (заявка #" + ticketId + ").");
+        return true;
     }
 
-    private Proxy proxy() {
-        String url = proxyService.getProxyUrl();
-        if (url == null || !url.startsWith("socks5://")) {
-            return Proxy.NO_PROXY;
+    /** Gemini answers, or the question is escalated to the support chat. */
+    private void askSupport(String chatId, Map<String, Object> user, String text) {
+        String role = user == null ? null : (String) user.get("role");
+        String username = user == null ? null : (String) user.get("username");
+        String answer = ai.askSupportAi(text, role, username);
+        if (answer != null && !AiService.ESCALATE.equals(answer.strip())) {
+            telegram.sendMessage(chatId, Html.escape(answer));
+            return;
         }
-        String hostPort = url.substring("socks5://".length());
-        int colon = hostPort.lastIndexOf(':');
-        if (colon <= 0) {
-            return Proxy.NO_PROXY;
+        if (supportChatId.isEmpty()) {
+            telegram.sendMessage(chatId,
+                "Не могу ответить на этот вопрос автоматически. Посмотрите /help — "
+                + "возможно, ответ там.");
+            return;
         }
-        String host = hostPort.substring(0, colon);
-        int port = Integer.parseInt(hostPort.substring(colon + 1));
-        return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(host, port));
+        telegram.sendMessage(supportChatId,
+            "❓ Вопрос в поддержку от " + (username == null ? "непривязанного пользователя" : Html.escape(username))
+            + " (" + roleLabel(role) + ", chat_id " + chatId + "):\n\n" + Html.escape(text));
+        telegram.sendMessage(chatId, "📨 Вопрос передан администратору — с вами свяжутся здесь же.");
     }
+
+    // ── helpers ────────────────────────────────────────────────────────────────
+
+    private Map<String, Object> linkedUser(String chatId) {
+        return firstRow(
+            "SELECT id, username, role, related_id, is_blocked FROM users WHERE telegram_chat_id = ?",
+            chatId);
+    }
+
+    private Map<String, Object> firstRow(String sql, Object... args) {
+        List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private String greeting() {
+        String site = siteUrl.isBlank() ? "https://savefood.kz" : siteUrl;
+        return "👋 Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
+            + "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
+            + site + "\n\n" + helpText();
+    }
+
+    private String helpText() {
+        return "Команды:\n"
+            + "/status — привязан ли аккаунт, активная заявка или маршрут\n"
+            + "/chat — как переписаться с волонтёром или получателем\n"
+            + "/unlink — отвязать Telegram от аккаунта\n"
+            + "/help — это сообщение\n\n"
+            + "Любое другое сообщение уйдёт второй стороне активной доставки, "
+            + "а если её нет — в поддержку.";
+    }
+
+    private static String roleLabel(String role) {
+        if (role == null) {
+            return "гость";
+        }
+        return switch (role) {
+            case "shop" -> "магазин / донор";
+            case "needy" -> "получатель";
+            case "volunteer" -> "волонтёр";
+            case "admin" -> "администратор";
+            default -> role;
+        };
+    }
+
+    private static String verificationLabel(String status) {
+        if (status == null) {
+            return "не заполнена";
+        }
+        return switch (status) {
+            case "approved" -> "✅ подтверждена";
+            case "rejected" -> "⚠️ отклонена — загрузите документ заново";
+            case "pending" -> "⏳ на проверке";
+            default -> status;
+        };
+    }
+
 }

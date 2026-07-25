@@ -5,6 +5,7 @@ import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
+import { buildNavigatorUrls, haversineMeters } from '../../utils/geo';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
@@ -25,14 +26,6 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[ch]));
 
-const haversineMeters = (lat1, lon1, lat2, lon2) => {
-  const R = 6371000;
-  const p1 = lat1 * Math.PI/180, p2 = lat2 * Math.PI/180;
-  const dp = (lat2-lat1)*Math.PI/180, dl = (lon2-lon1)*Math.PI/180;
-  const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-};
-
 const isMobileDevice = () =>
   (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
@@ -41,21 +34,29 @@ const isMobileDevice = () =>
 // Yandex Navigator deep link and fall back to web Yandex Maps if the app isn't
 // installed (the page stays visible, so the timeout fires). On desktop there is
 // no nav app, so we just open the web route — the on-site map is the real fallback.
-const openInNavigator = (lat, lon) => {
-  const webUrl = `https://yandex.ru/maps/?rtext=~${lat},${lon}&rtt=auto`;
+//
+// `stops` is the remaining itinerary, nearest first. Web Yandex Maps takes the
+// whole thing (`rtext=` accepts `~`-separated waypoints) and gives a real
+// traffic-aware route for the entire trip; the Navigator deep link only accepts
+// a single destination, so on mobile we hand it the next stop and the driver
+// re-opens it at each point.
+const openInNavigator = (stops) => {
+  const urls = buildNavigatorUrls(stops);
+  if (!urls) return;
   if (!isMobileDevice()) {
-    window.open(webUrl, '_blank', 'noopener');
+    window.open(urls.web, '_blank', 'noopener');
     return;
   }
-  const appUrl = `yandexnavi://build_route_on_map?lat_to=${lat}&lon_to=${lon}`;
+  // Try the Navigator app; if nothing takes over the page within 1.5 s it is not
+  // installed, so fall back to web maps.
   let opened = false;
   const onHide = () => { opened = true; };
   document.addEventListener('visibilitychange', onHide, { once: true });
   const fallback = setTimeout(() => {
     document.removeEventListener('visibilitychange', onHide);
-    if (!opened && document.visibilityState === 'visible') window.location.href = webUrl;
+    if (!opened && document.visibilityState === 'visible') window.location.href = urls.web;
   }, 1500);
-  window.location.href = appUrl;
+  window.location.href = urls.app;
   setTimeout(() => clearTimeout(fallback), 4000);
 };
 
@@ -290,6 +291,24 @@ const VolunteerDashboard = () => {
       });
     } catch {
       setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: !checked }));
+    }
+  };
+
+  // Carrying capacity (§14): a lot is claimed whole, so the server refuses lots
+  // heavier than this. Empty = no limit declared, which is the default.
+  const setCapacity = async (value) => {
+    if (!volunteerId) return;
+    const capacity = value === '' ? null : Number(value);
+    const previous = volunteerInfo?.capacity_kg ?? null;
+    setVolunteerInfo(v => ({ ...(v || {}), capacity_kg: capacity }));
+    try {
+      await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader },
+        body: JSON.stringify({ capacity_kg: capacity }),
+      });
+    } catch {
+      setVolunteerInfo(v => ({ ...(v || {}), capacity_kg: previous }));
     }
   };
 
@@ -581,15 +600,22 @@ const VolunteerDashboard = () => {
             </div>
 
             {(() => {
-              const dest = !isShopDone ? shopPoint : nextTicket;
-              if (!dest?.lat || !dest?.lon) return null;
+              // Everything still ahead: the shop until pickup is confirmed, then
+              // every undelivered stop in visiting order. On desktop this opens as
+              // one multi-waypoint route instead of the next point only.
+              const remaining = [
+                ...(!isShopDone && shopPoint ? [shopPoint] : []),
+                ...points.filter(p => p.kind === 'ticket' && !p.done),
+              ].filter(p => p?.lat && p?.lon);
+              if (remaining.length === 0) return null;
               return (
                 <button
                   className="btn btn-secondary btn-full"
                   style={{ marginBottom: 12 }}
-                  onClick={() => openInNavigator(dest.lat, dest.lon)}
+                  onClick={() => openInNavigator(remaining)}
                 >
                   🧭 {t('volunteer.open_navigator')}
+                  {remaining.length > 1 && !isMobileDevice() && ` (${remaining.length})`}
                 </button>
               );
             })()}
@@ -708,6 +734,52 @@ const VolunteerDashboard = () => {
         {activeTab === 'stats' && (
           <div className="volunteer-tab">
             <h3>{t('volunteer.stats')}</h3>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!volunteerInfo?.has_thermal_bag}
+                onChange={(e) => toggleThermalBag(e.target.checked)}
+              />
+              <span>❄️ {t('volunteer.thermal_bag')}</span>
+            </label>
+            <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span>🎒 {t('volunteer.capacity')}</span>
+              <select
+                value={volunteerInfo?.capacity_kg ?? ''}
+                onChange={(e) => setCapacity(e.target.value)}
+              >
+                <option value="">{t('volunteer.capacity_any')}</option>
+                <option value="10">{t('volunteer.capacity_foot')}</option>
+                <option value="25">{t('volunteer.capacity_bike')}</option>
+                <option value="100">{t('volunteer.capacity_car')}</option>
+              </select>
+            </label>
+            <p style={{ fontSize: '0.78rem', color: '#888', marginBottom: 14 }}>{t('volunteer.capacity_hint')}</p>
+
+            <div style={{ background: '#1a1a26', border: '1px solid #2a2a3a', borderRadius: 12, padding: 12, marginBottom: 16 }}>
+              <h4 style={{ margin: '0 0 4px' }}>🗓️ {t('volunteer.availability_title')}</h4>
+              <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 10px' }}>{t('volunteer.availability_hint')}</p>
+              {availability.length === 0 && (
+                <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>
+              )}
+              {availability.map((w, i) => (
+                <div className="avail-row" key={i}>
+                  <select value={w.day} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, day: Number(e.target.value) } : x))}>
+                    {[0,1,2,3,4,5,6].map(d => <option key={d} value={d}>{t(`volunteer.day_${d}`)}</option>)}
+                  </select>
+                  <input type="time" value={w.start} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, start: e.target.value } : x))} />
+                  <span>—</span>
+                  <input type="time" value={w.end} onChange={e => setAvailability(a => a.map((x, j) => j === i ? { ...x, end: e.target.value } : x))} />
+                  <button className="btn-small btn-danger" onClick={() => setAvailability(a => a.filter((_, j) => j !== i))}>✕</button>
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button className="btn-small" onClick={() => setAvailability(a => [...a, { day: 1, start: '18:00', end: '21:00' }])}>+ {t('volunteer.availability_add')}</button>
+                <button className="btn-small btn-success" onClick={saveAvailability}>{t('volunteer.availability_save')}</button>
+              </div>
+            </div>
             {!stats ? (
               <p className="empty-msg">{t('common.loading')}</p>
             ) : (

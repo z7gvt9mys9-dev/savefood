@@ -7,17 +7,20 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import ru.savefood.esg.EsgService;
 import ru.savefood.gamification.Gamification;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.PasswordService;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.util.Clamp;
+import ru.savefood.util.FoodCategories;
 import ru.savefood.util.Html;
 import ru.savefood.util.JoinCode;
 import ru.savefood.util.Qr;
@@ -53,16 +56,6 @@ public class VolunteerService {
     static final int MAX_DELIVERY_ATTEMPTS = 3;
     static final int DELIVERY_WINDOW_HORIZON_MIN = 120;
     static final int ROUTE_HARD_CAP = 20;
-
-    private static final Map<String, String[]> CAT_KEYWORDS = Map.of(
-        "молочные", new String[]{"молок", "лактоз", "сыр", "творог", "кефир", "йогурт", "сметан"},
-        "выпечка", new String[]{"глютен", "мука", "хлеб", "пшениц", "злак"},
-        "мясо", new String[]{"мяс", "свинин", "говяд", "курин", "баранин"},
-        "рыба", new String[]{"рыб", "морепродукт"},
-        "орехи", new String[]{"орех", "арахис"});
-    private static final String[] RESTRICTION_WORDS =
-        {"аллергия", "нельзя", "не ем", "без ", "непереносимость", "не могу", "запрет"};
-    private static final Pattern CLAUSE_SPLIT = Pattern.compile("[.,;\\n]+");
 
     static final double COARSE_GRID_DEG = 0.005;
 
@@ -146,6 +139,15 @@ public class VolunteerService {
             throw new ApiException(400,
                 "Этот лот требует холодильник — отметьте «есть термосумка» в профиле, чтобы взять его");
         }
+        // Carrying capacity (§14): a lot is claimed whole, so refuse one the
+        // volunteer cannot physically carry. Undeclared capacity ⇒ no limit.
+        double lotKg = lotWeightKg(lot);
+        if (vol.get("capacity_kg") instanceof Number capacity && capacity.doubleValue() > 0
+                && lotKg > capacity.doubleValue()) {
+            throw new ApiException(400, String.format(
+                "Лот весит около %.0f кг — больше вашей грузоподъёмности (%.0f кг). "
+                + "Измените её в профиле или выберите лот полегче.", lotKg, capacity.doubleValue()));
+        }
 
         // Open delivery tickets for THIS lot only (§3.2).
         List<Map<String, Object>> tickets = jdbc.queryForList(
@@ -163,10 +165,7 @@ public class VolunteerService {
                 : "На этот лот пока нет заявок на доставку — маршрут не создан");
         }
 
-        String lotCategory = str(lot.get("category"), "").toLowerCase();
-        String[] relevantKws = CAT_KEYWORDS.entrySet().stream()
-            .filter(e -> lotCategory.contains(e.getKey()))
-            .map(Map.Entry::getValue).findFirst().orElse(new String[0]);
+        String lotCategory = str(lot.get("category"), "");
 
         // Pre-load profiles + scores once (the greedy loop is O(n²)).
         Map<Integer, Map<String, Object>> profiles = new LinkedHashMap<>();
@@ -176,7 +175,7 @@ public class VolunteerService {
             profiles.computeIfAbsent(nid, this::loadProfile);
         }
         for (Map<String, Object> t : tickets) {
-            scores.put(((Number) t.get("id")).intValue(), computeScore(t, profiles, relevantKws));
+            scores.put(((Number) t.get("id")).intValue(), computeScore(t, profiles, lotCategory));
         }
 
         // §59/Q2: serve as many as fit (default = ROUTE_HARD_CAP), not a fixed 10.
@@ -417,9 +416,12 @@ public class VolunteerService {
                 if (shopLat != null && shopLon != null && p.get("lat") != null && p.get("lon") != null) {
                     double distKm = haversine(num(shopLat), num(shopLon), num(p.get("lat")), num(p.get("lon")));
                     int etaMin = Math.max(5, (int) (distKm / 30 * 60) + 5);
-                    // Python formats the ETA off datetime.now(timezone.utc) — keep UTC for parity.
-                    OffsetDateTime arrival = OffsetDateTime.now(ZoneOffset.UTC).plusMinutes(etaMin);
-                    OffsetDateTime arrivalEnd = arrival.plusMinutes(30);
+                    // LOCAL_TZ, not UTC: this string is read by a person deciding
+                    // whether to be home ("с 14:00 до 15:00"). The Python original
+                    // formatted it off datetime.now(timezone.utc), which in
+                    // Asia/Almaty announced an arrival 5–6 hours in the past.
+                    ZonedDateTime arrival = ZonedDateTime.now(zone).plusMinutes(etaMin);
+                    ZonedDateTime arrivalEnd = arrival.plusMinutes(30);
                     etaText = " с " + hhmm(arrival) + " до " + hhmm(arrivalEnd);
                 }
                 int needyId = ((Number) t.get("needy_id")).intValue();
@@ -524,7 +526,7 @@ public class VolunteerService {
             "SELECT COUNT(t.id) FROM tickets t JOIN volunteers v ON v.id = t.assigned_volunteer_id "
             + "WHERE v.team_id = ? AND t.status = 'fulfilled'", Long.class, teamId);
         Double kg = jdbc.queryForObject(
-            "SELECT COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) FROM volunteer_routes vr "
+            "SELECT COALESCE(SUM(" + EsgService.RESCUED_KG_SQL + "), 0) FROM volunteer_routes vr "
             + "JOIN lots l ON l.id = vr.lot_id JOIN volunteers v ON v.id = vr.volunteer_id "
             + "WHERE v.team_id = ? AND vr.status = 'finished'", Double.class, teamId);
         Map<String, Object> out = new LinkedHashMap<>(team);
@@ -666,7 +668,7 @@ public class VolunteerService {
             "SELECT COUNT(*) FROM tickets WHERE assigned_volunteer_id = ? AND status = 'fulfilled'",
             Long.class, volId));
         double totalKg = num(jdbc.queryForObject(
-            "SELECT COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) FROM volunteer_routes vr "
+            "SELECT COALESCE(SUM(" + EsgService.RESCUED_KG_SQL + "), 0) FROM volunteer_routes vr "
             + "JOIN lots l ON l.id = vr.lot_id WHERE vr.volunteer_id = ? AND vr.status = 'finished'",
             Double.class, volId));
         Map<String, Object> ratingRow = one(
@@ -741,56 +743,33 @@ public class VolunteerService {
 
     // ── selection / scoring ──────────────────────────────────────────────────────
 
-    private double computeScore(Map<String, Object> t, Map<Integer, Map<String, Object>> profiles, String[] kws) {
+    /**
+     * Priority of one ticket when the lot cannot serve everyone (§6).
+     *
+     * <p>All terms are facts the platform can verify: how long the request has
+     * waited, how many mouths it feeds, how long since this recipient last got
+     * help, and how often they have already been displaced by someone else's
+     * claim. Self-declared urgency used to add up to +10 here and was dropped
+     * deliberately — unverifiable, so the rational move was to always claim
+     * "critical", which made the field a constant for strategic users and a
+     * penalty for honest ones. It is still stored and shown, just not ranked on.
+     */
+    private double computeScore(Map<String, Object> t, Map<Integer, Map<String, Object>> profiles,
+                                String lotCategory) {
         Map<String, Object> profile = profiles.getOrDefault(((Number) t.get("needy_id")).intValue(), Map.of());
         long ageDays = daysSince(t.get("created_at"));
         // Python `profile.get('family_size') or 1`: None/0 → 1.
         long family = profile.get("family_size") instanceof Number n && n.longValue() != 0 ? n.longValue() : 1;
-        int urg = switch (str(profile.get("urgency"), "").toLowerCase()) {
-            case "low" -> 0;
-            case "high" -> 3;
-            case "critical" -> 5;
-            default -> 1;
-        };
         long daysNoHelp = profile.get("last_received_at") != null ? daysSince(profile.get("last_received_at")) : 0;
         long displaced = profile.get("displaced_count") instanceof Number n ? n.longValue() : 0;
         // §59/Q3 + Q1-C weighting.
-        double score = ageDays * 1.5 + family * 1.0 + urg * 2.0 + daysNoHelp * 3.0 + displaced * 3.0;
+        double score = ageDays * 1.5 + family * 1.0 + daysNoHelp * 3.0 + displaced * 3.0;
 
-        if (kws.length > 0) {
-            String prefs = str(profile.get("preferences"), "").toLowerCase();
-            if (!prefs.isEmpty()) {
-                boolean anyClauseWithCat = false;
-                boolean conflict = false;
-                for (String c : CLAUSE_SPLIT.split(prefs)) {
-                    String clause = c.strip();
-                    if (clause.isEmpty()) {
-                        continue;
-                    }
-                    boolean hasCat = false;
-                    for (String kw : kws) {
-                        if (clause.contains(kw)) {
-                            hasCat = true;
-                            break;
-                        }
-                    }
-                    if (!hasCat) {
-                        continue;
-                    }
-                    anyClauseWithCat = true;
-                    for (String rw : RESTRICTION_WORDS) {
-                        if (clause.contains(rw)) {
-                            conflict = true;
-                            break;
-                        }
-                    }
-                }
-                if (anyClauseWithCat) {
-                    score += conflict ? -8.0 : 2.0;
-                }
-            }
-        }
-        return score;
+        return score + switch (FoodCategories.preferenceSignal(lotCategory, str(profile.get("preferences"), ""))) {
+            case CONFLICT -> -8.0;
+            case MATCH -> 2.0;
+            case NEUTRAL -> 0.0;
+        };
     }
 
     private Map<String, Object> loadProfile(int needyId) {
@@ -943,6 +922,20 @@ public class VolunteerService {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    /**
+     * Weight of the whole lot in kg — what the volunteer actually has to carry.
+     * Uses {@code initial_quantity} rather than the live {@code quantity}: the
+     * latter is already reduced by outstanding reservations, but the volunteer
+     * still picks up every unit of the lot.
+     */
+    static double lotWeightKg(Map<String, Object> lot) {
+        Object initial = lot.get("initial_quantity");
+        double units = num(initial != null ? initial : lot.get("quantity"));
+        Object perUnit = lot.get("unit_weight_kg");
+        double weight = perUnit instanceof Number n ? n.doubleValue() : 1.0;
+        return units * (weight > 0 ? weight : 1.0);
+    }
+
     private void returnQuantity(int lotId, Object quantity) {
         // Guarded no-op once the lot is 'taken' — reserved units must not resurrect.
         jdbc.update("UPDATE lots SET quantity = quantity + ? WHERE id = ? AND status = 'active'", quantity, lotId);
@@ -1009,7 +1002,7 @@ public class VolunteerService {
         return null;
     }
 
-    private String hhmm(OffsetDateTime dt) {
+    private String hhmm(ZonedDateTime dt) {
         return String.format("%02d:%02d", dt.getHour(), dt.getMinute());
     }
 

@@ -21,6 +21,7 @@ import ru.savefood.security.Auth;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.security.JwtService;
 import ru.savefood.web.ApiException;
+import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -128,7 +129,7 @@ public class OAuthController {
                                           @RequestParam(defaultValue = "login") String mode,
                                           @RequestParam(name = "next", defaultValue = "/") String next,
                                           HttpServletRequest request) {
-        rateLimiter.check("auth:oauth_start", request.getRemoteAddr(), 10);
+        rateLimiter.check("auth:oauth_start", ClientIp.of(request), 10);
         ProviderCfg cfg = requireProvider(provider);
         if (!mode.equals("login") && !mode.equals("link")) {
             throw new ApiException(400, "mode must be 'login' or 'link'");
@@ -278,7 +279,7 @@ public class OAuthController {
 
     @PostMapping("/telegram/login/start")
     public Map<String, Object> telegramLoginStart(HttpServletRequest request) {
-        rateLimiter.check("auth:tg_login_start", request.getRemoteAddr(), 10);
+        rateLimiter.check("auth:tg_login_start", ClientIp.of(request), 10);
         if (telegramBotToken.isEmpty()) {
             throw new ApiException(503, "Вход через Telegram не настроен на сервере");
         }
@@ -298,7 +299,7 @@ public class OAuthController {
     @PostMapping("/telegram/login/poll")
     public Map<String, Object> telegramLoginPoll(@RequestBody TelegramPoll payload,
                                                  HttpServletRequest request) {
-        rateLimiter.check("auth:tg_login_poll", request.getRemoteAddr(), 60);
+        rateLimiter.check("auth:tg_login_poll", ClientIp.of(request), 60);
         List<Map<String, Object>> rows = jdbc.query(
             "SELECT user_id FROM telegram_login_tokens "
                 + "WHERE token = ? AND created_at >= NOW() - (? * INTERVAL '1 minute')",
@@ -348,7 +349,7 @@ public class OAuthController {
 
     @GetMapping("/telegram/init-link")
     public Map<String, Object> initTelegramLink(@Auth CurrentUser user, HttpServletRequest request) {
-        rateLimiter.check("auth:tg_init_link", request.getRemoteAddr(), 10);
+        rateLimiter.check("auth:tg_init_link", ClientIp.of(request), 10);
         if (user.sub() == null) {
             throw new ApiException(401, "Invalid token");
         }

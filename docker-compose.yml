@@ -38,12 +38,12 @@ services:
       DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_PORT: 5432
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
-      # OAuth / Telegram account-linking (the Java /auth/telegram/* surface).
+      # Telegram bot: outbound notifications, /auth/telegram/* account-linking and
+      # the inbound webhook (§16). Without TELEGRAM_WEBHOOK_SECRET the webhook
+      # drops every update, so account linking and Telegram login stay dead.
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
-      # Inbound bot: getUpdates long-polling (link/login deep-links, commands,
-      # volunteer↔recipient relay). true по умолчанию — иначе бот молчит.
-      TELEGRAM_POLLING: ${TELEGRAM_POLLING:-true}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       SITE_URL: ${SITE_URL:-http://localhost}
       OAUTH_PUBLIC_URL: ${OAUTH_PUBLIC_URL:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

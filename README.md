@@ -37,7 +37,7 @@
 | Микросервис горячих путей | Go 1.24 (`go-services/geows`): WebSocket-фанаут + геокоординаты |
 | Frontend | React 18, Vite, react-router-dom v7 |
 | Карты | Yandex Maps + Geosuggest/Геокодер (подсказки адресов) |
-| i18n | react-i18next (ru / kk / en) |
+| i18n | react-i18next (ru / en) |
 | Мобильное приложение | Capacitor 8 (Android / iOS) |
 | Уведомления | Telegram Bot (aiogram 3.x), WebSocket |
 | ИИ-помощник поддержки | Google Gemini (`backend/ai_service.py`), эскалация на админа |
@@ -91,8 +91,7 @@ VITE_YANDEX_SUGGEST_API_KEY=your-geosuggest-key
 # Telegram-бот (опционально)
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_NAME=your_bot_username
-TELEGRAM_POLLING=true                    # true = long-polling, false = webhook
-TELEGRAM_WEBHOOK_SECRET=...              # для webhook-режима
+TELEGRAM_WEBHOOK_SECRET=...              # обязателен: без него вебхук игнорирует апдейты
 SITE_URL=https://yourdomain.com
 SUPPORT_CHAT_ID=...                      # chat id админа: алерты + эскалации ИИ
 
@@ -286,7 +285,7 @@ savefood/
 │   │   ├── Pages/           # Shop, Volunteer, Needy, Admin, Auth, About
 │   │   ├── components/      # EmptyState, ProtectedRoute
 │   │   ├── context/         # AuthContext
-│   │   ├── i18n/            # Переводы ru/kk/en
+│   │   ├── i18n/            # Переводы ru/en
 │   │   └── api.js           # API_URL (VITE_API_URL)
 │   ├── android/             # Capacitor Android проект
 │   ├── nginx.conf           # Прод-прокси (rate limit, WS, security headers)
@@ -369,10 +368,11 @@ savefood/
 Профиль → «Подключить Telegram» → deep-link → /start link_<token>
 ```
 
-### Режимы получения апдейтов
+### Получение апдейтов
 
-- **Long-polling** (по умолчанию, `TELEGRAM_POLLING=true`) — ничего настраивать не нужно
-- **Webhook** (`TELEGRAM_POLLING=false`):
+Бот принимает апдейты вебхуком на `POST /telegram/webhook`. Эндпоинт сверяет
+`X-Telegram-Bot-Api-Secret-Token` с `TELEGRAM_WEBHOOK_SECRET`; пока секрет не
+задан, все апдейты игнорируются. Зарегистрировать вебхук:
 
 ```bash
 curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/telegram/webhook&secret_token=<TELEGRAM_WEBHOOK_SECRET>"
@@ -426,7 +426,7 @@ CI: GitHub Actions (`.github/workflows/ci.yml`) — pytest + production-сбор
 
 **Telegram-бот не отвечает**
 - Проверьте `TELEGRAM_BOT_TOKEN`
-- По умолчанию бот работает в режиме long-polling; webhook нужен только при `TELEGRAM_POLLING=false`
+- Задан ли `TELEGRAM_WEBHOOK_SECRET` и зарегистрирован ли вебхук через `setWebhook` — без секрета `POST /telegram/webhook` молча отбрасывает все апдейты
 - ИИ-ответы требуют `GEMINI_API_KEY`; без него вопросы эскалируются в `SUPPORT_CHAT_ID`
 
 **OCR чеков возвращает 503 / KYC-вердикт «unchecked»**
@@ -451,7 +451,7 @@ CI: GitHub Actions (`.github/workflows/ci.yml`) — pytest + production-сбор
 
 Перед отправкой убедитесь:
 - Код работает локально
-- Переводы добавлены для всех трёх языков (ru/kk/en)
+- Переводы добавлены для обоих языков (ru/en)
 - При изменении схемы БД добавлена/обновлена соответствующая Alembic-миграция (`0001`–`0003`, см. `savefood.md` §18)
 
 ---
