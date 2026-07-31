@@ -281,9 +281,19 @@ public class ShopRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    public void confirmReceipt(int receiptId, List<Integer> lotIds) {
-        jdbc.update("UPDATE receipts SET status = 'confirmed', lot_ids = ?, confirmed_at = ? WHERE id = ?",
-            toJson(lotIds), OffsetDateTime.now(), receiptId);
+    /** Locks the source receipt for an atomic status check + lot creation transaction. */
+    public Map<String, Object> getReceiptForUpdate(int receiptId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT * FROM receipts WHERE id = ? FOR UPDATE", receiptId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** Returns false if another confirmation changed the receipt while we waited. */
+    public boolean confirmReceipt(int receiptId, List<Integer> lotIds) {
+        return jdbc.update(
+            "UPDATE receipts SET status = 'confirmed', lot_ids = ?, confirmed_at = ? "
+            + "WHERE id = ? AND status = 'parsed'",
+            toJson(lotIds), OffsetDateTime.now(), receiptId) == 1;
     }
 
     public List<Map<String, Object>> getReceipts(int shopId, int limit, int offset) {

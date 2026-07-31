@@ -7,9 +7,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.security.PasswordService;
 import ru.savefood.util.Qr;
 import ru.savefood.web.ApiException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -47,12 +49,21 @@ public class NeedyService {
     private final JdbcTemplate jdbc;
     private final NeedyRepository repo;
     private final PasswordService passwords;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public NeedyService(JdbcTemplate jdbc, NeedyRepository repo, PasswordService passwords) {
+    @Autowired
+    public NeedyService(JdbcTemplate jdbc, NeedyRepository repo, PasswordService passwords,
+                        DeliveryPhotoStorage deliveryPhotos) {
         this.jdbc = jdbc;
         this.repo = repo;
         this.passwords = passwords;
+        this.deliveryPhotos = deliveryPhotos;
+    }
+
+    /** Constructor retained for focused JDBC tests without filesystem storage. */
+    public NeedyService(JdbcTemplate jdbc, NeedyRepository repo, PasswordService passwords) {
+        this(jdbc, repo, passwords, null);
     }
 
     // ── Registration ───────────────────────────────────────────────────────────
@@ -92,6 +103,17 @@ public class NeedyService {
     public int createTicket(int needyId, String items, String address, Double lat, Double lon,
             String availableTime, Integer lotId, String apartment, String floorNum, String entrance,
             boolean selfPickup) {
+        // This service is also used by internal callers/tests. Keep the privacy
+        // invariant here as well as at HTTP ingress: a self-pickup is redeemed
+        // at the shop and must never persist a recipient's home details.
+        if (selfPickup) {
+            address = null;
+            lat = null;
+            lon = null;
+            apartment = null;
+            floorNum = null;
+            entrance = null;
+        }
         // §3.2: one assistance per 7 days (counted from the previous fulfilment).
         List<OffsetDateTime> last = jdbc.query(
             "SELECT last_received_at FROM needy_profile WHERE needy_id = ?",
@@ -121,7 +143,10 @@ public class NeedyService {
             int reserved = jdbc.update(
                 "UPDATE lots SET quantity = quantity - 1 "
                 + "WHERE id = ? AND status = 'active' AND quantity >= 1 "
-                + "AND (expiry_date IS NULL OR expiry_date::date >= CURRENT_DATE)",
+                // Keep the reservation rule aligned with the volunteer map and
+                // start_route. Reserving food that is already too close to expiry
+                // created tickets no route was allowed to take.
+                + "AND (expiry_date IS NULL OR expiry_date::date > CURRENT_DATE + INTERVAL '1 day')",
                 lotId);
             if (reserved == 0) {
                 throw new TicketCreateException("lot_unavailable");
@@ -158,24 +183,55 @@ public class NeedyService {
      */
     @Transactional
     public Integer cancelTicket(int needyId, int ticketId) {
+        // Interactive route mutations lock route → ticket. Take a non-locking
+        // snapshot only to find that route, lock it first, then lock/recheck the
+        // ticket. This prevents a cancel-vs-complete deadlock and a stale points
+        // JSON write overwriting a just-completed pickup/delivery.
+        List<Map<String, Object>> snapshotRows = jdbc.queryForList(
+            "SELECT assigned_volunteer_id FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
+        if (snapshotRows.isEmpty()) {
+            throw new ApiException(404, "Ticket not found");
+        }
+        Integer expectedVolId = asInt(snapshotRows.get(0).get("assigned_volunteer_id"));
+        Map<String, Object> lockedRoute = null;
+        if (expectedVolId != null) {
+            List<Map<String, Object>> routes = jdbc.queryForList(
+                "SELECT id, points FROM volunteer_routes WHERE volunteer_id = ? "
+                    + "AND status = 'in_progress' FOR UPDATE", expectedVolId);
+            if (!routes.isEmpty()) {
+                lockedRoute = routes.get(0);
+            }
+        }
+
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT * FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
+            "SELECT * FROM tickets WHERE id = ? AND needy_id = ? FOR UPDATE", ticketId, needyId);
         if (rows.isEmpty()) {
             throw new ApiException(404, "Ticket not found");
         }
         Map<String, Object> ticket = rows.get(0);
+        Integer actualVolId = asInt(ticket.get("assigned_volunteer_id"));
+        if (!java.util.Objects.equals(expectedVolId, actualVolId)) {
+            throw new ApiException(409, "Заявка уже изменилась — обновите страницу и повторите отмену");
+        }
         String status = (String) ticket.get("status");
         if (!"open".equals(status) && !"assigned".equals(status)) {
             throw new ApiException(400, "Можно отменить только открытую или назначенную заявку");
         }
 
-        Integer volId = asInt(ticket.get("assigned_volunteer_id"));
+        Integer volId = actualVolId;
+        String proof = ticket.get("delivery_photo") instanceof String s ? s : null;
         int updated = jdbc.update(
             "UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, "
-            + "assigned_volunteer_id = NULL WHERE id = ? AND status IN ('open', 'assigned')",
+            + "assigned_volunteer_id = NULL, delivery_photo = NULL, delivery_photo_status = NULL, "
+            + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
+            + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL "
+            + "WHERE id = ? AND status IN ('open', 'assigned')",
             ticketId);
         if (updated == 0) {
             throw new ApiException(409, "Заявка уже изменила статус — обновите страницу");
+        }
+        if (proof != null && deliveryPhotos != null) {
+            deliveryPhotos.deleteAfterCommit(proof);
         }
 
         // Guarded return: give the reserved quantity back only if the lot is still active.
@@ -187,7 +243,7 @@ public class NeedyService {
         }
 
         if (volId != null) {
-            dropStopFromRoute(volId, ticketId);
+            dropStopFromLockedRoute(lockedRoute, ticketId);
             jdbc.update(
                 "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
                 + "VALUES (?, ?, ?, ?, 0)",
@@ -198,15 +254,11 @@ public class NeedyService {
         return volId;
     }
 
-    /** Mark the cancelled recipient's stop done on the volunteer's active route, if present. */
-    private void dropStopFromRoute(int volId, int ticketId) {
-        List<Map<String, Object>> routes = jdbc.queryForList(
-            "SELECT id, points FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress'",
-            volId);
-        if (routes.isEmpty()) {
+    /** Mark the cancelled recipient's stop done on an already route-locked active route. */
+    private void dropStopFromLockedRoute(Map<String, Object> route, int ticketId) {
+        if (route == null) {
             return;
         }
-        Map<String, Object> route = routes.get(0);
         List<Map<String, Object>> points;
         try {
             String json = (String) route.get("points");
@@ -226,7 +278,8 @@ public class NeedyService {
         }
         if (changed) {
             try {
-                jdbc.update("UPDATE volunteer_routes SET points = ? WHERE id = ?",
+                jdbc.update("UPDATE volunteer_routes SET points = ?, last_activity_at = CURRENT_TIMESTAMP "
+                        + "WHERE id = ? AND status = 'in_progress'",
                     mapper.writeValueAsString(points), route.get("id"));
             } catch (Exception ignored) {
                 // serialization can't realistically fail for a list of maps

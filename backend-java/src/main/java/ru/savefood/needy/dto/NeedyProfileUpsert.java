@@ -15,6 +15,8 @@ public record NeedyProfileUpsert(
     String entrance,
     String city,
     Double lat,
-    Double lon
+    Double lon,
+    /** Explicitly clear a stale geocode when an address was edited manually. */
+    Boolean clearCoordinates
 ) {
 }

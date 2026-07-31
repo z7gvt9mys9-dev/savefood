@@ -1,12 +1,18 @@
 package ru.savefood.security;
 
 import org.junit.jupiter.api.Test;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class JwtServiceTest {
 
-    private static final String SECRET = "test-secret-key-for-junit-0123456789abcdef";
+    // Long enough for the negative HS384 fixture too. JwtService itself must
+    // still sign every token with HS256 regardless of the secret length.
+    private static final String SECRET = "test-secret-key-for-junit-0123456789abcdef"
+        + "0123456789abcdef0123456789abcdef";
     private final JwtService service = new JwtService(SECRET);
 
     @Test
@@ -17,6 +23,22 @@ class JwtServiceTest {
         assertThat(user.sub()).isEqualTo("alice");
         assertThat(user.role()).isEqualTo("volunteer");
         assertThat(user.relatedId()).isEqualTo(7);
+    }
+
+    @Test
+    void tokensAreAlwaysHs256EvenWithALongSecret() {
+        String token = service.create("alice", "volunteer", 7);
+        String header = new String(java.util.Base64.getUrlDecoder().decode(token.split("\\.")[0]),
+            StandardCharsets.UTF_8);
+        assertThat(header).contains("\"HS256\"");
+    }
+
+    @Test
+    void hs384TokenIsRejected() {
+        String token = Jwts.builder().subject("alice").claim("role", "volunteer")
+            .signWith(Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8)), Jwts.SIG.HS384)
+            .compact();
+        assertThat(service.decode(token)).isNull();
     }
 
     @Test

@@ -1,6 +1,7 @@
 package ru.savefood.app.feature.volunteer.data
 
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Multipart
@@ -49,6 +50,16 @@ interface VolunteerApi {
         @Path("routeId") routeId: Int,
         @Body body: CompletePointRequestDto,
     ): AttemptDeliveryResponseDto
+
+    @Multipart
+    @POST("volunteers/route/{routeId}/ticket/{ticketId}/photo")
+    suspend fun uploadDeliveryPhoto(
+        @Path("routeId") routeId: Int,
+        @Path("ticketId") ticketId: Int,
+        @Part file: MultipartBody.Part,
+        @Part("lat") lat: RequestBody,
+        @Part("lon") lon: RequestBody,
+    ): OkDto
 
     @POST("volunteers/route/{routeId}/finish")
     suspend fun finishRoute(

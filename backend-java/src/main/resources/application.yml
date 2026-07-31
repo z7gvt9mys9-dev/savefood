@@ -57,10 +57,13 @@ savefood:
   jwt-secret: ${SECRET_KEY:}
   # Timezone for volunteer availability windows — backend §54 / LOCAL_TZ.
   local-tz: ${LOCAL_TZ:Europe/Moscow}
-  # Where /volunteer_uploads delivery photos live on disk (rejected photos are
-  # deleted from here). Points at the Python backend's volunteer uploads dir so
-  # existing files are reachable during the migration.
+  # Legacy delivery proof directory. New proofs use delivery-photo-upload-dir;
+  # this remains only so approved migration-era rows can be served through the
+  # authorization-checked impact endpoint.
   volunteer-upload-dir: ${VOLUNTEER_UPLOAD_DIR:../backend/volunteer/uploads}
+  # Delivery proof / impact photos stay in this PRIVATE directory. They are
+  # served only after moderation by an application endpoint, never by nginx.
+  delivery-photo-upload-dir: ${DELIVERY_PHOTO_UPLOAD_DIR:../backend/volunteer/delivery_photos}
   # Volunteer identity documents (§58): a SEPARATE dir, never served publicly —
   # reachable only through the auth-checked flow, encrypted at rest. Defaults at
   # the Python backend's volunteer kyc dir so files stay reachable in migration.

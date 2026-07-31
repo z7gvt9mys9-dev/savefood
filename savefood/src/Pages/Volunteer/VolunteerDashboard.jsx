@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import { buildNavigatorUrls, haversineMeters } from '../../utils/geo';
+import { hasValidCoordinates } from '../../utils/ticket';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
@@ -60,13 +61,29 @@ const openInNavigator = (stops) => {
   setTimeout(() => clearTimeout(fallback), 4000);
 };
 
+const displayRouteAddress = (point) => {
+  if (point.kind === 'ticket') {
+    return point.address || point.recipient_address || point.description || '';
+  }
+  return point.address || point.description || '';
+};
+
+const mapLotId = (lot) => lot?.lot_id ?? lot?.lotId ?? lot?.id ?? null;
+const ticketLotId = (ticket) => ticket?.lot_id ?? ticket?.lotId ?? null;
+const isReservedMapLot = (lot) => lot?.status === 'reserved'
+  || lot?.reserved === true
+  || (Number(lot?.quantity) <= 0
+    && (Array.isArray(lot?.open_ticket_ids) ? lot.open_ticket_ids.length > 0 : Number(lot?.open_ticket_count) > 0));
+
 // Inner component — must be rendered inside <YMaps> to use useYMaps
 const RouteMapView = ({ points }) => {
   const ymaps = useYMaps(['multiRouter.MultiRoute']);
   const mapRef = useRef(null);
   const routeRef = useRef(null);
   const shopPoint = points.find(p => p.kind === 'shop');
-  const center = shopPoint?.lat ? [shopPoint.lat, shopPoint.lon] : [55.75, 37.62];
+  const center = hasValidCoordinates(shopPoint?.lat, shopPoint?.lon)
+    ? [shopPoint.lat, shopPoint.lon]
+    : [55.75, 37.62];
 
   useEffect(() => {
     if (!ymaps || !mapRef.current) return;
@@ -75,7 +92,7 @@ const RouteMapView = ({ points }) => {
       mapRef.current.geoObjects.remove(routeRef.current);
       routeRef.current = null;
     }
-    const coords = points.filter(p => p.lat && p.lon).map(p => [p.lat, p.lon]);
+    const coords = points.filter(p => hasValidCoordinates(p.lat, p.lon)).map(p => [p.lat, p.lon]);
     if (coords.length < 2) return;
     const multiRoute = new ymaps.multiRouter.MultiRoute(
       { referencePoints: coords },
@@ -99,11 +116,11 @@ const RouteMapView = ({ points }) => {
 
   return (
     <Map instanceRef={mapRef} state={{ center, zoom: 13 }} width="100%" height="100%">
-      {points.map((p, i) => p.lat && p.lon && (
+      {points.map((p, i) => hasValidCoordinates(p.lat, p.lon) && (
         <Placemark
           key={i}
           geometry={[p.lat, p.lon]}
-          properties={{ balloonContent: escapeHtml(p.description || '') }}
+          properties={{ balloonContent: escapeHtml(displayRouteAddress(p)) }}
           options={{ preset: p.kind === 'shop' ? 'islands#redShoppingIcon' : 'islands#greenHomeIcon' }}
         />
       ))}
@@ -123,6 +140,8 @@ const VolunteerDashboard = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [activeRoute, setActiveRoute] = useState(null);
   const [scanning, setScanning] = useState(false);
+  // Retain a scanned QR in memory only until the courier adds the proof photo.
+  const [pendingDelivery, setPendingDelivery] = useState(null);
   const [loading, setLoading] = useState(false);
   const [routes, setRoutes] = useState([]);
   const [gpsStatus, setGpsStatus] = useState('unknown');
@@ -163,7 +182,7 @@ const VolunteerDashboard = () => {
         // the server for verification, match[1] only routes it to the right stop.
         const match = decodedText.match(/^SF-(\d+)(?:-[A-Za-z0-9_-]+)?$/);
         if (match && current && parseInt(match[1]) === current.ticket_id) {
-          await handleCompletePoint(current.ticket_id, { qrCode: decodedText });
+          setPendingDelivery({ ticketId: current.ticket_id, qrCode: decodedText });
         } else {
           alert(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
         }
@@ -358,22 +377,41 @@ const VolunteerDashboard = () => {
 
   const handleAttemptDelivery = async (ticketId) => {
     if (!activeRoute) return;
+    // A failed-delivery attempt is an on-site event too. The server verifies
+    // this fix against the route point, so never submit a client-only attempt.
+    const pos = await getCurrentPosition();
+    if (!pos) {
+      alert(t('volunteer.gps_no_location'));
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/attempt_delivery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
-        body: JSON.stringify({ volunteer_id: volunteerId, ticket_id: ticketId }),
+        body: JSON.stringify({
+          volunteer_id: volunteerId,
+          ticket_id: ticketId,
+          lat: pos.lat,
+          lon: pos.lon,
+        }),
       });
       if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return; }
       const data = await res.json();
       setAttemptMsgs(prev => ({ ...prev, [ticketId]: t('volunteer.attempt_registered', { count: data.attempt_count }) }));
+      await fetchActiveRoute();
     } catch { alert(t('common.connection_error')); }
   };
 
   const fetchMapData = async () => {
     try {
       const res = await fetch(`${API_URL}/volunteers/map`, { headers: authHeader });
-      if (res.ok) setMapData(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setMapData({
+          shops: Array.isArray(data?.shops) ? data.shops : [],
+          tickets: Array.isArray(data?.tickets) ? data.tickets : [],
+        });
+      }
     } catch {}
   };
 
@@ -414,8 +452,8 @@ const VolunteerDashboard = () => {
     );
   });
 
-  const handleCompletePoint = async (ticketId = null, { qrCode = null } = {}) => {
-    if (!activeRoute) return;
+  const handleCompletePoint = async (ticketId = null, { qrCode = null, proofFile = null } = {}) => {
+    if (!activeRoute) return false;
     const body = { volunteer_id: volunteerId, ticket_id: ticketId };
     // Every point completion is GPS-verified server-side (§13): ticket points
     // additionally require the recipient's QR, shop point requires presence
@@ -426,20 +464,55 @@ const VolunteerDashboard = () => {
     const pos = await getCurrentPosition();
     if (!pos) {
       alert(t('volunteer.gps_no_location'));
-      return;
+      return false;
     }
     body.lat = pos.lat;
     body.lon = pos.lon;
     try {
+      if (ticketId != null) {
+        if (!proofFile) {
+          alert(t('volunteer.photo_proof_required'));
+          return false;
+        }
+        const form = new FormData();
+        form.append('file', proofFile);
+        form.append('lat', String(pos.lat));
+        form.append('lon', String(pos.lon));
+        const proofRes = await fetch(
+          `${API_URL}/volunteers/route/${activeRoute.id}/ticket/${ticketId}/photo`,
+          { method: 'POST', headers: authHeader, body: form },
+        );
+        if (!proofRes.ok) {
+          const e = await proofRes.json().catch(() => ({}));
+          alert(e.detail || t('common.error'));
+          return false;
+        }
+      }
       const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return; }
+      if (!res.ok) { const e = await res.json(); alert(e.detail || t('common.error')); return false; }
       await fetchActiveRoute();
+      return true;
     } catch {
       alert(t('common.connection_error'));
+      return false;
+    }
+  };
+
+  const handleDeliveryPhoto = async (file) => {
+    if (!file || !pendingDelivery) return;
+    setLoading(true);
+    try {
+      const completed = await handleCompletePoint(pendingDelivery.ticketId, {
+        qrCode: pendingDelivery.qrCode,
+        proofFile: file,
+      });
+      if (completed) setPendingDelivery(null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -467,7 +540,7 @@ const VolunteerDashboard = () => {
   nextTicketRef.current = nextTicket;
 
   const checkGPS = async () => {
-    if (!nextTicket?.lat || !nextTicket?.lon) { setGpsStatus('ok'); return 'ok'; }
+    if (!hasValidCoordinates(nextTicket?.lat, nextTicket?.lon)) { setGpsStatus('error'); return 'error'; }
     setGpsStatus('checking');
     return new Promise((resolve) => {
       if (!navigator.geolocation) { setGpsStatus('error'); resolve('error'); return; }
@@ -484,20 +557,34 @@ const VolunteerDashboard = () => {
   };
 
   const CATEGORIES = ['', 'Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
+  const mapShops = Array.isArray(mapData.shops) ? mapData.shops : [];
+  const mapTickets = Array.isArray(mapData.tickets) ? mapData.tickets : [];
+  const listedMapLotIds = new Set(mapShops
+    .flatMap(shop => Array.isArray(shop.lots) ? shop.lots : [])
+    .map(lot => mapLotId(lot))
+    .filter(id => id !== null && id !== undefined)
+    .map(String));
+  // A new map API may expose a zero-quantity reservation through tickets before
+  // it has a full shop/lot card. Keep that delivery task actionable instead of
+  // rendering it as a marker only.
+  const unlistedTicketTasks = mapTickets.filter(ticket => {
+    const lotId = ticketLotId(ticket);
+    return lotId !== null && lotId !== undefined && !listedMapLotIds.has(String(lotId));
+  });
 
   const renderMap = () => (
     <div className="volunteer-tab">
       <div className="map-container-mobile">
         <YMaps query={{ apikey: import.meta.env.VITE_YANDEX_MAPS_API_KEY }}>
           <Map defaultState={{ center: [55.75, 37.62], zoom: 12 }} width="100%" height="100%">
-            {mapData.shops.map(s => s.lat && s.lon && (
+            {mapShops.map(s => hasValidCoordinates(s.lat, s.lon) && (
               <Placemark
                 key={`shop-${s.shop_id}`}
                 geometry={[s.lat, s.lon]}
-                properties={{ balloonContent: `<strong>${escapeHtml(s.name)}</strong><br/>${s.lots.map(l => escapeHtml(l.description)).join(', ')}` }}
+                properties={{ balloonContent: `<strong>${escapeHtml(s.name)}</strong><br/>${(Array.isArray(s.lots) ? s.lots : []).map(l => escapeHtml(l.description)).join(', ')}` }}
               />
             ))}
-            {mapData.tickets.map(tick => tick.lat && tick.lon && (
+            {mapTickets.map(tick => hasValidCoordinates(tick.lat, tick.lon) && (
               <Placemark
                 key={`ticket-${tick.ticket_id}`}
                 geometry={[tick.lat, tick.lon]}
@@ -533,42 +620,82 @@ const VolunteerDashboard = () => {
             </button>
           ))}
         </div>
-        {mapData.shops.length === 0 && (
+        {mapShops.length === 0 && mapTickets.length === 0 && (
           <EmptyState icon="🗺️" title={t('empty.map_title')} description={t('empty.map_desc')} />
         )}
-        {mapData.shops.flatMap(s =>
-          s.lots
+        {mapShops.flatMap(s =>
+          (Array.isArray(s.lots) ? s.lots : [])
             .filter(lot => !filterCategory || lot.category === filterCategory)
-            .map(lot => (
-              <div key={lot.lot_id} className="task-card-mobile">
-                {lot.photo && (
-                  <img
-                    src={`${API_URL}${lot.photo}`}
-                    alt={lot.description}
-                    className="lot-photo"
-                    onError={(e) => { e.target.style.display = 'none'; }}
-                  />
-                )}
-                <div className="task-info">
-                  {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
-                  {s.kind === 'private' && (
-                    <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
-                      🏠 {t('donor.badge')}
-                    </span>
+            .map(lot => {
+              const lotId = mapLotId(lot);
+              const reserved = isReservedMapLot(lot);
+              const routeAvailable = lot.route_available !== false;
+              return (
+                <div key={`${s.shop_id}-${lotId}`} className="task-card-mobile">
+                  {lot.photo && (
+                    <img
+                      src={`${API_URL}${lot.photo}`}
+                      alt={lot.description}
+                      className="lot-photo"
+                      onError={(e) => { e.target.style.display = 'none'; }}
+                    />
                   )}
-                  <h4>{s.name}</h4>
-                  <p>{lot.description} — {lot.quantity} {t('volunteer.qty_pcs')}</p>
+                  <div className="task-info">
+                    {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
+                    {reserved && (
+                      <span className="category-badge" style={{ background: '#4CAF5022', color: '#81C784', borderColor: '#4CAF5044', marginLeft: 4 }}>
+                        {t('volunteer.reserved_for_delivery')}
+                      </span>
+                    )}
+                    {s.kind === 'private' && (
+                      <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
+                        🏠 {t('donor.badge')}
+                      </span>
+                    )}
+                    <h4>{s.name}</h4>
+                    <p>
+                      {lot.description} — {reserved
+                        ? t('volunteer.reserved_for_delivery')
+                        : `${lot.quantity} ${t('volunteer.qty_pcs')}`}
+                    </p>
+                    {!routeAvailable && (
+                      <p style={{ fontSize: '0.75rem', color: '#999', margin: '2px 0 0' }}>
+                        {t('volunteer.no_delivery_requests')}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    disabled={loading || !!activeRoute || !routeAvailable || lotId === null || lotId === undefined}
+                    onClick={() => handleTakeTask(lotId)}
+                  >
+                    {t('volunteer.take')}
+                  </button>
                 </div>
-                <button
-                  className="btn btn-primary"
-                  disabled={loading || !!activeRoute}
-                  onClick={() => handleTakeTask(lot.lot_id)}
-                >
-                  {t('volunteer.take')}
-                </button>
-              </div>
-            ))
+              );
+            })
         )}
+        {unlistedTicketTasks.map(ticket => {
+          const lotId = ticketLotId(ticket);
+          return (
+            <div key={`reserved-ticket-${ticket.ticket_id}`} className="task-card-mobile">
+              <div className="task-info">
+                <span className="category-badge" style={{ background: '#4CAF5022', color: '#81C784', borderColor: '#4CAF5044' }}>
+                  {t('volunteer.reserved_for_delivery')}
+                </span>
+                <h4>{ticket.shop_name || t('volunteer.delivery_task')}</h4>
+                <p>{ticket.items || ticket.lot_description || t('common.description')}</p>
+              </div>
+              <button
+                className="btn btn-primary"
+                disabled={loading || !!activeRoute}
+                onClick={() => handleTakeTask(lotId)}
+              >
+                {t('volunteer.take')}
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -606,7 +733,7 @@ const VolunteerDashboard = () => {
               const remaining = [
                 ...(!isShopDone && shopPoint ? [shopPoint] : []),
                 ...points.filter(p => p.kind === 'ticket' && !p.done),
-              ].filter(p => p?.lat && p?.lon);
+              ].filter(p => hasValidCoordinates(p?.lat, p?.lon));
               if (remaining.length === 0) return null;
               return (
                 <button
@@ -623,12 +750,20 @@ const VolunteerDashboard = () => {
             <div className="route-points">
               {points.map((p, i) => {
                 const letter = p.kind === 'shop' ? 'A' : String.fromCharCode(65 + points.filter((x, j) => x.kind === 'ticket' && j <= i).length);
+                const address = displayRouteAddress(p);
+                const recipientItems = p.kind === 'ticket' ? (p.items || p.description) : null;
+                const hasRecipientAddress = p.kind === 'ticket' && Boolean(p.address || p.recipient_address);
                 return (
                   <div key={i} className={`point ${!p.done && p === (isShopDone ? (nextTicket || null) : shopPoint) ? 'current' : p.done ? 'done' : ''}`}>
                     <div className="point-icon">{letter}</div>
                     <div className="point-text" style={{ flex: 1 }}>
                       <p className="point-label">{p.kind === 'shop' ? t('volunteer.shop_label') : t('volunteer.recipient_label')}</p>
-                      <p className="point-addr">{p.description}</p>
+                      <p className="point-addr">{address || t('needy.address_tbd')}</p>
+                      {hasRecipientAddress && recipientItems && recipientItems !== address && (
+                        <p style={{ fontSize: '0.78rem', color: '#bbb', margin: '2px 0 0' }}>
+                          {t('needy.items_label')} {recipientItems}
+                        </p>
+                      )}
                       {p.kind === 'ticket' && p.addr_detail && (
                         <p style={{ fontSize: '0.78rem', color: '#aaa', margin: '2px 0 0' }}>{p.addr_detail}</p>
                       )}
@@ -671,6 +806,35 @@ const VolunteerDashboard = () => {
                     <div id="qr-reader" style={{ width: '100%', borderRadius: 8, overflow: 'hidden' }}></div>
                     <button className="btn-small" style={{ marginTop: 10, width: '100%' }} onClick={() => setScanning(false)}>{t('common.cancel')}</button>
                   </div>
+                ) : pendingDelivery ? (
+                  <div className="scanner-container">
+                    <p style={{ textAlign: 'center', color: '#aaa', marginBottom: 8 }}>
+                      {t('volunteer.photo_proof_hint')}
+                    </p>
+                    <label className="btn btn-primary btn-full" style={{ cursor: loading ? 'wait' : 'pointer', display: 'block' }}>
+                      {loading ? '…' : t('volunteer.photo_proof_take')}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png"
+                        capture="environment"
+                        disabled={loading}
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          e.target.value = '';
+                          handleDeliveryPhoto(file);
+                        }}
+                      />
+                    </label>
+                    <button
+                      className="btn-small"
+                      style={{ marginTop: 10, width: '100%' }}
+                      disabled={loading}
+                      onClick={() => setPendingDelivery(null)}
+                    >
+                      {t('common.cancel')}
+                    </button>
+                  </div>
                 ) : (
                   <div>
                     {gpsStatus === 'checking' && <p style={{ color: '#aaa', textAlign: 'center' }}>{t('volunteer.gps_locating')}</p>}
@@ -681,7 +845,7 @@ const VolunteerDashboard = () => {
                       disabled={gpsStatus === 'checking' || gpsStatus === 'far'}
                       onClick={async () => {
                         const status = await checkGPS();
-                        if (status === 'ok' || status === 'error') setScanning(true);
+                        if (status === 'ok') setScanning(true);
                       }}
                     >
                       {t('volunteer.scan_qr')}
@@ -718,7 +882,7 @@ const VolunteerDashboard = () => {
         </p>
         <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block' }}>
           {kycBusy ? '…' : t('volunteer.kyc_upload')}
-          <input type="file" accept="image/*,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+          <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
             onChange={(e) => uploadKycDocument(e.target.files?.[0])} />
         </label>
       </div>
@@ -997,7 +1161,7 @@ const VolunteerDashboard = () => {
               </p>
               <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block', width: 'auto' }}>
                 {kycBusy ? '…' : t('volunteer.kyc_upload')}
-                <input type="file" accept="image/*,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+                <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
                   onChange={(e) => { uploadKycDocument(e.target.files?.[0]); e.target.value = ''; }} />
               </label>
             </div>

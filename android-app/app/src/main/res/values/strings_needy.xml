@@ -51,6 +51,7 @@
     <string name="needy_wizard_submit">Отправить заявку</string>
     <string name="needy_wizard_success">Заявка отправлена</string>
     <string name="needy_wizard_address_required">Укажите адрес доставки</string>
+    <string name="needy_wizard_location_required">Укажите точную геолокацию для доставки</string>
 
     <!-- History / История -->
     <string name="needy_history_title">История</string>
@@ -97,6 +98,10 @@
     <string name="needy_profile_geo_push_desc">Пуш, когда поблизости появляется подходящий лот.</string>
     <string name="needy_profile_export">Экспорт моих данных</string>
     <string name="needy_profile_export_done">Данные экспортированы</string>
+    <string name="needy_profile_export_failed">Не удалось сохранить файл экспорта</string>
+    <string name="needy_profile_use_my_location">Обновить геолокацию</string>
+    <string name="needy_profile_location_set">Точная геолокация сохранена</string>
+    <string name="needy_profile_location_unavailable">Не удалось получить геолокацию</string>
     <string name="needy_profile_delete_account">Удалить аккаунт</string>
     <string name="needy_profile_delete_confirm_title">Удалить аккаунт?</string>
     <string name="needy_profile_delete_confirm_desc">Личные данные будут стёрты безвозвратно (право на забвение).</string>

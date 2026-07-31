@@ -37,9 +37,12 @@
     <string name="vol_route_photo_confirm">Подтвердить доставку</string>
     <string name="vol_route_photo_skip">Без фото</string>
     <string name="vol_route_no_location">Не удалось получить геолокацию — включите GPS</string>
+    <string name="vol_route_location_permission">Разрешить геолокацию для маршрута</string>
+    <string name="vol_route_pickup_first">Сначала подтвердите забор лота в магазине</string>
     <string name="vol_route_tracking_on">GPS-трекинг включён</string>
     <string name="vol_route_tracking_error">Трекинг прерван — переподключаемся…</string>
     <string name="vol_route_addr_detail">%1$s</string>
+    <string name="vol_available_reserved_badge">Зарезервировано для доставки</string>
 
     <!-- Rating -->
     <string name="vol_rating_title">Рейтинг</string>

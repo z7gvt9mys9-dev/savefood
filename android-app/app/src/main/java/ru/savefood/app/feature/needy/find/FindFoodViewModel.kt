@@ -75,9 +75,15 @@ class FindFoodViewModel @Inject constructor(
     fun clearSubmitError() = _state.update { it.copy(submitError = null) }
 
     /** One-shot current location for the wizard's "use my location" button. */
-    fun fetchMyLocation(onResult: (lat: Double, lon: Double) -> Unit) {
+    fun fetchMyLocation(
+        onResult: (lat: Double, lon: Double) -> Unit,
+        onUnavailable: () -> Unit,
+    ) {
         viewModelScope.launch {
-            val loc = locationProvider.lastLocation() ?: return@launch
+            val loc = locationProvider.lastLocation() ?: run {
+                onUnavailable()
+                return@launch
+            }
             onResult(loc.latitude, loc.longitude)
         }
     }

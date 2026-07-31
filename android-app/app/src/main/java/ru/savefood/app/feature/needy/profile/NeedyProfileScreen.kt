@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +46,7 @@ import ru.savefood.app.core.designsystem.component.SaveFoodButton
 import ru.savefood.app.core.designsystem.component.SaveFoodCard
 import ru.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
 import ru.savefood.app.core.designsystem.component.SectionHeader
+import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.feature.needy.data.NeedyProfileUpdateDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
 
@@ -63,10 +65,22 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
     val savedMsg = stringResource(R.string.needy_profile_saved)
     val uploadedMsg = stringResource(R.string.needy_profile_kyc_uploaded)
     val exportDoneMsg = stringResource(R.string.needy_profile_export_done)
+    val exportFailedMsg = stringResource(R.string.needy_profile_export_failed)
 
     val docPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) viewModel.uploadDocument(uri, uploadedMsg) }
+
+    val exportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri == null) viewModel.discardExport()
+        else viewModel.saveExport(uri, exportDoneMsg, exportFailedMsg)
+    }
+
+    LaunchedEffect(state.exportedJson) {
+        if (state.exportedJson != null) exportPicker.launch("savefood-account-export.json")
+    }
 
     // Editable form fields, seeded from the loaded profile.
     val p = state.profile
@@ -79,6 +93,33 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
     var floor by remember(p) { mutableStateOf(p?.floorNum.orEmpty()) }
     var entrance by remember(p) { mutableStateOf(p?.entrance.orEmpty()) }
     var availableTime by remember(p) { mutableStateOf(p?.availableTime.orEmpty()) }
+    var profileLat by remember(p) { mutableStateOf(p?.lat) }
+    var profileLon by remember(p) { mutableStateOf(p?.lon) }
+    var addressChanged by remember(p) { mutableStateOf(false) }
+    var locationChanged by remember(p) { mutableStateOf(false) }
+    var locationError by remember { mutableStateOf(false) }
+    var fetchAfterPermission by remember { mutableStateOf(false) }
+    val locationPermission = rememberLocationPermissionState { granted ->
+        if (!granted && fetchAfterPermission) {
+            fetchAfterPermission = false
+            locationError = true
+        }
+    }
+
+    LaunchedEffect(locationPermission.isGranted, fetchAfterPermission) {
+        if (locationPermission.isGranted && fetchAfterPermission) {
+            fetchAfterPermission = false
+            viewModel.fetchMyLocation(
+                onResult = { lat, lon ->
+                    profileLat = lat
+                    profileLon = lon
+                    locationChanged = true
+                    locationError = false
+                },
+                onUnavailable = { locationError = true },
+            )
+        }
+    }
 
     var deleteDialog by remember { mutableStateOf(false) }
 
@@ -134,10 +175,59 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                         modifier = Modifier.fillMaxWidth(),
                     )
                     OutlinedTextField(
-                        value = address, onValueChange = { address = it },
+                        value = address,
+                        onValueChange = { value ->
+                            address = value
+                            addressChanged = value != p?.address.orEmpty()
+                            if (addressChanged) {
+                                // Never retain a coordinate belonging to an old
+                                // address when the recipient edits it manually.
+                                profileLat = null
+                                profileLon = null
+                                locationChanged = false
+                                locationError = false
+                            } else {
+                                profileLat = p?.lat
+                                profileLon = p?.lon
+                            }
+                        },
                         label = { Text(stringResource(R.string.needy_profile_address)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    SaveFoodOutlinedButton(
+                        text = stringResource(R.string.needy_profile_use_my_location),
+                        leadingIcon = Icons.Filled.MyLocation,
+                        onClick = {
+                            locationError = false
+                            if (locationPermission.isGranted) {
+                                viewModel.fetchMyLocation(
+                                    onResult = { lat, lon ->
+                                        profileLat = lat
+                                        profileLon = lon
+                                        locationChanged = true
+                                    },
+                                    onUnavailable = { locationError = true },
+                                )
+                            } else {
+                                fetchAfterPermission = true
+                                locationPermission.request()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (profileLat != null && profileLon != null) {
+                        Text(
+                            text = stringResource(R.string.needy_profile_location_set),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    } else if (locationError) {
+                        Text(
+                            text = stringResource(R.string.needy_profile_location_unavailable),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
                             value = apartment, onValueChange = { apartment = it },
@@ -178,6 +268,9 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                             floorNum = floor.takeIf { it.isNotBlank() },
                             entrance = entrance.takeIf { it.isNotBlank() },
                             city = city.takeIf { it.isNotBlank() },
+                            lat = if (addressChanged || locationChanged) profileLat else null,
+                            lon = if (addressChanged || locationChanged) profileLon else null,
+                            clearCoordinates = addressChanged && (profileLat == null || profileLon == null),
                         ),
                         savedMsg,
                     )
@@ -236,7 +329,8 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                     SaveFoodOutlinedButton(
                         text = stringResource(R.string.needy_profile_export),
                         leadingIcon = Icons.Filled.Download,
-                        onClick = { viewModel.export(exportDoneMsg) },
+                        onClick = viewModel::export,
+                        enabled = !state.exporting && state.exportedJson == null,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     SaveFoodOutlinedButton(

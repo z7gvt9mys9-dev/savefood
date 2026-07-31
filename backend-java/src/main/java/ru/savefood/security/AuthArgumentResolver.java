@@ -48,15 +48,20 @@ public class AuthArgumentResolver implements HandlerMethodArgumentResolver {
         if (user == null) {
             throw new ApiException(401, "Could not validate credentials");
         }
-        // An already-issued token must stop working the moment the user is
-        // blocked — login alone can't revoke an active session.
-        if (user.sub() != null) {
-            List<Boolean> blocked = jdbc.query(
-                "SELECT is_blocked FROM users WHERE username = ?",
-                (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
-            if (!blocked.isEmpty() && Boolean.TRUE.equals(blocked.get(0))) {
-                throw new ApiException(403, "Аккаунт заблокирован администратором");
-            }
+        // An already-issued token must stop working the moment the account is
+        // blocked OR erased.  Previously an empty result was treated as allowed,
+        // so deleting a user removed the login row but not their still-valid JWT.
+        if (user.sub() == null || user.sub().isBlank()) {
+            throw new ApiException(401, "Could not validate credentials");
+        }
+        List<Boolean> blocked = jdbc.query(
+            "SELECT is_blocked FROM users WHERE username = ?",
+            (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
+        if (blocked.isEmpty()) {
+            throw new ApiException(401, "Could not validate credentials");
+        }
+        if (Boolean.TRUE.equals(blocked.get(0))) {
+            throw new ApiException(403, "Аккаунт заблокирован администратором");
         }
         return user;
     }

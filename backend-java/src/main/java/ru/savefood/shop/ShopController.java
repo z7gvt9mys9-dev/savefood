@@ -31,6 +31,8 @@ import ru.savefood.shop.dto.SelfPickupConfirm;
 import ru.savefood.shop.dto.ShopCreate;
 import ru.savefood.shop.dto.ShopUpdate;
 import ru.savefood.util.FoodCategories;
+import ru.savefood.util.Geo;
+import ru.savefood.util.Clamp;
 import ru.savefood.web.ApiException;
 import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
@@ -106,6 +108,8 @@ public class ShopController {
         if (isBlank(payload.username()) || isBlank(payload.password())) {
             throw new ApiException(400, "Укажите логин и пароль");
         }
+        validatePassword(payload.password());
+        validateOptionalCoordinates(payload.lat(), payload.lon());
         String kind = payload.kind() == null ? "business" : payload.kind();
         if (!kind.equals("business") && !kind.equals("private")) {
             throw new ApiException(400, "kind должен быть 'business' или 'private'");
@@ -132,6 +136,7 @@ public class ShopController {
         if (payload.quantity() == null) {
             throw new ApiException(422, "quantity обязателен");
         }
+        requirePositiveFinite(payload.quantity(), "quantity");
         int lotId = service.createLot(shopId, payload.description(), payload.quantity(),
             payload.expiryDate(), payload.photo(), payload.address(), payload.timeSlot(),
             requireKnownCategory(payload.category()), payload.comment(),
@@ -162,6 +167,8 @@ public class ShopController {
             @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         Map<String, Object> shop = requireShop(shopId);
+
+        requirePositiveFinite(quantity, "quantity");
 
         double weight = resolveWeight(unit, unitWeightKg);
         // `files` — новая мультизагрузка; одиночный `file` остаётся как fallback
@@ -214,6 +221,9 @@ public class ShopController {
     public Map<String, Object> patchLot(@PathVariable int lotId, @RequestBody LotUpdate payload,
                                         @Auth CurrentUser user) {
         Map<String, Object> lot = requireLotOwner(lotId, user);
+        if (payload.quantity() != null) {
+            requirePositiveFinite(payload.quantity(), "quantity");
+        }
         String newUnit = payload.unit() != null ? payload.unit() : (String) lot.getOrDefault("unit", "кг");
         Double newWeight = payload.unitWeightKg() != null ? payload.unitWeightKg()
             : asDouble(lot.getOrDefault("unit_weight_kg", 1.0));
@@ -225,6 +235,7 @@ public class ShopController {
         } else {
             newWeight = 1.0;
         }
+        requirePositiveFinite(newWeight, "unit_weight_kg");
         Map<String, Object> updated = repo.updateLot(lotId, payload.description(), payload.quantity(),
             payload.expiryDate(), payload.address(), requireKnownCategory(payload.category()), payload.comment(),
             payload.requiresCold(), payload.unit(), newWeight);
@@ -259,7 +270,7 @@ public class ShopController {
                                                 @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
-        return repo.getHistory(shopId, limit, offset);
+        return repo.getHistory(shopId, Clamp.clamp(limit, 1, 100), Math.max(0, offset));
     }
 
     // ── Shop profile ────────────────────────────────────────────────────────────
@@ -278,6 +289,10 @@ public class ShopController {
     public Map<String, Object> patchShop(@PathVariable int shopId, @RequestBody ShopUpdate payload,
                                          @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
+        Map<String, Object> current = requireShop(shopId);
+        Double finalLat = payload.lat() != null ? payload.lat() : asDouble(current.get("lat"));
+        Double finalLon = payload.lon() != null ? payload.lon() : asDouble(current.get("lon"));
+        validateOptionalCoordinates(finalLat, finalLon);
         Map<String, Object> updated = repo.updateShop(shopId, payload.name(), payload.contact(),
             payload.lat(), payload.lon(), payload.city());
         if (updated == null) {
@@ -402,6 +417,9 @@ public class ShopController {
             if (!ReceiptService.LOT_CATEGORIES.contains(draft.category())) {
                 throw new ApiException(400, "Неизвестная категория: " + draft.category());
             }
+            if (draft.quantity() == null || draft.quantity() <= 0) {
+                throw new ApiException(422, "quantity каждого лота должна быть положительной");
+            }
         }
         List<Integer> lotIds = service.confirmReceiptLots(shopId, receiptId, payload.lots(),
             payload.expiryDate(), address, payload.timeSlot());
@@ -419,7 +437,7 @@ public class ShopController {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> r : repo.getReceipts(shopId, limit, offset)) {
+        for (Map<String, Object> r : repo.getReceipts(shopId, Clamp.clamp(limit, 1, 100), Math.max(0, offset))) {
             out.add(receiptToOut(r));
         }
         return out;
@@ -598,7 +616,7 @@ public class ShopController {
 
     private static double resolveWeight(String unit, Double weight) {
         if (!"кг".equals(unit)) {
-            if (weight == null || weight <= 0) {
+            if (weight == null || !Double.isFinite(weight) || weight <= 0) {
                 throw new ApiException(400,
                     "Для единиц измерения кроме 'кг' необходимо указать вес одной единицы (кг)");
             }
@@ -641,6 +659,27 @@ public class ShopController {
 
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    private static void validatePassword(String password) {
+        if (password.length() < 8 || password.length() > 128) {
+            throw new ApiException(422, "password: длина должна быть от 8 до 128 символов");
+        }
+    }
+
+    private static void validateOptionalCoordinates(Double lat, Double lon) {
+        if (lat == null && lon == null) {
+            return;
+        }
+        if (!Geo.isValidCoordinates(lat, lon)) {
+            throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
+        }
+    }
+
+    private static void requirePositiveFinite(Double value, String field) {
+        if (value == null || !Double.isFinite(value) || value <= 0) {
+            throw new ApiException(422, field + ": значение должно быть положительным и конечным");
+        }
     }
 
     private static void deleteQuietly(Path path) {

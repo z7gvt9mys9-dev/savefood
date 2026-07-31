@@ -31,6 +31,9 @@ data class MapLotDto(
     val quantity: Double? = null,
     val photo: String? = null,
     val category: String? = null,
+    val status: String? = null,
+    @SerialName("route_available") val routeAvailable: Boolean? = null,
+    @SerialName("open_delivery_tickets") val openDeliveryTickets: Int? = null,
 )
 
 /** An open delivery request (coordinates coarsened ~500m on the server). */
@@ -43,6 +46,18 @@ data class MapTicketDto(
     val lat: Double? = null,
     val lon: Double? = null,
     val approx: Boolean? = null,
+    @SerialName("lot_id") val lotId: Int? = null,
+    @SerialName("lot_description") val lotDescription: String? = null,
+    @SerialName("lot_quantity") val lotQuantity: Double? = null,
+    @SerialName("lot_photo") val lotPhoto: String? = null,
+    @SerialName("lot_category") val lotCategory: String? = null,
+    @SerialName("lot_status") val lotStatus: String? = null,
+    @SerialName("shop_id") val shopId: Int? = null,
+    @SerialName("shop_name") val shopName: String? = null,
+    @SerialName("shop_lat") val shopLat: Double? = null,
+    @SerialName("shop_lon") val shopLon: Double? = null,
+    @SerialName("shop_kind") val shopKind: String? = null,
+    @SerialName("route_available") val routeAvailable: Boolean? = null,
 )
 
 // ── Lots (GET /lots) — shape mirrors backend LotOut ─────────────────────────
@@ -89,6 +104,7 @@ data class RoutePointDto(
     val kind: String,
     val lat: Double? = null,
     val lon: Double? = null,
+    val address: String? = null,
     val description: String? = null,
     @SerialName("ticket_id") val ticketId: Int? = null,
     val done: Boolean? = false,

@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
 import ru.savefood.app.feature.volunteer.data.LotDto
 import ru.savefood.app.feature.volunteer.data.MapTicketDto
+import ru.savefood.app.feature.volunteer.data.VolunteerMapDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import javax.inject.Inject
 
@@ -44,7 +45,15 @@ class AvailableViewModel @Inject constructor(
                     val active = lotsRes.data.filter { it.status == "active" }
                     _state.update { it.copy(loading = false, lots = active) }
                     when (val mapRes = repo.getMap()) {
-                        is ApiResult.Success -> _state.update { it.copy(openTickets = mapRes.data.tickets) }
+                        is ApiResult.Success -> {
+                            val map = mapRes.data
+                            _state.update {
+                                it.copy(
+                                    lots = mergeReservedLots(active, map),
+                                    openTickets = map.tickets,
+                                )
+                            }
+                        }
                         is ApiResult.Error -> Unit // map overlay is best-effort; lots already shown
                     }
                 }
@@ -79,4 +88,38 @@ class AvailableViewModel @Inject constructor(
     }
 
     fun clearStartError() = _state.update { it.copy(startError = null) }
+
+    /**
+     * Reserving the final unit sets its public quantity to zero, so /lots quite
+     * correctly omits it.  The authenticated volunteer map carries a minimal
+     * ticket/lot card for that case; merge it into the actionable list rather
+     * than leaving a passive marker that cannot start a route.
+     */
+    private fun mergeReservedLots(active: List<LotDto>, map: VolunteerMapDto): List<LotDto> {
+        val existingIds = active.mapTo(mutableSetOf()) { it.id }
+        val query = _state.value.search.trim().lowercase()
+        val reserved = map.tickets.mapNotNull { ticket ->
+            val lotId = ticket.lotId ?: return@mapNotNull null
+            if (lotId in existingIds || ticket.routeAvailable == false) return@mapNotNull null
+            val title = ticket.lotDescription ?: ticket.items ?: return@mapNotNull null
+            val matchesSearch = query.isBlank() || title.lowercase().contains(query) ||
+                (ticket.shopName?.lowercase()?.contains(query) == true)
+            if (!matchesSearch) return@mapNotNull null
+            existingIds += lotId
+            LotDto(
+                id = lotId,
+                shopId = ticket.shopId ?: 0,
+                description = title,
+                quantity = ticket.lotQuantity ?: 0.0,
+                photo = ticket.lotPhoto,
+                address = ticket.shopName,
+                status = "reserved",
+                category = ticket.lotCategory,
+                shopName = ticket.shopName,
+                shopLat = ticket.shopLat,
+                shopLon = ticket.shopLon,
+            )
+        }
+        return active + reserved
+    }
 }

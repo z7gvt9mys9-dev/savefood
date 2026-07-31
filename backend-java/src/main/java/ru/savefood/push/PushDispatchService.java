@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -61,7 +62,11 @@ public class PushDispatchService {
     private static final String FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
 
     private final ObjectMapper mapper = new ObjectMapper();
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private final HttpClient http = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .followRedirects(HttpClient.Redirect.NEVER)
+        .proxy(ProxySelector.of(null))
+        .build();
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "push-dispatch");
         t.setDaemon(true);
@@ -160,6 +165,11 @@ public class PushDispatchService {
         }
         for (Map<String, Object> sub : subs) {
             String endpoint = (String) sub.get("endpoint");
+            if (!PushEndpointValidator.isAllowed(endpoint)) {
+                log.warning("[push] ignoring unsafe endpoint");
+                jdbc.update("DELETE FROM push_subscriptions WHERE endpoint = ?", endpoint);
+                continue;
+            }
             try {
                 byte[] ciphertext = encrypt(payload,
                     b64urlDecode((String) sub.get("p256dh")),

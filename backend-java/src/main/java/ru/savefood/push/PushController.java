@@ -53,6 +53,10 @@ public class PushController {
         if (isBlank(payload.endpoint()) || isBlank(p256dh) || isBlank(auth)) {
             throw new ApiException(400, "Неполная подписка");
         }
+        if (!isBase64Url(p256dh, 512) || !isBase64Url(auth, 512)) {
+            throw new ApiException(400, "Некорректные ключи push-подписки");
+        }
+        PushEndpointValidator.validate(payload.endpoint());
         push.saveSubscription(userId(user), payload.endpoint(), p256dh, auth);
         return Map.of("ok", true);
     }
@@ -102,5 +106,9 @@ public class PushController {
 
     private static boolean isBlank(String s) {
         return s == null || s.isEmpty();
+    }
+
+    private static boolean isBase64Url(String value, int maxLength) {
+        return value.length() <= maxLength && value.matches("[A-Za-z0-9_-]+={0,2}");
     }
 }

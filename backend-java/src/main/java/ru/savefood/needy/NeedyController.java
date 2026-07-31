@@ -24,6 +24,9 @@ import ru.savefood.security.CurrentUser;
 import ru.savefood.shop.ShopRepository;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
+import ru.savefood.util.Clamp;
+import ru.savefood.util.Geo;
+import ru.savefood.util.Qr;
 import ru.savefood.web.ApiException;
 import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
@@ -69,7 +72,9 @@ public class NeedyController {
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final String needyUploadDir;
-    private final String volunteerUploadDir;
+    private final String deliveryPhotoUploadDir;
+    /** Only used to remove legacy photos written before private storage existed. */
+    private final String legacyVolunteerUploadDir;
 
     public NeedyController(NeedyRepository repo, NeedyService service, ShopRepository shopRepo,
                           CacheService cache, UploadService uploads, KycCrypto kycCrypto,
@@ -77,7 +82,8 @@ public class NeedyController {
                           RateLimiter rateLimiter, TelegramService telegram,
                           JdbcTemplate jdbc, AuditService audit,
                           @Value("${savefood.needy-upload-dir}") String needyUploadDir,
-                          @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir) {
+                          @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir,
+                          @Value("${savefood.volunteer-upload-dir}") String legacyVolunteerUploadDir) {
         this.repo = repo;
         this.service = service;
         this.shopRepo = shopRepo;
@@ -91,7 +97,8 @@ public class NeedyController {
         this.jdbc = jdbc;
         this.audit = audit;
         this.needyUploadDir = needyUploadDir;
-        this.volunteerUploadDir = volunteerUploadDir;
+        this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
+        this.legacyVolunteerUploadDir = legacyVolunteerUploadDir;
     }
 
     // ── Registration ────────────────────────────────────────────────────────────
@@ -126,6 +133,24 @@ public class NeedyController {
         boolean selfPickup = Boolean.TRUE.equals(payload.selfPickup());
         Double lat = payload.lat();
         Double lon = payload.lon();
+        String address = payload.address();
+        String apartment = payload.apartment();
+        String floorNum = payload.floorNum();
+        String entrance = payload.entrance();
+
+        // A self-pickup QR is redeemed at the shop, so retaining a home address
+        // or home GPS coordinates serves no route purpose and leaks unnecessary
+        // recipient PII through ticket reads. Ignore those direct-API fields.
+        if (selfPickup) {
+            lat = null;
+            lon = null;
+            address = null;
+            apartment = null;
+            floorNum = null;
+            entrance = null;
+        } else {
+            validateProvidedCoordinates(lat, lon);
+        }
         // Delivery tickets must carry the recipient's home coordinates, else the
         // volunteer map/route queries (lat/lon NOT NULL) never surface them.
         if (!selfPickup && (lat == null || lon == null)) {
@@ -140,11 +165,24 @@ public class NeedyController {
             }
         }
 
+        if (!selfPickup && !Geo.isValidCoordinates(lat, lon)) {
+            throw new ApiException(422,
+                "Для доставки укажите корректные координаты адреса (широта -90..90, долгота -180..180)");
+        }
+        if (!selfPickup && (address == null || address.isBlank())) {
+            throw new ApiException(422, "Для доставки укажите адрес получателя");
+        }
+
         try {
-            int ticketId = service.createTicket(needyId, payload.items(), payload.address(), lat, lon,
-                payload.availableTime(), payload.lotId(), payload.apartment(), payload.floorNum(),
-                payload.entrance(), selfPickup);
-            return Map.of("id", ticketId);
+            int ticketId = service.createTicket(needyId, payload.items(), address, lat, lon,
+                payload.availableTime(), payload.lotId(), apartment, floorNum,
+                entrance, selfPickup);
+            Map<String, Object> ticket = repo.getTicketById(ticketId);
+            String qrCode = Qr.buildCode(ticketId, ticket == null ? null : (String) ticket.get("qr_secret"));
+            Map<String, Object> out = new java.util.LinkedHashMap<>();
+            out.put("id", ticketId);
+            out.put("qr_code", qrCode);
+            return out;
         } catch (NeedyService.TicketCreateException exc) {
             throw new ApiException(400, switch (exc.reason()) {
                 case "weekly_limit" -> "Помощь можно получать не чаще раза в неделю";
@@ -170,7 +208,7 @@ public class NeedyController {
                                              @RequestParam(defaultValue = "0") int offset,
                                              @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
-        return repo.getHistory(needyId, limit, offset);
+        return repo.getHistory(needyId, Clamp.clamp(limit, 1, 100), Math.max(0, offset));
     }
 
     @DeleteMapping("/needy/{needyId}/ticket/{ticketId}")
@@ -212,21 +250,25 @@ public class NeedyController {
         rateLimiter.checkHourly("needy:impact_photo", ClientIp.of(request), 3);
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
 
-        // Reuse the volunteer uploads directory for the public impact feed.
-        String filename = uploads.validateAndSave(file, volunteerUploadDir);
-        String photoUrl = "/volunteer_uploads/" + filename;
-        // The photo is NOT public yet: it lands 'pending' and only moderation /
-        // the AI pre-check can promote it to 'approved' (§36.1).
-        String oldPhoto = service.setDeliveryPhotoPending(needyId, ticketId, photoUrl);
-
-        // The DB now points at the new file — the replaced photo (if any) is an orphan.
-        if (oldPhoto != null && oldPhoto.startsWith("/volunteer_uploads/")) {
-            deleteQuietly(Paths.get(volunteerUploadDir, basename(oldPhoto)));
+        // Delivery photos are private until moderation; only the approved feed
+        // endpoint may read them.  Never place a pending upload under nginx's
+        // public /volunteer_uploads alias.
+        String filename = uploads.validateAndSave(file, deliveryPhotoUploadDir);
+        String photoRef = "/delivery_photos/" + filename;
+        String oldPhoto;
+        try {
+            oldPhoto = service.setDeliveryPhotoPending(needyId, ticketId, photoRef);
+        } catch (RuntimeException e) {
+            deleteQuietly(Paths.get(deliveryPhotoUploadDir, filename));
+            throw e;
         }
 
+        // The DB now points at the new file — the replaced photo (if any) is an orphan.
+        deleteDeliveryPhoto(oldPhoto);
+
         // Fire-and-forget AI "is this actually food?" pre-check (§36.1).
-        photoModeration.startPhotoCheck(ticketId, Paths.get(volunteerUploadDir, filename).toString());
-        return Map.of("photo_url", photoUrl, "status", "pending");
+        photoModeration.startPhotoCheck(ticketId, Paths.get(deliveryPhotoUploadDir, filename).toString(), photoRef);
+        return Map.of("photo_url", "/impact/delivery_photos/" + ticketId + "/image", "status", "pending");
     }
 
     // ── Needy profile / account ───────────────────────────────────────────────────
@@ -285,13 +327,24 @@ public class NeedyController {
         if (needy == null) {
             throw new ApiException(404, "Needy not found");
         }
+        Map<String, Object> existing = repo.getProfile(needyId);
+        String oldDocument = existing == null ? null : (String) existing.get("document");
         String filename = uploads.validateAndSave(file, needyUploadDir, true);
         Path path = Paths.get(needyUploadDir, filename);
         // Encrypt the eligibility document at rest immediately (§58): on disk it is
         // only ever ciphertext; the AI verification decrypts it in memory.
-        kycCrypto.encryptFile(path.toString());
-        Map<String, Object> profile = repo.createOrUpdateProfile(needyId, null, null, null, null,
-            "/needy_uploads/" + filename, null, null, null, null, null, null, null);
+        Map<String, Object> profile;
+        try {
+            kycCrypto.encryptFile(path.toString());
+            profile = repo.createOrUpdateProfile(needyId, null, null, null, null,
+                "/needy_uploads/" + filename, null, null, null, null, null, null, null, false);
+        } catch (RuntimeException e) {
+            deleteQuietly(path);
+            throw e;
+        }
+        if (oldDocument != null && !oldDocument.equals("/needy_uploads/" + filename)) {
+            deleteQuietly(Paths.get(needyUploadDir, basename(oldDocument)));
+        }
         // Fully automated KYC: fire-and-forget AI check that auto-decides (no human).
         String name = needy.get("name") == null ? "" : needy.get("name").toString();
         kycService.startKycCheck(needyId, path.toString(), name);
@@ -449,11 +502,10 @@ public class NeedyController {
         if (result.document() != null) {
             deleteQuietly(Paths.get(needyUploadDir, basename(result.document())));
         }
-        // Delete any delivery photos (volunteer uploads dir).
+        // Delete any delivery photos from private storage (and legacy public
+        // storage for pre-migration rows).
         for (String photo : result.photos()) {
-            if (photo != null && photo.startsWith("/volunteer_uploads/")) {
-                deleteQuietly(Paths.get(volunteerUploadDir, basename(photo)));
-            }
+            deleteDeliveryPhoto(photo);
         }
         return Map.of("ok", true, "deleted", true);
     }
@@ -491,19 +543,39 @@ public class NeedyController {
                                                    @RequestParam(required = false) String search) {
         // The hottest read on the platform (every recipient's map). Short-TTL
         // read-through cache (see CacheService); no write-side invalidation needed.
-        String key = "lots:active:" + limit + ":" + offset + ":"
+        int lim = Clamp.clamp(limit, 1, 100);
+        int off = Math.max(0, offset);
+        String key = "lots:active:" + lim + ":" + off + ":"
             + (category == null ? "" : category) + ":" + (search == null ? "" : search);
         return cache.cachedJson(key, CacheService.TTL_LOTS,
-            () -> shopRepo.getAllActiveLots(limit, offset, category, search));
+            () -> shopRepo.getAllActiveLots(lim, off, category, search));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
 
     private Map<String, Object> upsertProfile(int needyId, NeedyProfileUpsert p, CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
+        Map<String, Object> current = repo.getProfile(needyId);
+        // Coordinate clearing is destructive and must be explicit. Ordinary
+        // profile saves often submit an unchanged address without re-sending the
+        // geocoder result; implicitly erasing that location made the recipient
+        // disappear from the volunteer map.
+        boolean clearCoordinates = Boolean.TRUE.equals(p.clearCoordinates());
+        if (clearCoordinates && (p.lat() != null || p.lon() != null)) {
+            throw new ApiException(422, "clear_coordinates нельзя сочетать с lat/lon");
+        }
+        validateProvidedCoordinates(p.lat(), p.lon());
+        if (!clearCoordinates && (p.lat() != null || p.lon() != null)) {
+            Double finalLat = p.lat() != null ? p.lat() : asDouble(current == null ? null : current.get("lat"));
+            Double finalLon = p.lon() != null ? p.lon() : asDouble(current == null ? null : current.get("lon"));
+            if (!Geo.isValidCoordinates(finalLat, finalLon)) {
+                throw new ApiException(422,
+                    "lat/lon: укажите обе координаты в диапазонах -90..90 и -180..180");
+            }
+        }
         Map<String, Object> profile = repo.createOrUpdateProfile(needyId, p.address(), p.familySize(),
             p.preferences(), p.urgency(), null, p.availableTime(), p.apartment(), p.floorNum(),
-            p.entrance(), p.city(), p.lat(), p.lon());
+            p.entrance(), p.city(), p.lat(), p.lon(), clearCoordinates);
         if (profile == null) {
             throw new ApiException(404, "Needy not found");
         }
@@ -535,5 +607,25 @@ public class NeedyController {
 
     private static Double asDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : null;
+    }
+
+    private void deleteDeliveryPhoto(String photo) {
+        if (photo == null || photo.isBlank()) {
+            return;
+        }
+        if (photo.startsWith("/delivery_photos/")) {
+            deleteQuietly(Paths.get(deliveryPhotoUploadDir, basename(photo)));
+        } else if (photo.startsWith("/volunteer_uploads/")) {
+            deleteQuietly(Paths.get(legacyVolunteerUploadDir, basename(photo)));
+        }
+    }
+
+    private static void validateProvidedCoordinates(Double lat, Double lon) {
+        if (lat != null && !Geo.isValidLatitude(lat)) {
+            throw new ApiException(422, "lat: значение должно быть конечным и в диапазоне -90..90");
+        }
+        if (lon != null && !Geo.isValidLongitude(lon)) {
+            throw new ApiException(422, "lon: значение должно быть конечным и в диапазоне -180..180");
+        }
     }
 }

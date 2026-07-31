@@ -6,6 +6,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import ru.savefood.photo.DeliveryPhotoStorage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -43,10 +46,18 @@ public class RouteRevertService {
         + "WHERE id = ? AND status = 'taken'";
 
     private final JdbcTemplate jdbc;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public RouteRevertService(JdbcTemplate jdbc) {
+    @Autowired
+    public RouteRevertService(JdbcTemplate jdbc, DeliveryPhotoStorage deliveryPhotos) {
         this.jdbc = jdbc;
+        this.deliveryPhotos = deliveryPhotos;
+    }
+
+    /** Kept for focused JDBC tests that do not need filesystem cleanup. */
+    public RouteRevertService(JdbcTemplate jdbc) {
+        this(jdbc, null);
     }
 
     /**
@@ -85,6 +96,7 @@ public class RouteRevertService {
         // the undelivered tickets.
         if (pickedUp(pointsJson, mapper)) {
             for (Integer tid : ticketIds) {
+                discardCourierProof(tid);
                 cancelAssignedTicket(tid, now,
                     "Заявка #" + tid + " отменена: доставка не состоялась, лот уже забран из магазина. "
                     + "Выберите другой лот — недельный лимит не потрачен.");
@@ -101,6 +113,7 @@ public class RouteRevertService {
         if (!lotGone) {
             // Lot is back on the витрина — reopen its tickets for another volunteer.
             for (Integer tid : ticketIds) {
+                discardCourierProof(tid);
                 jdbc.update(
                     "UPDATE tickets SET status = 'open', assigned_volunteer = NULL, "
                     + "assigned_volunteer_id = NULL WHERE id = ? AND status = 'assigned'",
@@ -112,6 +125,7 @@ public class RouteRevertService {
         // Lot is gone (confirmed/expired/removed): cancel the tickets and notify,
         // freeing the recipient's one-active-ticket slot (audit Q4 / §57).
         for (Integer tid : ticketIds) {
+            discardCourierProof(tid);
             cancelAssignedTicket(tid, now,
                 "Заявка #" + tid + " отменена: лот уже передан или снят магазином. "
                 + "Выберите другой лот — недельный лимит не потрачен.");
@@ -129,6 +143,31 @@ public class RouteRevertService {
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) "
                 + "VALUES (?, ?, ?, ?, 0)",
                 needyIds.get(0), "ticket_cancelled", message, now);
+        }
+    }
+
+    /**
+     * A proof captured before QR confirmation is valid only for this still
+     * assigned route stop. Route teardown must scrub it before reopening or
+     * cancelling the ticket; otherwise a later volunteer could inherit it.
+     */
+    private void discardCourierProof(Integer ticketId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT delivery_photo FROM tickets WHERE id = ? AND status = 'assigned' FOR UPDATE", ticketId);
+        if (rows.isEmpty()) {
+            return;
+        }
+        String photo = rows.get(0).get("delivery_photo") instanceof String s ? s : null;
+        if (photo == null || photo.isBlank()) {
+            return;
+        }
+        int updated = jdbc.update(
+            "UPDATE tickets SET delivery_photo = NULL, delivery_photo_status = NULL, "
+                + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
+                + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL "
+                + "WHERE id = ? AND status = 'assigned' AND delivery_photo = ?", ticketId, photo);
+        if (updated > 0 && deliveryPhotos != null) {
+            deliveryPhotos.deleteAfterCommit(photo);
         }
     }
 

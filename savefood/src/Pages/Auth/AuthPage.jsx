@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
+import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
 
@@ -12,6 +13,7 @@ const AuthPage = () => {
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
   const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
   const [regToken, setRegToken] = useState(null); // token after registration
+  const [regSession, setRegSession] = useState(null);
   // C2C: 'business' (магазин/кафе) | 'private' (частное лицо отдаёт излишки)
   const [donorKind, setDonorKind] = useState('business');
 
@@ -28,7 +30,10 @@ const AuthPage = () => {
     familySize: 1,
     preferences: '',
     urgency: 'normal',
-    document: null
+    document: null,
+    apartment: '',
+    floor_num: '',
+    entrance: '',
   });
 
   const handleInputChange = (e) => {
@@ -37,7 +42,16 @@ const AuthPage = () => {
   };
 
   const handleAddressChange = (addr) => {
-    setFormData({ ...formData, address: addr.address, lat: addr.lat, lon: addr.lon, city: addr.city });
+    setFormData(prev => ({
+      ...prev,
+      address: addr.address,
+      lat: addr.lat,
+      lon: addr.lon,
+      city: addr.city,
+      apartment: addr.apartment,
+      floor_num: addr.floor_num,
+      entrance: addr.entrance,
+    }));
   };
 
   const { t } = useTranslation();
@@ -222,6 +236,14 @@ const AuthPage = () => {
       }
     } else {
       try {
+        // The final needy-registration step collects an actual delivery point.
+        // A manually typed address has no trustworthy coordinates until it is
+        // selected from the geocoder, so do not create a profile that cannot be
+        // served by a volunteer.
+        if (role === 'needy' && !hasDeliveryLocation(formData)) {
+          alert(t('auth.delivery_location_required'));
+          return;
+        }
         let endpoint = '';
         let body = {};
         if (role === 'shop') {
@@ -254,6 +276,13 @@ const AuthPage = () => {
             const loginData = await loginRes.json();
             token = loginData.access_token;
             setRegToken(token);
+            const sessionRole = loginData.role || role;
+            const relatedId = loginData.related_id ?? data.id ?? null;
+            // Registration already performed a successful login. Persist that
+            // session just like the normal login flow rather than making the
+            // new account holder authenticate a second time after Telegram.
+            login(token, sessionRole, relatedId);
+            setRegSession({ role: sessionRole, relatedId });
           }
         } catch {}
 
@@ -281,6 +310,9 @@ const AuthPage = () => {
               city: formData.city || null,
               lat: formData.lat ?? null,
               lon: formData.lon ?? null,
+              apartment: formData.apartment || null,
+              floor_num: formData.floor_num || null,
+              entrance: formData.entrance || null,
             }),
           }).catch(() => {});
         }
@@ -379,6 +411,12 @@ const AuthPage = () => {
         label={t('auth.address')}
         onChange={handleAddressChange}
         value={formData.address}
+        lat={formData.lat}
+        lon={formData.lon}
+        city={formData.city}
+        apartment={formData.apartment}
+        floorNum={formData.floor_num}
+        entrance={formData.entrance}
       />
 
       <div className="consent-box">
@@ -404,6 +442,12 @@ const AuthPage = () => {
         label={t('volunteer.your_city')}
         onChange={handleAddressChange}
         value={formData.address}
+        lat={formData.lat}
+        lon={formData.lon}
+        city={formData.city}
+        apartment={formData.apartment}
+        floorNum={formData.floor_num}
+        entrance={formData.entrance}
       />
 
       <div className="consent-box">
@@ -465,6 +509,12 @@ const AuthPage = () => {
           label={t('auth.home_address')}
           onChange={handleAddressChange}
           value={formData.address}
+          lat={formData.lat}
+          lon={formData.lon}
+          city={formData.city}
+          apartment={formData.apartment}
+          floorNum={formData.floor_num}
+          entrance={formData.entrance}
         />
         <input type="number" name="familySize" placeholder={t('auth.family_members')} onChange={handleInputChange} required />
         <textarea name="preferences" placeholder={t('auth.dietary_prefs')} onChange={handleInputChange}></textarea>
@@ -509,7 +559,14 @@ const AuthPage = () => {
       )}
       <button
         className="btn btn-secondary"
-        onClick={() => { setTgStep(false); setIsLogin(true); }}
+        onClick={() => {
+          if (regSession?.role) {
+            navigate(`/${regSession.role}`);
+            return;
+          }
+          setTgStep(false);
+          setIsLogin(true);
+        }}
       >
         {t('auth.telegram_skip')}
       </button>

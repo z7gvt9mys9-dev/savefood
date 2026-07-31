@@ -608,7 +608,7 @@ const ShopDashboard = () => {
           <label>{t('shop.photos')}{shopInfo.kind === 'private' && ' *'}</label>
           <input
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png"
             multiple
             onChange={(e) => { addPhotoFiles(e.target.files); e.target.value = ''; }}
             required={shopInfo.kind === 'private' && photoFiles.length === 0}
@@ -774,7 +774,7 @@ const ShopDashboard = () => {
           <p>{t('shop.ocr_intro')}</p>
           <div className="form-group">
             <label>{t('shop.ocr_photo')}</label>
-            <input type="file" accept="image/*" capture="environment" onChange={(e) => setReceiptFile(e.target.files[0])} required />
+            <input type="file" accept="image/jpeg,image/png" capture="environment" onChange={(e) => setReceiptFile(e.target.files[0])} required />
           </div>
           <button type="submit" className="btn btn-primary" disabled={receiptBusy || !receiptFile}>
             {receiptBusy ? t('shop.ocr_processing') : t('shop.ocr_recognize')}

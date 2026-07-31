@@ -145,6 +145,13 @@ public class VolunteerRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    /** Lock a route before a read-modify-write lifecycle mutation. */
+    public Map<String, Object> getRouteByIdForUpdate(int routeId) {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT * FROM volunteer_routes WHERE id = ? FOR UPDATE", routeId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
     public Map<String, Object> getActiveRoute(int volId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' "

@@ -15,11 +15,13 @@ import ru.savefood.audit.AuditService;
 import ru.savefood.kyc.KycCrypto;
 import ru.savefood.kyc.KycService;
 import ru.savefood.needy.dto.ModerationUpdate;
+import ru.savefood.photo.PhotoModerationService;
 import ru.savefood.security.Auth;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
+import ru.savefood.util.Geo;
 import ru.savefood.util.Html;
 import ru.savefood.volunteer.dto.AvailabilityWindow;
 import ru.savefood.volunteer.dto.CompletePointRequest;
@@ -66,32 +68,39 @@ public class VolunteerController {
     private final UploadService uploads;
     private final KycCrypto kycCrypto;
     private final KycService kycService;
+    private final PhotoModerationService photoModeration;
     private final WebhookService webhooks;
     private final TelegramService telegram;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final boolean kycRequired;
     private final String kycUploadDir;
+    private final String deliveryPhotoUploadDir;
 
     public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
                               UploadService uploads, KycCrypto kycCrypto, KycService kycService,
+                              PhotoModerationService photoModeration,
                               WebhookService webhooks, TelegramService telegram,
                               JdbcTemplate jdbc, AuditService audit,
                               @Value("${savefood.volunteer-kyc-required:true}") boolean kycRequired,
                               @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}")
-                                  String kycUploadDir) {
+                                  String kycUploadDir,
+                              @Value("${savefood.delivery-photo-upload-dir:../backend/volunteer/delivery_photos}")
+                                  String deliveryPhotoUploadDir) {
         this.repo = repo;
         this.service = service;
         this.rateLimiter = rateLimiter;
         this.uploads = uploads;
         this.kycCrypto = kycCrypto;
         this.kycService = kycService;
+        this.photoModeration = photoModeration;
         this.webhooks = webhooks;
         this.telegram = telegram;
         this.jdbc = jdbc;
         this.audit = audit;
         this.kycRequired = kycRequired;
         this.kycUploadDir = kycUploadDir;
+        this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
     }
 
     // ── Registration / KYC ────────────────────────────────────────────────────────
@@ -103,6 +112,7 @@ public class VolunteerController {
             throw new ApiException(400, "Укажите логин и пароль");
         }
         validatePassword(vol.password());
+        validateOptionalCoordinates(vol.lat(), vol.lon());
         return Map.of("id", service.registerVolunteer(vol));
     }
 
@@ -116,11 +126,20 @@ public class VolunteerController {
         if (vol == null) {
             throw new ApiException(404, "Volunteer not found");
         }
+        String oldDocument = (String) vol.get("document");
         String filename = uploads.validateAndSave(file, kycUploadDir, true);
         Path path = Paths.get(kycUploadDir, filename);
         // Encrypt the identity document at rest immediately (§58): on disk only ciphertext.
-        kycCrypto.encryptFile(path.toString());
-        repo.setVolunteerDocument(volunteerId, "/volunteer_kyc/" + filename);
+        try {
+            kycCrypto.encryptFile(path.toString());
+            repo.setVolunteerDocument(volunteerId, "/volunteer_kyc/" + filename);
+        } catch (RuntimeException e) {
+            deleteQuietly(path);
+            throw e;
+        }
+        if (oldDocument != null && !oldDocument.equals("/volunteer_kyc/" + filename)) {
+            deleteQuietly(Paths.get(kycUploadDir, basename(oldDocument)));
+        }
         // A rejected volunteer re-uploading moves back into the queue; an approved one is left alone.
         if ("rejected".equals(vol.get("status"))) {
             repo.setVolunteerStatus(volunteerId, "pending", null);
@@ -247,12 +266,32 @@ public class VolunteerController {
         return MediaType.IMAGE_JPEG;
     }
 
+    private static void deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+        } catch (Exception ignored) {
+            // Best effort after a database replacement/validation failure.
+        }
+    }
+
     // ── Map / profile ─────────────────────────────────────────────────────────────
 
     @GetMapping("/volunteers/map")
     public Map<String, Object> getMap(@Auth CurrentUser user) {
         if (!user.isAdmin() && !"volunteer".equals(user.role())) {
             throw new ApiException(403, "Forbidden");
+        }
+        // Map pins include where vulnerable recipients live (albeit coarsened),
+        // so a pending/rejected volunteer must not be able to enumerate them.
+        if (!user.isAdmin()) {
+            if (user.relatedId() == null) {
+                throw new ApiException(403, "Forbidden");
+            }
+            Map<String, Object> volunteer = repo.getVolunteerById(user.relatedId());
+            if (volunteer == null || !"approved".equals(volunteer.get("status"))) {
+                throw new ApiException(403,
+                    "Карта заявок доступна после подтверждения аккаунта волонтёра");
+            }
         }
         return service.mapPoints();
     }
@@ -271,6 +310,17 @@ public class VolunteerController {
     public Map<String, Object> patchVolunteer(@PathVariable int volunteerId,
                                               @RequestBody VolunteerUpdate payload, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
+        Map<String, Object> current = repo.getVolunteerById(volunteerId);
+        if (current == null) {
+            throw new ApiException(404, "Volunteer not found");
+        }
+        Double finalLat = payload.lat() != null ? payload.lat() : asDouble(current.get("lat"));
+        Double finalLon = payload.lon() != null ? payload.lon() : asDouble(current.get("lon"));
+        validateOptionalCoordinates(finalLat, finalLon);
+        if (payload.capacityKg() != null
+                && (!Double.isFinite(payload.capacityKg()) || payload.capacityKg() < 0)) {
+            throw new ApiException(422, "capacity_kg: значение должно быть конечным и неотрицательным");
+        }
         String availabilityJson = null;
         if (payload.availability() != null) {
             availabilityJson = availabilityJson(payload.availability());
@@ -370,7 +420,39 @@ public class VolunteerController {
     public Map<String, Object> attemptDelivery(@PathVariable int routeId,
                                                @RequestBody CompletePointRequest payload, @Auth CurrentUser user) {
         Map<String, Object> route = requireRouteOwner(routeId, user, true);
-        return service.attemptDelivery(route, payload.ticketId());
+        return service.attemptDelivery(route, ((Number) route.get("volunteer_id")).intValue(),
+            payload.ticketId(), payload.lat(), payload.lon());
+    }
+
+    /**
+     * Store a courier's proof photo for an active assigned stop. Pending photos
+     * live outside public nginx aliases; only moderation-approved files can be
+     * read through the public impact endpoint.
+     */
+    @PostMapping(value = "/volunteers/route/{routeId}/ticket/{ticketId}/photo",
+                 consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> uploadDeliveryPhoto(@PathVariable int routeId, @PathVariable int ticketId,
+                                                    @RequestParam MultipartFile file,
+                                                    @RequestParam Double lat, @RequestParam Double lon,
+                                                    @Auth CurrentUser user, HttpServletRequest request) {
+        rateLimiter.checkHourly("volunteers:delivery_photo", ClientIp.of(request), 10);
+        Map<String, Object> route = requireRouteOwner(routeId, user, true);
+        int volunteerId = ((Number) route.get("volunteer_id")).intValue();
+        String filename = uploads.validateAndSave(file, deliveryPhotoUploadDir);
+        String photoRef = "/delivery_photos/" + filename;
+        String oldPhoto;
+        try {
+            oldPhoto = service.attachDeliveryPhoto(route, volunteerId, ticketId, lat, lon, photoRef);
+        } catch (RuntimeException e) {
+            deleteQuietly(Paths.get(deliveryPhotoUploadDir, filename));
+            throw e;
+        }
+        if (oldPhoto != null && oldPhoto.startsWith("/delivery_photos/")) {
+            deleteQuietly(Paths.get(deliveryPhotoUploadDir, basename(oldPhoto)));
+        }
+        photoModeration.startPhotoCheck(ticketId, Paths.get(deliveryPhotoUploadDir, filename).toString(), photoRef);
+        return Map.of("ok", true, "status", "pending",
+            "photo_url", "/impact/delivery_photos/" + ticketId + "/image");
     }
 
     @GetMapping("/volunteers/{volunteerId}/history")
@@ -379,7 +461,7 @@ public class VolunteerController {
                                              @RequestParam(defaultValue = "0") int offset,
                                              @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
-        return service.historyRoutes(volunteerId, limit, offset);
+        return service.historyRoutes(volunteerId, Math.min(Math.max(limit, 1), 100), Math.max(0, offset));
     }
 
     @GetMapping("/volunteers/{volunteerId}/active_route")
@@ -496,6 +578,9 @@ public class VolunteerController {
     public Map<String, Object> updateLocation(@PathVariable int volunteerId,
                                               @RequestBody LocationUpdate payload, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
+        if (!Geo.isValidCoordinates(payload.lat(), payload.lon())) {
+            throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
+        }
         // Postgres is the source of truth; the Redis write-through cache stays on
         // the Python layer during the migration (CacheService is a no-op here).
         repo.updateVolunteerLocation(volunteerId, payload.lat(), payload.lon());
@@ -596,5 +681,18 @@ public class VolunteerController {
         if (password.length() < 8 || password.length() > 128) {
             throw new ApiException(422, "password: длина должна быть от 8 до 128 символов");
         }
+    }
+
+    private static void validateOptionalCoordinates(Double lat, Double lon) {
+        if (lat == null && lon == null) {
+            return;
+        }
+        if (!Geo.isValidCoordinates(lat, lon)) {
+            throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
+        }
+    }
+
+    private static Double asDouble(Object value) {
+        return value instanceof Number n ? n.doubleValue() : null;
     }
 }

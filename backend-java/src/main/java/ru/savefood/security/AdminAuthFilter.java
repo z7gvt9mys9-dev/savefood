@@ -51,16 +51,22 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             deny(response, 401, "Could not validate credentials");
             return;
         }
-        // Reject blocked users on every request — an already-issued token would
-        // otherwise keep working until expiry (auth.py get_current_user).
-        if (user.sub() != null) {
-            List<Boolean> blocked = jdbc.query(
-                "SELECT is_blocked FROM users WHERE username = ?",
-                (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
-            if (!blocked.isEmpty() && Boolean.TRUE.equals(blocked.get(0))) {
-                deny(response, 403, "Аккаунт заблокирован администратором");
-                return;
-            }
+        // Reject blocked and deleted users on every request — an already-issued
+        // token must not remain a usable session after account erasure.
+        if (user.sub() == null || user.sub().isBlank()) {
+            deny(response, 401, "Could not validate credentials");
+            return;
+        }
+        List<Boolean> blocked = jdbc.query(
+            "SELECT is_blocked FROM users WHERE username = ?",
+            (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
+        if (blocked.isEmpty()) {
+            deny(response, 401, "Could not validate credentials");
+            return;
+        }
+        if (Boolean.TRUE.equals(blocked.get(0))) {
+            deny(response, 403, "Аккаунт заблокирован администратором");
+            return;
         }
         if (!user.isAdmin()) {
             deny(response, 403, "Admin access required");

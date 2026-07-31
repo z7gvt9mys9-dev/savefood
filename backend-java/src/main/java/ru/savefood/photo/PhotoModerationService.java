@@ -91,23 +91,22 @@ public class PhotoModerationService {
     }
 
     /** Fire-and-forget entry point, the analogue of {@code start_photo_check}. */
-    public void startPhotoCheck(int ticketId, String photoPath) {
-        pool.submit(() -> runPhotoCheck(ticketId, photoPath));
+    public void startPhotoCheck(int ticketId, String photoPath, String photoRef) {
+        pool.submit(() -> runPhotoCheck(ticketId, photoPath, photoRef));
     }
 
-    void runPhotoCheck(int ticketId, String photoPath) {
+    void runPhotoCheck(int ticketId, String photoPath, String photoRef) {
         try {
             Path path = Paths.get(photoPath);
             if (!Files.isRegularFile(path)) {
                 return;
             }
-            String photoUrl = "/volunteer_uploads/" + path.getFileName();
             String mime = MIME_BY_EXT.getOrDefault(extension(photoPath), "image/jpeg");
             byte[] content = Files.readAllBytes(path);
             JsonNode parsed = analyze(content, mime);
             if (parsed == null) {
                 // AI unavailable → stays pending for fully manual review.
-                saveResult(ticketId, photoUrl, "pending", "unchecked", null,
+                saveResult(ticketId, photoRef, "pending", "unchecked", null,
                     "ИИ-проверка недоступна, проверьте вручную", false);
                 return;
             }
@@ -119,7 +118,7 @@ public class PhotoModerationService {
             } else if ("rejected".equals(auto)) {
                 notes = truncate("[авто-отклонено ИИ] " + notes);
             }
-            boolean applied = saveResult(ticketId, photoUrl, auto != null ? auto : "pending",
+            boolean applied = saveResult(ticketId, photoRef, auto != null ? auto : "pending",
                 result.verdict, result.score, notes, auto != null);
             if (applied && "rejected".equals(auto)) {
                 // Drop the analysed file so it never leaks; the row keeps the verdict.

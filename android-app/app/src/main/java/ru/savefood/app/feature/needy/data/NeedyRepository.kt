@@ -86,11 +86,12 @@ class NeedyRepository @Inject constructor(
     /** Copies the content [Uri] into a cache file and builds a multipart image part. */
     private suspend fun Uri.toImagePart(name: String): MultipartBody.Part = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val mime = resolver.getType(this@toImagePart) ?: "image/jpeg"
-        val ext = when {
-            mime.contains("png") -> "png"
-            mime.contains("pdf") -> "pdf"
-            else -> "jpg"
+        val mime = (resolver.getType(this@toImagePart) ?: "image/jpeg").lowercase()
+        val ext = when (mime) {
+            "image/jpeg", "image/jpg" -> "jpg"
+            "image/png" -> "png"
+            "application/pdf" -> "pdf"
+            else -> error("Поддерживаются только файлы JPG, PNG или PDF")
         }
         val tmp = File.createTempFile("needy_upload_", ".$ext", context.cacheDir)
         resolver.openInputStream(this@toImagePart)?.use { input ->

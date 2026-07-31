@@ -11,8 +11,10 @@ import ru.savefood.app.core.common.ApiResult
 import ru.savefood.app.core.common.safeApiCall
 import ru.savefood.app.core.datastore.SessionStore
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -62,9 +64,30 @@ class VolunteerRepository @Inject constructor(
         routeId: Int,
         volunteerId: Int,
         ticketId: Int,
+        lat: Double,
+        lon: Double,
     ): ApiResult<AttemptDeliveryResponseDto> = safeApiCall {
-        api.attemptDelivery(routeId, CompletePointRequestDto(volunteerId, ticketId))
+        api.attemptDelivery(routeId, CompletePointRequestDto(volunteerId, ticketId, lat, lon))
     }
+
+    /** Uploads the courier's proof into private server storage before completion. */
+    suspend fun uploadDeliveryPhoto(
+        routeId: Int,
+        ticketId: Int,
+        uri: Uri,
+        lat: Double,
+        lon: Double,
+    ): ApiResult<Unit> =
+        safeApiCall {
+            api.uploadDeliveryPhoto(
+                routeId,
+                ticketId,
+                uri.toFilePart("file"),
+                lat.toString().toRequestBody("text/plain".toMediaType()),
+                lon.toString().toRequestBody("text/plain".toMediaType()),
+            )
+            Unit
+        }
 
     suspend fun finishRoute(routeId: Int, volunteerId: Int): ApiResult<Unit> =
         safeApiCall { api.finishRoute(routeId, FinishRouteRequestDto(volunteerId)); Unit }
@@ -116,11 +139,12 @@ class VolunteerRepository @Inject constructor(
     /** Copies the content [Uri] into a cache file and builds a multipart file part. */
     private suspend fun Uri.toFilePart(name: String): MultipartBody.Part = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val mime = resolver.getType(this@toFilePart) ?: "image/jpeg"
-        val ext = when {
-            mime.contains("png") -> "png"
-            mime.contains("pdf") -> "pdf"
-            else -> "jpg"
+        val mime = (resolver.getType(this@toFilePart) ?: "image/jpeg").lowercase()
+        val ext = when (mime) {
+            "image/jpeg", "image/jpg" -> "jpg"
+            "image/png" -> "png"
+            "application/pdf" -> "pdf"
+            else -> error("Поддерживаются только файлы JPG, PNG или PDF")
         }
         val tmp = File.createTempFile("vol_upload_", ".$ext", context.cacheDir)
         resolver.openInputStream(this@toFilePart)?.use { input ->

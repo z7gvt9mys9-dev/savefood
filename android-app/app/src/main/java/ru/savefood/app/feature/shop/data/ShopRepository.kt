@@ -114,8 +114,12 @@ class ShopRepository @Inject constructor(
     /** Copies the content [Uri] into a cache file and builds a multipart file part. */
     private suspend fun Uri.toFilePart(name: String): MultipartBody.Part = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
-        val mime = resolver.getType(this@toFilePart) ?: "image/jpeg"
-        val ext = if (mime.contains("png")) "png" else "jpg"
+        val mime = (resolver.getType(this@toFilePart) ?: "image/jpeg").lowercase()
+        val ext = when (mime) {
+            "image/jpeg", "image/jpg" -> "jpg"
+            "image/png" -> "png"
+            else -> error("Поддерживаются только изображения JPG или PNG")
+        }
         val tmp = File.createTempFile("shop_upload_", ".$ext", context.cacheDir)
         resolver.openInputStream(this@toFilePart)?.use { input ->
             tmp.outputStream().use { input.copyTo(it) }

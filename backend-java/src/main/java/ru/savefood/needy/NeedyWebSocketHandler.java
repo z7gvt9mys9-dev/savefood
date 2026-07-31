@@ -118,8 +118,9 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
-        // An already-issued token must stop working the moment the user is blocked.
-        if (user.sub() != null && isBlocked(user.sub())) {
+        // An already-issued token must stop working when the account is blocked
+        // or erased.  A missing users row used to be treated as allowed here.
+        if (user.sub() != null && isDisabledOrDeleted(user.sub())) {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
@@ -205,10 +206,10 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private boolean isBlocked(String username) {
+    private boolean isDisabledOrDeleted(String username) {
         List<Boolean> rows = jdbc.query("SELECT is_blocked FROM users WHERE username = ?",
             (rs, n) -> rs.getBoolean("is_blocked"), username);
-        return !rows.isEmpty() && Boolean.TRUE.equals(rows.get(0));
+        return rows.isEmpty() || Boolean.TRUE.equals(rows.get(0));
     }
 
     private long currentMaxId(int needyId) {

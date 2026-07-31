@@ -37,9 +37,12 @@
     <string name="vol_route_photo_confirm">Confirm delivery</string>
     <string name="vol_route_photo_skip">Without photo</string>
     <string name="vol_route_no_location">Couldn\'t get location — turn on GPS</string>
+    <string name="vol_route_location_permission">Allow location for this route</string>
+    <string name="vol_route_pickup_first">Confirm pickup at the shop first</string>
     <string name="vol_route_tracking_on">GPS tracking on</string>
     <string name="vol_route_tracking_error">Tracking interrupted — reconnecting…</string>
     <string name="vol_route_addr_detail">%1$s</string>
+    <string name="vol_available_reserved_badge">Reserved for delivery</string>
 
     <!-- Rating -->
     <string name="vol_rating_title">Rating</string>

@@ -45,6 +45,9 @@ public class MaintenanceTasks {
     private static final int ANTIFRAUD_GRACE_MINUTES = 15;
     private static final double ANTIFRAUD_DRIFT_THRESHOLD_M = 300;
 
+    private record AntifraudAction(String kind, int volunteerId, Integer lotId) {
+    }
+
     private final ObjectMapper mapper = new ObjectMapper();
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -133,26 +136,46 @@ public class MaintenanceTasks {
                 REASSIGN_TIMEOUT_MINUTES, MAX_ROUTE_DURATION_MINUTES);
             for (Map<String, Object> row : rows) {
                 int routeId = ((Number) row.get("id")).intValue();
-                Integer lotId = row.get("lot_id") == null ? null : ((Number) row.get("lot_id")).intValue();
-                String points = (String) row.get("points");
                 // Per-route transaction = the SAVEPOINT isolation of the Python tick:
                 // a failed revert rolls back only this route and leaves it
                 // 'in_progress' for the next tick instead of stranding the lot.
+                Map<String, Object> timedOutRoute;
                 try {
-                    tx.executeWithoutResult(s -> {
+                    timedOutRoute = tx.execute(s -> {
+                        // The outer scan is intentionally cheap and stale. Lock
+                        // the current row, re-evaluate its timeout predicate, then
+                        // take tickets only after the route lock (the same order as
+                        // complete/attempt/finish interactive requests).
+                        List<Map<String, Object>> locked = jdbc.queryForList(
+                            "SELECT * FROM volunteer_routes WHERE id = ? AND status = 'in_progress' AND ("
+                            + "COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP "
+                            + "- make_interval(mins => ?) OR started_at <= CURRENT_TIMESTAMP "
+                            + "- make_interval(mins => ?)) FOR UPDATE",
+                            routeId, REASSIGN_TIMEOUT_MINUTES, MAX_ROUTE_DURATION_MINUTES);
+                        if (locked.isEmpty()) {
+                            return null;
+                        }
+                        Map<String, Object> current = locked.get(0);
+                        Integer lotId = current.get("lot_id") == null ? null
+                            : ((Number) current.get("lot_id")).intValue();
+                        String points = (String) current.get("points");
                         revert.revertRouteLot(lotId, points);
-                        jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', "
-                            + "finished_at = CURRENT_TIMESTAMP WHERE id = ?", routeId);
+                        int updated = jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', "
+                            + "finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'in_progress'", routeId);
+                        return updated == 1 ? current : null;
                     });
                 } catch (RuntimeException e) {
                     log.warning("[background] reassign: revert failed for route " + routeId
                         + "; left in_progress for retry");
                     continue;
                 }
+                if (timedOutRoute == null) {
+                    continue;
+                }
                 if (!supportChatId.isEmpty()) {
                     try {
                         telegram.sendMessage(supportChatId, "⚠️ Маршрут #" + routeId + " волонтёра "
-                            + row.get("volunteer_id") + " переназначен по таймауту.");
+                            + timedOutRoute.get("volunteer_id") + " переназначен по таймауту.");
                     } catch (Exception ignore) {
                         // best-effort
                     }
@@ -191,73 +214,103 @@ public class MaintenanceTasks {
         }
     }
 
-    private void antifraudOne(Map<String, Object> row) {
-        JsonNode points = readJson((String) row.get("points"));
-        JsonNode shopPoint = null;
-        if (points != null && points.isArray()) {
-            for (JsonNode p : points) {
-                if ("shop".equals(p.path("kind").asText())) {
-                    shopPoint = p;
-                    break;
+    private void antifraudOne(Map<String, Object> snapshot) {
+        int routeId = ((Number) snapshot.get("id")).intValue();
+        AntifraudAction action = tx.execute(s -> {
+            // The periodic scan is only a candidate list. Lock the live route
+            // before reading points or writing a warning/reset, then take ticket
+            // locks through RouteRevertService afterwards (route → ticket order).
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT vr.*, v.lat AS v_lat, v.lon AS v_lon FROM volunteer_routes vr "
+                    + "JOIN volunteers v ON v.id = vr.volunteer_id "
+                    + "WHERE vr.id = ? AND vr.status = 'in_progress' "
+                    + "AND vr.start_dist_m IS NOT NULL "
+                    + "AND vr.started_at <= CURRENT_TIMESTAMP - make_interval(mins => ?) FOR UPDATE OF vr",
+                routeId, ANTIFRAUD_CHECK_AFTER_MINUTES);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            Map<String, Object> row = rows.get(0);
+            JsonNode points = readJson((String) row.get("points"));
+            JsonNode shopPoint = null;
+            if (points != null && points.isArray()) {
+                for (JsonNode p : points) {
+                    if ("shop".equals(p.path("kind").asText())) {
+                        shopPoint = p;
+                        break;
+                    }
                 }
             }
-        }
-        // Pickup confirmed → drift monitoring is over for this route.
-        if (shopPoint == null || shopPoint.path("done").asBoolean(false)) {
-            return;
-        }
-        Object vLat = row.get("v_lat");
-        Object vLon = row.get("v_lon");
-        if (vLat == null || vLon == null) {
-            return;
-        }
-        int routeId = ((Number) row.get("id")).intValue();
-        int volunteerId = ((Number) row.get("volunteer_id")).intValue();
-        Integer lotId = row.get("lot_id") == null ? null : ((Number) row.get("lot_id")).intValue();
-        String pointsJson = (String) row.get("points");
-        double distM = haversine(((Number) vLat).doubleValue(), ((Number) vLon).doubleValue(),
-            shopPoint.path("lat").asDouble(), shopPoint.path("lon").asDouble());
-        boolean movingAway = distM > ((Number) row.get("start_dist_m")).doubleValue() + ANTIFRAUD_DRIFT_THRESHOLD_M;
-        Object pingAt = row.get("antifraud_ping_at");
-
-        if (!movingAway) {
-            if (pingAt != null) {
-                jdbc.update("UPDATE volunteer_routes SET antifraud_ping_at = NULL WHERE id = ?", routeId);
+            // Pickup confirmed → drift monitoring is over for this route.
+            if (shopPoint == null || shopPoint.path("done").asBoolean(false)
+                    || !shopPoint.path("lat").isNumber() || !shopPoint.path("lon").isNumber()) {
+                return null;
             }
+            Object vLat = row.get("v_lat");
+            Object vLon = row.get("v_lon");
+            if (!(vLat instanceof Number) || !(vLon instanceof Number)) {
+                return null;
+            }
+            int volunteerId = ((Number) row.get("volunteer_id")).intValue();
+            Integer lotId = row.get("lot_id") == null ? null : ((Number) row.get("lot_id")).intValue();
+            String pointsJson = (String) row.get("points");
+            double distM = haversine(((Number) vLat).doubleValue(), ((Number) vLon).doubleValue(),
+                shopPoint.path("lat").asDouble(), shopPoint.path("lon").asDouble());
+            boolean movingAway = distM > ((Number) row.get("start_dist_m")).doubleValue()
+                + ANTIFRAUD_DRIFT_THRESHOLD_M;
+            Object pingAt = row.get("antifraud_ping_at");
+
+            if (!movingAway) {
+                if (pingAt != null) {
+                    jdbc.update("UPDATE volunteer_routes SET antifraud_ping_at = NULL "
+                        + "WHERE id = ? AND status = 'in_progress'", routeId);
+                }
+                return null;
+            }
+            if (pingAt == null) {
+                String msg = antifraudPingMessage(lotId);
+                int updated = jdbc.update("UPDATE volunteer_routes SET antifraud_ping_at = CURRENT_TIMESTAMP "
+                    + "WHERE id = ? AND status = 'in_progress'", routeId);
+                if (updated == 0) {
+                    return null;
+                }
+                jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
+                    + "VALUES (?, ?, ?, ?, 0)", volunteerId, "antifraud_ping", msg, now());
+                return new AntifraudAction("ping", volunteerId, lotId);
+            }
+            Instant pinged = toInstant(pingAt);
+            if (pinged == null || Instant.now().isBefore(pinged.plusSeconds(ANTIFRAUD_GRACE_MINUTES * 60L))) {
+                return null;  // still inside the grace window (or legacy invalid timestamp)
+            }
+            // No reaction: release tickets, revive the lot, close the route — atomically.
+            revert.revertRouteLot(lotId, pointsJson);
+            int updated = jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP "
+                + "WHERE id = ? AND status = 'in_progress'", routeId);
+            if (updated == 0) {
+                return null;
+            }
+            jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
+                + "VALUES (?, ?, ?, ?, 0)", volunteerId, "route_reset",
+                "Маршрут #" + routeId + " снят: вы не приближались к магазину после предупреждения. "
+                + "Лот возвращён на витрину.", now());
+            return new AntifraudAction("reset", volunteerId, lotId);
+        });
+        if (action == null) {
             return;
         }
-        if (pingAt == null) {
-            String msg = "⚠️ Всё в порядке? Вы взяли лот #" + lotId + ", но удаляетесь от магазина. "
-                + "Если планы изменились — завершите маршрут, чтобы еда вернулась на витрину. "
-                + "Иначе маршрут будет снят автоматически через " + ANTIFRAUD_GRACE_MINUTES + " минут.";
-            jdbc.update("UPDATE volunteer_routes SET antifraud_ping_at = CURRENT_TIMESTAMP WHERE id = ?", routeId);
-            jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
-                + "VALUES (?, ?, ?, ?, 0)", volunteerId, "antifraud_ping", msg, now());
+        if ("ping".equals(action.kind())) {
             try {
-                telegram.notifyVolunteer(volunteerId, msg);
+                telegram.notifyVolunteer(action.volunteerId(), antifraudPingMessage(action.lotId()));
             } catch (Exception ignore) {
                 // best-effort
             }
             return;
         }
-        Instant pinged = ((Timestamp) pingAt).toInstant();
-        if (Instant.now().isBefore(pinged.plusSeconds(ANTIFRAUD_GRACE_MINUTES * 60L))) {
-            return;  // still inside the grace window
-        }
-        // No reaction: release tickets, revive the lot, close the route — atomically.
-        tx.executeWithoutResult(s -> {
-            revert.revertRouteLot(lotId, pointsJson);
-            jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP "
-                + "WHERE id = ?", routeId);
-            jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
-                + "VALUES (?, ?, ?, ?, 0)", volunteerId, "route_reset",
-                "Маршрут #" + routeId + " снят: вы не приближались к магазину после предупреждения. "
-                + "Лот возвращён на витрину.", now());
-        });
         if (!supportChatId.isEmpty()) {
             try {
                 telegram.sendMessage(supportChatId, "🚨 Антифрод: маршрут #" + routeId + " волонтёра "
-                    + volunteerId + " снят (удалялся от магазина, лот #" + lotId + " возвращён).");
+                    + action.volunteerId() + " снят (удалялся от магазина, лот #" + action.lotId()
+                    + " возвращён).");
             } catch (Exception ignore) {
                 // best-effort
             }
@@ -443,6 +496,25 @@ public class MaintenanceTasks {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static String antifraudPingMessage(Integer lotId) {
+        return "⚠️ Всё в порядке? Вы взяли лот #" + lotId + ", но удаляетесь от магазина. "
+            + "Если планы изменились — завершите маршрут, чтобы еда вернулась на витрину. "
+            + "Иначе маршрут будет снят автоматически через " + ANTIFRAUD_GRACE_MINUTES + " минут.";
+    }
+
+    private static Instant toInstant(Object value) {
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toInstant();
+        }
+        if (value instanceof java.time.OffsetDateTime time) {
+            return time.toInstant();
+        }
+        if (value instanceof Instant instant) {
+            return instant;
+        }
+        return null;
     }
 
     private static Timestamp now() {

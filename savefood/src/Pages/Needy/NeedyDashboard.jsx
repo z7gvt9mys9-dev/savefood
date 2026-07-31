@@ -11,6 +11,7 @@ import OnboardingChecklist from '../../components/OnboardingChecklist';
 import TicketChat from '../../components/TicketChat';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
+import { hasDeliveryLocation, hasValidCoordinates, isTerminalTicketStatus } from '../../utils/ticket';
 import './Needy.css';
 
 const YMAPS_KEY = import.meta.env.VITE_YANDEX_MAPS_API_KEY || '';
@@ -47,6 +48,7 @@ const NeedyDashboard = () => {
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [profile, setProfile] = useState({ address: '', family_size: 1, preferences: '', urgency: 'normal', available_time: '', apartment: '', floor_num: '', entrance: '', city: '', lat: null, lon: null, geo_push_enabled: true });
+  const [addressNeedsGeocoding, setAddressNeedsGeocoding] = useState(false);
   const [filterCategory, setFilterCategory] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [ratings, setRatings] = useState({});
@@ -93,7 +95,11 @@ const NeedyDashboard = () => {
       headers: { Authorization: `Bearer ${user?.token}` },
     })
       .then(res => res.ok ? res.json() : null)
-      .then(data => { if (data) setProfile(prev => ({ ...prev, ...data })); })
+      .then(data => {
+        if (!data) return;
+        setProfile(prev => ({ ...prev, ...data }));
+        setAddressNeedsGeocoding(false);
+      })
       .catch(() => {});
 
     fetch(`${API_URL}/needy/${needyId}/notifications`, {
@@ -181,7 +187,7 @@ const NeedyDashboard = () => {
     const poll = () => {
       fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`, { headers: { Authorization: `Bearer ${user?.token}` } })
         .then(r => r.ok ? r.json() : null)
-        .then(data => { if (data && data.lat && data.lon) setVolunteerLocation(data); })
+        .then(data => { if (data && hasValidCoordinates(data.lat, data.lon)) setVolunteerLocation(data); })
         .catch(() => {});
     };
     poll();
@@ -191,21 +197,38 @@ const NeedyDashboard = () => {
 
   // Poll the active ticket so the recipient learns when a volunteer is assigned
   // (assigned_volunteer_id is set server-side when the volunteer takes the route).
+  // This also covers self-pickup: the shop changes that ticket to fulfilled, so
+  // leaving it out would keep an obsolete QR and cancellation button on screen.
   useEffect(() => {
     if (ticketPollRef.current) clearInterval(ticketPollRef.current);
     const ticketId = activeOrder?.ticketId;
-    if (!ticketId || activeOrder?.selfPickup || activeOrder?.ticketStatus === 'fulfilled') return;
+    if (!ticketId) return;
     const poll = () => {
       fetch(`${API_URL}/needy/${needyId}/tickets`, { headers: { Authorization: `Bearer ${user?.token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(list => {
           if (!Array.isArray(list)) return;
-          const ticket = list.find(x => x.id === ticketId);
+          const ticket = list.find(x => String(x.id) === String(ticketId));
           if (!ticket) return;
+          if (isTerminalTicketStatus(ticket.status)) {
+            setVolunteerLocation(null);
+            setActiveOrder(prev => String(prev?.ticketId) === String(ticketId) ? null : prev);
+            setActiveTab(prev => prev === 'order' ? 'map' : prev);
+            loadHistory(0);
+            loadLots(0);
+            return;
+          }
           setActiveOrder(prev => {
-            if (!prev || prev.ticketId !== ticketId) return prev;
-            if (prev.assigned_volunteer_id === ticket.assigned_volunteer_id && prev.ticketStatus === ticket.status) return prev;
-            return { ...prev, assigned_volunteer_id: ticket.assigned_volunteer_id, ticketStatus: ticket.status };
+            if (!prev || String(prev.ticketId) !== String(ticketId)) return prev;
+            if (prev.assigned_volunteer_id === ticket.assigned_volunteer_id
+              && prev.ticketStatus === ticket.status
+              && prev.qrCode === ticket.qr_code) return prev;
+            return {
+              ...prev,
+              assigned_volunteer_id: ticket.assigned_volunteer_id,
+              ticketStatus: ticket.status,
+              qrCode: ticket.qr_code || prev.qrCode,
+            };
           });
         })
         .catch(() => {});
@@ -213,17 +236,22 @@ const NeedyDashboard = () => {
     poll();
     ticketPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(ticketPollRef.current);
-  }, [activeOrder?.ticketId, activeOrder?.selfPickup, activeOrder?.ticketStatus, needyId]);
+  }, [activeOrder?.ticketId, needyId, user?.token]);
 
   const handleBook = async (lot, selfPickup = false) => {
     if (!needyId) { alert(t('common.auth_required')); return; }
+    if (!selfPickup && !hasDeliveryLocation(profile)) {
+      alert(t('needy.delivery_location_required'));
+      setActiveTab('profile');
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/needy/${needyId}/ticket`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
         body: JSON.stringify({
           items: lot.description,
-          address: selfPickup ? (lot.address || '') : (profile.address || ''),
+          address: selfPickup ? (lot.address || '') : profile.address.trim(),
           lot_id: lot.id,
           available_time: profile.available_time || '',
           lat: selfPickup ? null : (profile.lat ?? null),
@@ -239,15 +267,41 @@ const NeedyDashboard = () => {
         alert(err.detail || t('needy.error_book'));
         return;
       }
-      const ticket = await res.json();
+      const createdTicket = await res.json();
+
+      // Ticket creation used to return only an id, while the only valid QR
+      // includes a server-generated secret. Read the owner-scoped ticket row
+      // after creation (and use a direct response QR when available) so this
+      // screen never manufactures an invalid `SF-<id>` substitute.
+      let ticket = createdTicket;
+      try {
+        const ticketsRes = await fetch(`${API_URL}/needy/${needyId}/tickets`, {
+          headers: { Authorization: `Bearer ${user?.token}` },
+        });
+        if (ticketsRes.ok) {
+          const tickets = await ticketsRes.json();
+          const storedTicket = Array.isArray(tickets)
+            ? tickets.find(item => String(item.id) === String(createdTicket.id))
+            : null;
+          if (storedTicket) ticket = { ...createdTicket, ...storedTicket };
+        }
+      } catch {
+        // The POST has succeeded. Keep the order state and rely on a later poll
+        // to obtain the QR rather than displaying a fake fallback code.
+      }
+
       setActiveOrder({
         ...lot,
-        ticketId: ticket.id,
+        ticketId: createdTicket.id,
+        qrCode: ticket.qr_code || null,
         selfPickup,
         shopName: lot.shop_name || t('needy.shop_name_default'),
         status: selfPickup ? 'self_pickup' : 'picking',
         eta: selfPickup ? null : t('needy.awaiting_volunteer'),
+        ticketStatus: ticket.status || 'open',
+        assigned_volunteer_id: ticket.assigned_volunteer_id ?? null,
       });
+      loadLots(0);
       setActiveTab('order');
     } catch {
       alert(t('common.connection_error'));
@@ -272,6 +326,19 @@ const NeedyDashboard = () => {
     } catch {
       alert(t('common.connection_error'));
     }
+  };
+
+  const renderTicketQr = () => {
+    const qrCode = activeOrder?.qrCode;
+    if (!qrCode) {
+      return <p className="qr-code-text" role="status">{t('needy.qr_loading')}</p>;
+    }
+    return (
+      <>
+        <QRCode value={qrCode} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+        <span className="qr-code-text">{qrCode}</span>
+      </>
+    );
   };
 
   useEffect(() => {
@@ -315,6 +382,11 @@ const NeedyDashboard = () => {
           city: profile.city || null,
           lat: profile.lat ?? null,
           lon: profile.lon ?? null,
+          // The server uses this explicit flag to clear the old point when the
+          // street/house text was manually edited. Sending null alone is not
+          // enough for PATCH semantics because omitted fields normally mean
+          // "leave unchanged".
+          clear_coordinates: addressNeedsGeocoding,
         }),
       });
       if (!res.ok) { alert(t('needy.error_save_profile')); return; }
@@ -385,7 +457,28 @@ const NeedyDashboard = () => {
         <AddressInput
           label={t('needy.home_address_label')}
           value={profile.address}
-          onChange={(addr) => setProfile({ ...profile, address: addr.address, lat: addr.lat ?? profile.lat, lon: addr.lon ?? profile.lon, city: addr.city ?? profile.city, apartment: addr.apartment || profile.apartment, floor_num: addr.floor_num || profile.floor_num, entrance: addr.entrance || profile.entrance })}
+          lat={profile.lat}
+          lon={profile.lon}
+          city={profile.city}
+          apartment={profile.apartment}
+          floorNum={profile.floor_num}
+          entrance={profile.entrance}
+          onChange={(addr) => {
+            const hasCoordinates = addr.lat !== null && addr.lat !== undefined && addr.lat !== ''
+              && addr.lon !== null && addr.lon !== undefined && addr.lon !== ''
+              && Number.isFinite(Number(addr.lat)) && Number.isFinite(Number(addr.lon));
+            setAddressNeedsGeocoding(!hasCoordinates);
+            setProfile(prev => ({
+              ...prev,
+              address: addr.address,
+              lat: addr.lat,
+              lon: addr.lon,
+              city: addr.city,
+              apartment: addr.apartment,
+              floor_num: addr.floor_num,
+              entrance: addr.entrance,
+            }));
+          }}
         />
         <div className="form-row">
           <div className="form-group">
@@ -596,10 +689,7 @@ const NeedyDashboard = () => {
               </div>
               <div className="qr-section">
                 <p>{t('needy.show_qr_shop')}</p>
-                {activeOrder.ticketId && (
-                  <QRCode value={activeOrder.qrCode || `SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
-                )}
-                <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
+                {renderTicketQr()}
               </div>
             </>
           ) : (
@@ -608,7 +698,7 @@ const NeedyDashboard = () => {
                 // 'delivering' once the volunteer pressed «Забрал» at the shop
                 // (volunteer_en_route notification) or live location is streaming;
                 // before that, with a volunteer assigned, they are still collecting.
-                const enRoute = !!volunteerLocation?.lat || notifications.some(n =>
+                const enRoute = hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) || notifications.some(n =>
                   n.type === 'volunteer_en_route' && (n.payload || '').includes(`тикет ${activeOrder.ticketId}`));
                 const phase = enRoute ? 'delivering' : 'picking';
                 return (
@@ -619,7 +709,7 @@ const NeedyDashboard = () => {
                 );
               })()}
 
-              {volunteerLocation?.lat && (
+              {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) && (
                 <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
                   <p style={{ color: '#4CAF50', fontSize: '0.82em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span>●</span> {t('needy.volunteer_location')}
@@ -643,14 +733,11 @@ const NeedyDashboard = () => {
 
               <div className="order-details">
                 <p><strong>{t('needy.items_label')}</strong> {activeOrder.description}</p>
-                <p><strong>{t('common.status')}:</strong> {volunteerLocation?.lat ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
+                <p><strong>{t('common.status')}:</strong> {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
               </div>
               <div className="qr-section">
                 <p>{t('needy.show_qr_volunteer')}</p>
-                {activeOrder.ticketId && (
-                  <QRCode value={activeOrder.qrCode || `SF-${activeOrder.ticketId}`} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
-                )}
-                <span className="qr-code-text">SF-{activeOrder.ticketId || '???'}</span>
+                {renderTicketQr()}
               </div>
 
               {activeOrder.assigned_volunteer_id && activeOrder.ticketStatus !== 'fulfilled' && (

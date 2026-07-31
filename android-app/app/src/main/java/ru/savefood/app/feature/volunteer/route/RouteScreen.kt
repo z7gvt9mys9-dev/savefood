@@ -50,9 +50,11 @@ import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.core.device.Navigation
 import ru.savefood.app.core.device.camera.CameraPreview
+import ru.savefood.app.core.device.camera.CapturedPhoto
 import ru.savefood.app.core.device.camera.captureToFile
 import ru.savefood.app.core.device.camera.rememberCameraPermissionState
 import ru.savefood.app.core.device.camera.rememberImageCapture
+import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.core.device.qr.QrScannerScreen
 import ru.savefood.app.feature.volunteer.data.RoutePointDto
 import ru.savefood.app.feature.volunteer.ui.VolunteerConfirmDialog
@@ -65,6 +67,11 @@ private const val ROUTE_PHOTO = "route/photo"
 @Composable
 fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
     val nav = rememberNavController()
+    val locationPermission = rememberLocationPermissionState { granted ->
+        // The tracking flow is intentionally not started until Android has
+        // granted location. Reloading also restarts it for an active route.
+        if (granted) viewModel.load()
+    }
 
     // Reload whenever the tab is shown; tracking starts inside the VM on success.
     LaunchedEffect(Unit) { viewModel.load() }
@@ -77,6 +84,8 @@ fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
         composable(ROUTE_MAIN) {
             RouteMain(
                 viewModel = viewModel,
+                locationAllowed = locationPermission.isGranted,
+                requestLocation = locationPermission::request,
                 onScan = { ticketId -> nav.navigate("$ROUTE_SCAN/$ticketId") },
             )
         }
@@ -104,8 +113,8 @@ fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
                 LaunchedEffect(Unit) { nav.popBackStack(ROUTE_MAIN, inclusive = false) }
             } else {
                 DeliveryPhotoScreen(
-                    onConfirm = {
-                        viewModel.confirmDelivery(ticketId, qr) {
+                    onConfirm = { photoUri ->
+                        viewModel.confirmDelivery(ticketId, qr, photoUri) {
                             pendingTicketId = null
                             pendingQr = null
                             nav.popBackStack(ROUTE_MAIN, inclusive = false)
@@ -122,6 +131,8 @@ fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
 @Composable
 private fun RouteMain(
     viewModel: RouteViewModel,
+    locationAllowed: Boolean,
+    requestLocation: () -> Unit,
     onScan: (Int) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -152,6 +163,8 @@ private fun RouteMain(
 
             else -> {
                 val points = state.route?.points.orEmpty()
+                val shopPoints = points.filter { it.kind == "shop" }
+                val pickupDone = shopPoints.isNotEmpty() && shopPoints.all { it.done == true }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -159,6 +172,13 @@ private fun RouteMain(
                 ) {
                     item {
                         SectionHeader(title = stringResource(R.string.vol_route_title))
+                        if (!locationAllowed) {
+                            SaveFoodOutlinedButton(
+                                text = stringResource(R.string.vol_route_location_permission),
+                                onClick = requestLocation,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
                         if (state.trackingError) {
                             Text(
                                 text = stringResource(R.string.vol_route_tracking_error),
@@ -178,9 +198,16 @@ private fun RouteMain(
                             point = point,
                             pickupBusy = state.pickupBusy,
                             busyTicketId = state.busyPointTicketId,
-                            onPickup = viewModel::completePickup,
-                            onScan = onScan,
-                            onAttempt = viewModel::attemptDelivery,
+                            pickupDone = pickupDone,
+                            onPickup = {
+                                if (locationAllowed) viewModel.completePickup() else requestLocation()
+                            },
+                            onScan = { ticketId ->
+                                if (locationAllowed) onScan(ticketId) else requestLocation()
+                            },
+                            onAttempt = { ticketId ->
+                                if (locationAllowed) viewModel.attemptDelivery(ticketId) else requestLocation()
+                            },
                         )
                     }
                     item {
@@ -218,6 +245,7 @@ private fun RoutePointCard(
     point: RoutePointDto,
     pickupBusy: Boolean,
     busyTicketId: Int?,
+    pickupDone: Boolean,
     onPickup: () -> Unit,
     onScan: (Int) -> Unit,
     onAttempt: (Int) -> Unit,
@@ -245,6 +273,9 @@ private fun RoutePointCard(
             }
             point.description?.takeIf { it.isNotBlank() }?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium)
+            }
+            point.address?.takeIf { it.isNotBlank() }?.let {
+                IconLine(it)
             }
             point.addrDetail?.takeIf { it.isNotBlank() }?.let {
                 IconLine(it)
@@ -280,17 +311,24 @@ private fun RoutePointCard(
                 } else {
                     val ticketId = point.ticketId
                     val busy = busyTicketId != null && busyTicketId == ticketId
+                    if (!pickupDone) {
+                        Text(
+                            text = stringResource(R.string.vol_route_pickup_first),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     SaveFoodButton(
                         text = stringResource(R.string.vol_route_deliver_btn),
                         loading = busy,
-                        enabled = ticketId != null,
+                        enabled = ticketId != null && pickupDone,
                         onClick = { ticketId?.let(onScan) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     SaveFoodOutlinedButton(
                         text = stringResource(R.string.vol_route_attempt_btn),
                         onClick = { ticketId?.let(onAttempt) },
-                        enabled = ticketId != null && !busy,
+                        enabled = ticketId != null && !busy && pickupDone,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -318,14 +356,13 @@ private fun IconLine(text: String) {
 }
 
 /**
- * Captures a delivery photo (CameraX) before confirming. The backend
- * complete_point endpoint has no photo field, so the captured image is local
- * proof only — see TODO(conductor) in the report. Confirmation still proceeds
- * on QR + GPS, which the server verifies.
+ * Captures a delivery photo (CameraX) before confirming. The proof is uploaded
+ * to private server storage; only a moderation-approved fulfilled delivery can
+ * ever be exposed on the public impact feed.
  */
 @Composable
 private fun DeliveryPhotoScreen(
-    onConfirm: () -> Unit,
+    onConfirm: (android.net.Uri) -> Unit,
     onCancel: () -> Unit,
     confirming: Boolean,
 ) {
@@ -333,7 +370,7 @@ private fun DeliveryPhotoScreen(
     val scope = rememberCoroutineScope()
     val granted by rememberCameraPermissionState()
     val imageCapture = rememberImageCapture()
-    var captured by remember { mutableStateOf(false) }
+    var capturedPhoto by remember { mutableStateOf<CapturedPhoto?>(null) }
 
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
@@ -347,7 +384,7 @@ private fun DeliveryPhotoScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 CameraPreview(imageCapture = imageCapture, modifier = Modifier.fillMaxSize())
-                if (captured) {
+                if (capturedPhoto != null) {
                     Text(
                         text = "✓",
                         color = Color.White,
@@ -356,13 +393,13 @@ private fun DeliveryPhotoScreen(
                 }
             }
             SaveFoodOutlinedButton(
-                text = if (captured) stringResource(R.string.vol_route_photo_retake)
+                text = if (capturedPhoto != null) stringResource(R.string.vol_route_photo_retake)
                 else stringResource(R.string.vol_route_photo_capture),
                 leadingIcon = Icons.Filled.CameraAlt,
                 onClick = {
                     scope.launch {
                         runCatching { imageCapture.captureToFile(context) }
-                            .onSuccess { captured = true }
+                            .onSuccess { capturedPhoto = it }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -371,7 +408,8 @@ private fun DeliveryPhotoScreen(
         SaveFoodButton(
             text = stringResource(R.string.vol_route_photo_confirm),
             loading = confirming,
-            onClick = onConfirm,
+            enabled = capturedPhoto != null,
+            onClick = { capturedPhoto?.let { onConfirm(it.uri) } },
             modifier = Modifier.fillMaxWidth(),
         )
         SaveFoodOutlinedButton(

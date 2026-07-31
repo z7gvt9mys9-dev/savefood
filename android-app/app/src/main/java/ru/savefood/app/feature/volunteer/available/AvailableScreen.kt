@@ -158,8 +158,12 @@ private fun LotList(
                 expiry = lot.expiryDate ?: lot.timeSlot ?: "",
                 address = lot.address ?: lot.shopName ?: "",
                 imageUrl = VolunteerRepository.absoluteUrl(lot.photo),
-                statusText = if (lot.requiresCold == true) stringResource(R.string.vol_available_cold_badge) else null,
-                statusTone = BadgeTone.PENDING,
+                statusText = when {
+                    lot.status == "reserved" -> stringResource(R.string.vol_available_reserved_badge)
+                    lot.requiresCold == true -> stringResource(R.string.vol_available_cold_badge)
+                    else -> null
+                },
+                statusTone = if (lot.status == "reserved") BadgeTone.DONE else BadgeTone.PENDING,
                 onClick = { if (startingLotId == null) onTake(lot) },
             )
         }

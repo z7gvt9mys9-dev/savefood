@@ -188,7 +188,7 @@ const ImpactPage = () => {
                   {uploadingTickets[ticket.id] ? t('common.loading') : t('impact.upload_btn')}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png"
                     style={{ display: 'none' }}
                     disabled={uploadingTickets[ticket.id]}
                     onChange={(e) => e.target.files[0] && handleUpload(ticket.id, e.target.files[0])}

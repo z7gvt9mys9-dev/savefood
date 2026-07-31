@@ -69,6 +69,8 @@ public class ShopService {
     public int createLot(int shopId, String description, double quantity, LocalDate expiryDate,
                          String photo, String address, String timeSlot, String category,
                          String comment, boolean requiresCold, String unit, double unitWeightKg) {
+        requirePositiveFinite(quantity, "quantity");
+        requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
         return repo.createLot(shopId, description, quantity, expiryDate, photo, address, timeSlot,
             category, comment, requiresCold, unit, unitWeightKg);
@@ -79,6 +81,8 @@ public class ShopService {
     public int createLotWithPhotos(int shopId, String description, double quantity, LocalDate expiryDate,
                                    List<String> photos, String address, String timeSlot, String category,
                                    String comment, boolean requiresCold, String unit, double unitWeightKg) {
+        requirePositiveFinite(quantity, "quantity");
+        requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
         return repo.createLotMultiPhoto(shopId, description, quantity, expiryDate, photos, address,
             timeSlot, category, comment, requiresCold, unit, unitWeightKg);
@@ -88,14 +92,41 @@ public class ShopService {
     @Transactional
     public List<Integer> confirmReceiptLots(int shopId, int receiptId, List<ReceiptLotDraft> drafts,
                                             LocalDate expiry, String address, String timeSlot) {
+        // Serialise competing confirms on the receipt row itself. The controller's
+        // earlier read is only a friendly fast-fail; this locked read is the
+        // authoritative check that prevents duplicate lots.
+        Map<String, Object> receipt = repo.getReceiptForUpdate(receiptId);
+        if (receipt == null || ((Number) receipt.get("shop_id")).intValue() != shopId) {
+            throw new ApiException(404, "Чек не найден");
+        }
+        String status = (String) receipt.get("status");
+        if ("rejected".equals(status)) {
+            throw new ApiException(400, "Чек отклонён антифродом");
+        }
+        if ("confirmed".equals(status)) {
+            throw new ApiException(409, "Лоты по этому чеку уже созданы");
+        }
+        if (!"parsed".equals(status)) {
+            throw new ApiException(409, "Чек ещё не готов к подтверждению");
+        }
+        if (drafts == null || drafts.isEmpty()) {
+            throw new ApiException(422, "lots: список не может быть пустым");
+        }
+        for (ReceiptLotDraft draft : drafts) {
+            if (draft == null || draft.quantity() == null || draft.quantity() <= 0) {
+                throw new ApiException(422, "quantity каждого лота должна быть положительной");
+            }
+        }
         List<Integer> lotIds = new ArrayList<>();
-        billing.acquireLotQuota(shopId);
+        billing.acquireLotQuota(shopId, drafts.size());
         for (ReceiptLotDraft draft : drafts) {
             lotIds.add(repo.createLot(shopId, draft.description(), draft.quantity(), expiry, null,
                 address, timeSlot, draft.category(), "Создано из чека #" + receiptId + " (OCR)",
                 false, "кг", 1.0));
         }
-        repo.confirmReceipt(receiptId, lotIds);
+        if (!repo.confirmReceipt(receiptId, lotIds)) {
+            throw new ApiException(409, "Лоты по этому чеку уже созданы");
+        }
         return lotIds;
     }
 
@@ -144,5 +175,11 @@ public class ShopService {
             // best-effort, like the Python try/except around set_profile_last_received
         }
         return ticketId;
+    }
+
+    private static void requirePositiveFinite(double value, String field) {
+        if (!Double.isFinite(value) || value <= 0) {
+            throw new ApiException(422, field + ": значение должно быть положительным и конечным");
+        }
     }
 }

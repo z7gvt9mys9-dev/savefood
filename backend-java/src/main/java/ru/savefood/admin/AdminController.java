@@ -20,11 +20,16 @@ import ru.savefood.needy.NeedyService;
 import ru.savefood.security.Admin;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.telegram.TelegramService;
+import ru.savefood.util.Clamp;
 import ru.savefood.volunteer.AvailabilityService;
 import ru.savefood.volunteer.RouteRevertService;
 import ru.savefood.volunteer.VolunteerRepository;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,13 +59,16 @@ public class AdminController {
     private final RouteRevertService routeRevert;
     private final AvailabilityService availability;
     private final TelegramService telegram;
+    /** Legacy public dir is read only to clean up pre-private-storage rows. */
     private final String volunteerUploadDir;
+    private final String deliveryPhotoUploadDir;
 
     public AdminController(JdbcTemplate jdbc, NeedyService needyService,
                            VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
                            AvailabilityService availability, TelegramService telegram,
-                           @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir) {
+                           @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir,
+                           @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir) {
         this.jdbc = jdbc;
         this.needyService = needyService;
         this.volunteerRepo = volunteerRepo;
@@ -70,6 +78,7 @@ public class AdminController {
         this.availability = availability;
         this.telegram = telegram;
         this.volunteerUploadDir = volunteerUploadDir;
+        this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
     }
 
     // ── Moderation ───────────────────────────────────────────────────────────
@@ -195,7 +204,7 @@ public class AdminController {
         if (!Set.of("pending", "approved", "rejected").contains(status)) {
             throw new ApiException(400, "Invalid status");
         }
-        return jdbc.queryForList(
+        List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT t.id AS ticket_id, t.delivery_photo, t.delivery_photo_status, "
             + "t.delivery_photo_ai_verdict, t.delivery_photo_ai_score, "
             + "t.delivery_photo_ai_notes, t.fulfilled_at, l.category, l.city "
@@ -203,27 +212,51 @@ public class AdminController {
             + "WHERE t.delivery_photo IS NOT NULL AND t.delivery_photo_status = ? "
             + "ORDER BY t.fulfilled_at DESC NULLS LAST LIMIT 100",
             status);
+        for (Map<String, Object> row : rows) {
+            // Opaque enough for the authenticated moderator queue and required
+            // as an optimistic-concurrency token for approve/reject. It is not a
+            // public image URL; images are still read only through photo_url.
+            row.put("photo_ref", row.get("delivery_photo"));
+            row.remove("delivery_photo");
+            row.put("photo_url", "/admin/delivery_photos/" + row.get("ticket_id") + "/image");
+        }
+        return rows;
+    }
+
+    /** Pending proof images are visible to an authenticated moderator only. */
+    @GetMapping("/delivery_photos/{ticketId}/image")
+    public ResponseEntity<Resource> deliveryPhotoImage(@PathVariable int ticketId, @Admin CurrentUser user) {
+        List<String> refs = jdbc.query("SELECT delivery_photo FROM tickets WHERE id = ? AND delivery_photo IS NOT NULL",
+            (rs, n) -> rs.getString("delivery_photo"), ticketId);
+        if (refs.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Path path = deliveryPhotoPath(refs.get(0));
+        if (path == null || !Files.isRegularFile(path)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok().contentType(mediaTypeFor(path.getFileName().toString()))
+            .body(new FileSystemResource(path));
     }
 
     @PostMapping("/delivery_photos/{ticketId}/approve")
-    public Map<String, Object> approveDeliveryPhoto(@PathVariable int ticketId, @Admin CurrentUser user) {
-        // A rejected photo's file is already deleted — approving it would push a
-        // broken image into the public feed, so it's a hard no.
+    public Map<String, Object> approveDeliveryPhoto(@PathVariable int ticketId,
+                                                     @RequestParam("photo_ref") String photoRef,
+                                                     @Admin CurrentUser user) {
+        if (photoRef == null || photoRef.isBlank()) {
+            throw new ApiException(422, "photo_ref обязателен");
+        }
+        // Conditional status + exact reference is an optimistic lock. A courier
+        // may upload a replacement while the moderator is looking at the old
+        // image; that old decision must never approve the new file unseen.
         int rows = jdbc.update(
             "UPDATE tickets SET delivery_photo_status = 'approved', "
             + "delivery_photo_reviewed_at = NOW() "
-            + "WHERE id = ? AND delivery_photo IS NOT NULL "
-            + "AND delivery_photo_status <> 'rejected'",
-            ticketId);
+            + "WHERE id = ? AND delivery_photo = ? AND delivery_photo_status = 'pending'",
+            ticketId, photoRef);
         if (rows == 0) {
-            List<String> cur = jdbc.query(
-                "SELECT delivery_photo_status AS s FROM tickets WHERE id = ? AND delivery_photo IS NOT NULL",
-                (rs, n) -> rs.getString("s"), ticketId);
-            if (!cur.isEmpty() && "rejected".equals(cur.get(0))) {
-                throw new ApiException(409,
-                    "Файл фото уже удалён при отклонении — нужна новая загрузка от получателя");
-            }
-            throw new ApiException(404, "Photo not found");
+            throw new ApiException(409,
+                "Фото уже изменилось или обработано — обновите очередь перед решением");
         }
         audit.log(user.sub(), "photo_approve", "ticket", ticketId,
             "Admin approved delivery photo for ticket #" + ticketId);
@@ -231,21 +264,27 @@ public class AdminController {
     }
 
     @PostMapping("/delivery_photos/{ticketId}/reject")
-    public Map<String, Object> rejectDeliveryPhoto(@PathVariable int ticketId, @Admin CurrentUser user) {
-        List<String> photos = jdbc.query(
-            "SELECT delivery_photo FROM tickets WHERE id = ?",
-            (rs, n) -> rs.getString("delivery_photo"), ticketId);
-        String photo = photos.isEmpty() ? null : photos.get(0);
-        if (photo == null || photo.isEmpty()) {
-            throw new ApiException(404, "Photo not found");
+    public Map<String, Object> rejectDeliveryPhoto(@PathVariable int ticketId,
+                                                    @RequestParam("photo_ref") String photoRef,
+                                                    @Admin CurrentUser user) {
+        if (photoRef == null || photoRef.isBlank()) {
+            throw new ApiException(422, "photo_ref обязателен");
         }
-        jdbc.update(
+        // Delete only after this exact pending photo was atomically rejected.
+        // Deleting before/without the conditional update could erase a newer
+        // courier replacement uploaded between list and moderation action.
+        int rows = jdbc.update(
             "UPDATE tickets SET delivery_photo_status = 'rejected', "
-            + "delivery_photo_reviewed_at = NOW() WHERE id = ?",
-            ticketId);
+            + "delivery_photo_reviewed_at = NOW() "
+            + "WHERE id = ? AND delivery_photo = ? AND delivery_photo_status = 'pending'",
+            ticketId, photoRef);
+        if (rows == 0) {
+            throw new ApiException(409,
+                "Фото уже изменилось или обработано — обновите очередь перед решением");
+        }
         // Remove the file so a rejected (e.g. trolling) image can never leak.
-        if (photo.startsWith("/volunteer_uploads/")) {
-            Path path = Paths.get(volunteerUploadDir, Paths.get(photo).getFileName().toString());
+        Path path = deliveryPhotoPath(photoRef);
+        if (path != null) {
             try {
                 Files.deleteIfExists(path);
             } catch (IOException ignored) {
@@ -373,7 +412,7 @@ public class AdminController {
     @Transactional
     public Map<String, Object> resetRoute(@PathVariable int routeId, @Admin CurrentUser user) {
         List<Map<String, Object>> routes = jdbc.queryForList(
-            "SELECT * FROM volunteer_routes WHERE id = ?", routeId);
+            "SELECT * FROM volunteer_routes WHERE id = ? FOR UPDATE", routeId);
         if (routes.isEmpty()) {
             throw new ApiException(404, "Route not found");
         }
@@ -470,7 +509,8 @@ public class AdminController {
                                                  @RequestParam(defaultValue = "0") int offset,
                                                  @Admin CurrentUser user) {
         return jdbc.queryForList(
-            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?", limit, offset);
+            "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            Clamp.clamp(limit, 1, 100), Math.max(0, offset));
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────
@@ -498,5 +538,34 @@ public class AdminController {
     private static String trimOrDefault(String city) {
         String c = city == null ? "" : city.trim();
         return c.isEmpty() ? "Без города" : c;
+    }
+
+    private Path deliveryPhotoPath(String ref) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        String dir = ref.startsWith("/delivery_photos/") ? deliveryPhotoUploadDir
+            : ref.startsWith("/volunteer_uploads/") ? volunteerUploadDir : null;
+        if (dir == null) {
+            return null;
+        }
+        try {
+            Path base = Paths.get(dir).toAbsolutePath().normalize();
+            Path candidate = base.resolve(Paths.get(ref).getFileName()).normalize();
+            return candidate.startsWith(base) ? candidate : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static MediaType mediaTypeFor(String filename) {
+        String f = filename.toLowerCase(java.util.Locale.ROOT);
+        if (f.endsWith(".png")) {
+            return MediaType.IMAGE_PNG;
+        }
+        if (f.endsWith(".webp")) {
+            return MediaType.parseMediaType("image/webp");
+        }
+        return MediaType.IMAGE_JPEG;
     }
 }

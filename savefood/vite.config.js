@@ -53,7 +53,6 @@ export default defineConfig(({ mode }) => {
         '^/tickets/': apiProxy,
         '^/uploads/': apiProxy,
         '^/needy_uploads/': apiProxy,
-        '^/volunteer_uploads/': apiProxy,
         '^/telegram/': apiProxy,
         '^/ws/': wsProxy,
       },

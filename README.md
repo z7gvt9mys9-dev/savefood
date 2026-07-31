@@ -122,8 +122,8 @@ PHOTO_AUTO_MODERATE=false                # авто-модерация фото 
 PHOTO_AUTO_APPROVE_SCORE=0.85            # порог скора для авто-одобрения фото
 
 # KYC (§58/§58.1)
-KYC_ENCRYPTION_KEY=                      # Fernet-ключ шифрования документов at-rest;
-                                         # пусто = dev-passthrough с предупреждением в логе
+KYC_ENCRYPTION_KEY=...                   # обязательный Fernet-ключ шифрования документов at-rest;
+                                         # сгенерировать: openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 KYC_OK_THRESHOLD=0.7                     # score ≥ порога → likely_ok → авто-одобрение
 KYC_FRAUD_THRESHOLD=0.3                  # score ≤ порога → likely_fraud → авто-отказ
                                          # между порогами → review → ручная модерация
@@ -172,7 +172,7 @@ BACKGROUND_TASKS_JAVA=embedded
 
 # Прочее
 LOCAL_TZ=Europe/Moscow                   # часовой пояс окон available_time
-APP_PORT=80                              # внешний порт nginx
+APP_PORT=80                              # порт nginx на 127.0.0.1 (внешний доступ через Cloudflare Tunnel)
 SERVER_PORT=8000                         # порт Java-бэкенда
 VLESS_URL=                               # опциональный прокси для Telegram API
 XRAY_BINARY=./vendor/xray                # бинарник xray для VLESS-прокси

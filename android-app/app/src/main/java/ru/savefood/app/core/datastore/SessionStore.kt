@@ -34,12 +34,13 @@ data class Session(
 )
 
 /**
- * Persists the auth session (JWT, role, related_id) in DataStore. Mirrors the
- * web client's localStorage contract (token / role / related_id).
+ * Persists the auth session (JWT, role, related_id) in DataStore. The token is
+ * encrypted with a non-exportable Android Keystore key before it is persisted.
  */
 @Singleton
 class SessionStore @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val tokenCipher: TokenCipher,
 ) {
     private object Keys {
         val TOKEN = stringPreferencesKey("token")
@@ -48,7 +49,7 @@ class SessionStore @Inject constructor(
     }
 
     val sessionFlow: Flow<Session?> = context.dataStore.data.map { prefs ->
-        val token = prefs[Keys.TOKEN] ?: return@map null
+        val token = prefs[Keys.TOKEN]?.let(tokenCipher::decrypt) ?: return@map null
         Session(
             token = token,
             role = UserRole.from(prefs[Keys.ROLE]),
@@ -57,11 +58,11 @@ class SessionStore @Inject constructor(
     }
 
     /** Current token read synchronously for OkHttp interceptors (called off the main thread). */
-    suspend fun currentToken(): String? = context.dataStore.data.first()[Keys.TOKEN]
+    suspend fun currentToken(): String? = context.dataStore.data.first()[Keys.TOKEN]?.let(tokenCipher::decrypt)
 
     suspend fun save(token: String, role: String, relatedId: Int?) {
         context.dataStore.edit { prefs ->
-            prefs[Keys.TOKEN] = token
+            prefs[Keys.TOKEN] = tokenCipher.encrypt(token)
             prefs[Keys.ROLE] = role
             if (relatedId != null) prefs[Keys.RELATED_ID] = relatedId else prefs.remove(Keys.RELATED_ID)
         }
@@ -69,7 +70,7 @@ class SessionStore @Inject constructor(
 
     /** Replace just the access token (used after a silent refresh). */
     suspend fun updateToken(token: String) {
-        context.dataStore.edit { it[Keys.TOKEN] = token }
+        context.dataStore.edit { it[Keys.TOKEN] = tokenCipher.encrypt(token) }
     }
 
     suspend fun clear() {

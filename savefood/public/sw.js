@@ -1,9 +1,5 @@
-const CACHE_NAME = 'savefood-cache-v3';
-// §55 offline route: the volunteer's active route is cached so its delivery
-// points survive a dead spot (basement/elevator). Kept in its own cache so the
-// asset-cache version bump doesn't wipe a route mid-delivery.
-const ROUTE_CACHE = 'savefood-route-v1';
-const KEEP_CACHES = [CACHE_NAME, ROUTE_CACHE];
+const CACHE_NAME = 'savefood-cache-v4';
+const KEEP_CACHES = [CACHE_NAME];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -22,6 +18,20 @@ self.addEventListener('activate', event => {
       Promise.all(keys.filter(k => !KEEP_CACHES.includes(k)).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+// A logout may happen while the worker is stopped or being upgraded, so both
+// the page and worker issue this deletion. Cache Storage must not retain data
+// belonging to the previous person on a shared device.
+const clearSavefoodCaches = () => caches.keys()
+  .then(keys => Promise.all(keys
+    .filter(key => key.startsWith('savefood-'))
+    .map(key => caches.delete(key))));
+
+self.addEventListener('message', event => {
+  if (event.data?.type === 'CLEAR_SESSION_CACHE') {
+    event.waitUntil(clearSavefoodCaches());
+  }
 });
 
 // Web Push (VAPID): payload is JSON {title, body, url} from backend/push_service.py
@@ -51,29 +61,13 @@ self.addEventListener('notificationclick', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // §55 offline route: network-first cache for the active-route GET so the
-  // volunteer keeps their delivery points when the network drops. Only this
-  // exact read is cached — every other /volunteers call still goes to network.
-  if (
-    event.request.method === 'GET' &&
-    url.origin === self.location.origin &&
-    /^\/volunteers\/\d+\/active_route$/.test(url.pathname)
-  ) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(ROUTE_CACHE).then(cache => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match(event.request).then(c => c || Response.error()))
-    );
-    return;
-  }
+  // Never intercept authenticated requests. In particular, route points and
+  // ticket chat contain home-address data and must not land in Cache Storage.
+  if (event.request.method !== 'GET' || event.request.headers.has('authorization')) return;
 
-  // Pass API, WebSocket upgrades, and cross-origin requests straight to network
+  // Pass API, WebSocket upgrades, and cross-origin requests straight to network.
+  // `/tickets` is owner-protected too; keeping it explicit avoids a future
+  // cache-first fallback accidentally storing chat history.
   if (
     url.pathname.startsWith('/auth') ||
     url.pathname.startsWith('/push') ||
@@ -84,10 +78,10 @@ self.addEventListener('fetch', event => {
     url.pathname.startsWith('/volunteers') ||
     url.pathname.startsWith('/needy') ||
     url.pathname.startsWith('/admin') ||
+    url.pathname.startsWith('/tickets') ||
     url.pathname.startsWith('/stats') ||
     url.pathname.startsWith('/uploads') ||
     url.pathname.startsWith('/needy_uploads') ||
-    url.pathname.startsWith('/volunteer_uploads') ||
     url.pathname.startsWith('/telegram') ||
     url.pathname.startsWith('/ws') ||
     url.origin !== self.location.origin
@@ -105,12 +99,20 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Cache-first for static assets (/static/*)
+  // Cache only the compiled application shell/assets. A broad cache-first
+  // fallback is unsafe because a newly added authenticated endpoint could be
+  // persisted before this allow-list is updated.
+  const isStaticAsset = url.pathname.startsWith('/assets/')
+    || url.pathname === '/manifest.json'
+    || /\.(?:css|js|mjs|woff2?|ttf|svg|png|jpe?g|webp|ico)$/i.test(url.pathname);
+  if (!isStaticAsset) return;
+
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(response => {
-        if (response && response.status === 200) {
+        const cacheControl = response?.headers?.get('Cache-Control') || '';
+        if (response && response.status === 200 && !/private|no-store/i.test(cacheControl)) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
         }

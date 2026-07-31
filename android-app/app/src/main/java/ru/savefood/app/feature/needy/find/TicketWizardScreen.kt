@@ -19,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,7 @@ import ru.savefood.app.core.designsystem.component.SaveFoodButton
 import ru.savefood.app.core.designsystem.component.SaveFoodCard
 import ru.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
 import ru.savefood.app.core.designsystem.component.SectionHeader
+import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.TicketCreateDto
 
@@ -62,6 +64,28 @@ fun TicketWizardScreen(
     var lat by remember { mutableStateOf<Double?>(null) }
     var lon by remember { mutableStateOf<Double?>(null) }
     var addressError by remember { mutableStateOf(false) }
+    var locationError by remember { mutableStateOf(false) }
+    var fetchAfterPermission by remember { mutableStateOf(false) }
+    val locationPermission = rememberLocationPermissionState { granted ->
+        if (!granted && fetchAfterPermission) {
+            fetchAfterPermission = false
+            locationError = true
+        }
+    }
+
+    LaunchedEffect(locationPermission.isGranted, fetchAfterPermission) {
+        if (locationPermission.isGranted && fetchAfterPermission) {
+            fetchAfterPermission = false
+            viewModel.fetchMyLocation(
+                onResult = { la, lo ->
+                    lat = la
+                    lon = lo
+                    locationError = false
+                },
+                onUnavailable = { locationError = true },
+            )
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -97,19 +121,53 @@ fun TicketWizardScreen(
             0 -> MethodStep(
                 selfPickup = selfPickup,
                 lotMissing = lot == null,
-                onSelect = { selfPickup = it },
+                onSelect = { selectedSelfPickup ->
+                    selfPickup = selectedSelfPickup
+                    if (selectedSelfPickup) {
+                        // Delivery details are private recipient data and have
+                        // no meaning for a shop handover. Do not carry them
+                        // into a self-pickup request after switching methods.
+                        address = ""
+                        apartment = ""
+                        floor = ""
+                        entrance = ""
+                        lat = null
+                        lon = null
+                        addressError = false
+                        locationError = false
+                    }
+                },
             )
             1 -> DetailsStep(
                 selfPickup = selfPickup,
-                address = address, onAddress = { address = it; addressError = false },
+                address = address,
+                onAddress = {
+                    // Coordinates describe the prior address/location.  Never
+                    // silently reuse them after the delivery address changes.
+                    address = it
+                    lat = null
+                    lon = null
+                    addressError = false
+                    locationError = false
+                },
                 apartment = apartment, onApartment = { apartment = it },
                 floor = floor, onFloor = { floor = it },
                 entrance = entrance, onEntrance = { entrance = it },
                 availableTime = availableTime, onAvailableTime = { availableTime = it },
                 items = items, onItems = { items = it },
                 addressError = addressError,
+                locationError = locationError,
                 onUseMyLocation = {
-                    viewModel.fetchMyLocation { la, lo -> lat = la; lon = lo }
+                    locationError = false
+                    if (locationPermission.isGranted) {
+                        viewModel.fetchMyLocation(
+                            onResult = { la, lo -> lat = la; lon = lo },
+                            onUnavailable = { locationError = true },
+                        )
+                    } else {
+                        fetchAfterPermission = true
+                        locationPermission.request()
+                    }
                 },
                 hasLocation = lat != null && lon != null,
             )
@@ -141,8 +199,9 @@ fun TicketWizardScreen(
                     when (step) {
                         0 -> step = 1
                         1 -> {
-                            if (!selfPickup && address.isBlank()) {
-                                addressError = true
+                            if (!selfPickup && (address.isBlank() || lat == null || lon == null)) {
+                                addressError = address.isBlank()
+                                locationError = lat == null || lon == null
                             } else step = 2
                         }
                         else -> {
@@ -220,6 +279,7 @@ private fun DetailsStep(
     availableTime: String, onAvailableTime: (String) -> Unit,
     items: String, onItems: (String) -> Unit,
     addressError: Boolean,
+    locationError: Boolean,
     onUseMyLocation: () -> Unit,
     hasLocation: Boolean,
 ) {
@@ -245,6 +305,12 @@ private fun DetailsStep(
                 "✓ ${stringResource(R.string.needy_wizard_use_my_location)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
+            )
+        } else if (locationError) {
+            Text(
+                stringResource(R.string.needy_wizard_location_required),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

@@ -127,7 +127,8 @@ public class NeedyRepository {
      */
     public Map<String, Object> createOrUpdateProfile(int needyId, String address, Integer familySize,
             String preferences, String urgency, String document, String availableTime, String apartment,
-            String floorNum, String entrance, String city, Double lat, Double lon) {
+            String floorNum, String entrance, String city, Double lat, Double lon,
+            boolean clearCoordinates) {
         if (getNeedyById(needyId) == null) {
             return null;
         }
@@ -149,8 +150,8 @@ public class NeedyRepository {
                 coalesce(floorNum, p.get("floor_num")),
                 coalesce(entrance, p.get("entrance")),
                 coalesce(city, p.get("city")),
-                lat != null ? lat : p.get("lat"),
-                lon != null ? lon : p.get("lon"),
+                clearCoordinates ? null : (lat != null ? lat : p.get("lat")),
+                clearCoordinates ? null : (lon != null ? lon : p.get("lon")),
                 needyId);
         } else {
             jdbc.update(
@@ -158,7 +159,8 @@ public class NeedyRepository {
                 + "available_time, last_received_at, document, apartment, floor_num, entrance, city, lat, lon) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 needyId, address, familySize, preferences, urgency, availableTime, null, document,
-                apartment, floorNum, entrance, city, lat, lon);
+                apartment, floorNum, entrance, city, clearCoordinates ? null : lat,
+                clearCoordinates ? null : lon);
         }
         return getProfile(needyId);
     }

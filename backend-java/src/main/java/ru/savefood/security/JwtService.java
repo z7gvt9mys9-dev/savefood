@@ -1,6 +1,7 @@
 package ru.savefood.security;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -58,7 +59,9 @@ public class JwtService {
                 .claims(claims)
                 .subject(sub)
                 .expiration(Date.from(exp))
-                .signWith(key)
+                // JJWT otherwise picks HS384/HS512 from a long enough secret.
+                // geows and the legacy services intentionally accept HS256 only.
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -69,11 +72,7 @@ public class JwtService {
      * match python-jose's numeric claim.
      */
     public Map<String, Object> payload(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(key)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
+        Claims claims = parseHs256(token).getPayload();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sub", claims.getSubject());
         out.put("role", claims.get("role", String.class));
@@ -94,7 +93,7 @@ public class JwtService {
         return Jwts.builder()
                 .claims(new HashMap<>(claims))
                 .expiration(Date.from(exp))
-                .signWith(key)
+                .signWith(key, Jwts.SIG.HS256)
                 .compact();
     }
 
@@ -105,11 +104,7 @@ public class JwtService {
      */
     public Map<String, Object> readClaims(String token) {
         try {
-            return new LinkedHashMap<>(Jwts.parser()
-                    .verifyWith(key)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload());
+            return new LinkedHashMap<>(parseHs256(token).getPayload());
         } catch (JwtException | IllegalArgumentException e) {
             return null;
         }
@@ -118,11 +113,7 @@ public class JwtService {
     /** @return the decoded principal, or {@code null} if the token is invalid/expired. */
     public CurrentUser decode(String token) {
         try {
-            Claims claims = Jwts.parser()
-                    .verifyWith(key)
-                    .build()
-                    .parseSignedClaims(token)
-                    .getPayload();
+            Claims claims = parseHs256(token).getPayload();
             String sub = claims.getSubject();
             String role = claims.get("role", String.class);
             Integer relatedId = null;
@@ -134,5 +125,22 @@ public class JwtService {
         } catch (JwtException | IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * Verify both the signature and the explicit algorithm contract.  A long HMAC
+     * key can technically verify HS384/HS512 too; accepting those here would make
+     * Java-issued tokens incompatible with geows and weaken the single-algorithm
+     * policy.
+     */
+    private Jws<Claims> parseHs256(String token) {
+        Jws<Claims> signed = Jwts.parser()
+                .verifyWith(key)
+                .build()
+                .parseSignedClaims(token);
+        if (!"HS256".equals(signed.getHeader().getAlgorithm())) {
+            throw new JwtException("Unexpected JWT signing algorithm");
+        }
+        return signed;
     }
 }

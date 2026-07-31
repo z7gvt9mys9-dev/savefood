@@ -51,6 +51,7 @@
     <string name="needy_wizard_submit">Submit request</string>
     <string name="needy_wizard_success">Request submitted</string>
     <string name="needy_wizard_address_required">Enter a delivery address</string>
+    <string name="needy_wizard_location_required">Share your precise delivery location</string>
 
     <!-- History -->
     <string name="needy_history_title">History</string>
@@ -97,6 +98,10 @@
     <string name="needy_profile_geo_push_desc">Push when a matching lot appears nearby.</string>
     <string name="needy_profile_export">Export my data</string>
     <string name="needy_profile_export_done">Data exported</string>
+    <string name="needy_profile_export_failed">Couldn\'t save the export file</string>
+    <string name="needy_profile_use_my_location">Update location</string>
+    <string name="needy_profile_location_set">Precise location saved</string>
+    <string name="needy_profile_location_unavailable">Couldn\'t get your location</string>
     <string name="needy_profile_delete_account">Delete account</string>
     <string name="needy_profile_delete_confirm_title">Delete account?</string>
     <string name="needy_profile_delete_confirm_desc">Personal data will be erased permanently (right to be forgotten).</string>

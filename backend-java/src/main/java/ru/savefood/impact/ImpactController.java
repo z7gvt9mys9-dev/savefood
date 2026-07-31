@@ -5,10 +5,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import ru.savefood.cache.CacheService;
 import ru.savefood.esg.EsgService;
 import ru.savefood.gamification.Gamification;
 import ru.savefood.util.Clamp;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -30,11 +36,17 @@ public class ImpactController {
     private final JdbcTemplate jdbc;
     private final EsgService esg;
     private final CacheService cache;
+    private final String deliveryPhotoUploadDir;
+    private final String legacyVolunteerUploadDir;
 
-    public ImpactController(JdbcTemplate jdbc, EsgService esg, CacheService cache) {
+    public ImpactController(JdbcTemplate jdbc, EsgService esg, CacheService cache,
+                            @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir,
+                            @Value("${savefood.volunteer-upload-dir}") String legacyVolunteerUploadDir) {
         this.jdbc = jdbc;
         this.esg = esg;
         this.cache = cache;
+        this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
+        this.legacyVolunteerUploadDir = legacyVolunteerUploadDir;
     }
 
     @GetMapping("/impact/summary")
@@ -145,13 +157,13 @@ public class ImpactController {
         int lim = Clamp.clamp(limit, 1, 50);
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT t.delivery_photo, t.fulfilled_at, t.items, l.category, l.city "
+                "SELECT t.id AS ticket_id, t.delivery_photo, t.fulfilled_at, t.items, l.category, l.city "
                 + "FROM tickets t LEFT JOIN lots l ON l.id = t.lot_id "
                 + "WHERE t.status = 'fulfilled' AND t.delivery_photo IS NOT NULL "
                 + "AND t.delivery_photo_status = 'approved' "
                 + "ORDER BY t.fulfilled_at DESC NULLS LAST LIMIT ?", lim)) {
             Map<String, Object> e = new LinkedHashMap<>();
-            e.put("photo", r.get("delivery_photo"));
+            e.put("photo", "/impact/delivery_photos/" + r.get("ticket_id") + "/image");
             e.put("date", r.get("fulfilled_at"));
             String items = r.get("items") == null ? "" : r.get("items").toString();
             e.put("items", items.length() > 120 ? items.substring(0, 120) : items);
@@ -160,6 +172,26 @@ public class ImpactController {
             out.add(e);
         }
         return out;
+    }
+
+    /** Public only after moderation and fulfilment; pending proof files stay private. */
+    @GetMapping("/impact/delivery_photos/{ticketId}/image")
+    public ResponseEntity<Resource> deliveryPhoto(@PathVariable int ticketId) {
+        List<String> refs = jdbc.query(
+            "SELECT delivery_photo FROM tickets WHERE id = ? AND status = 'fulfilled' "
+            + "AND delivery_photo_status = 'approved' AND delivery_photo IS NOT NULL",
+            (rs, n) -> rs.getString("delivery_photo"), ticketId);
+        if (refs.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        Path path = deliveryPhotoPath(refs.get(0));
+        if (path == null || !Files.isRegularFile(path)) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+            .contentType(mediaTypeFor(path.getFileName().toString()))
+            .header("Cache-Control", "public, max-age=3600")
+            .body(new FileSystemResource(path));
     }
 
     // ── badge rendering (impact.py {@code _badge_svg}) ────────────────────────────
@@ -226,5 +258,34 @@ public class ImpactController {
     private static String htmlEscape(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace("\"", "&quot;").replace("'", "&#x27;");
+    }
+
+    private Path deliveryPhotoPath(String ref) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        String dir = ref.startsWith("/delivery_photos/") ? deliveryPhotoUploadDir
+            : ref.startsWith("/volunteer_uploads/") ? legacyVolunteerUploadDir : null;
+        if (dir == null) {
+            return null;
+        }
+        try {
+            Path base = Paths.get(dir).toAbsolutePath().normalize();
+            Path candidate = base.resolve(Paths.get(ref).getFileName()).normalize();
+            return candidate.startsWith(base) ? candidate : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static MediaType mediaTypeFor(String filename) {
+        String f = filename.toLowerCase(Locale.ROOT);
+        if (f.endsWith(".png")) {
+            return MediaType.IMAGE_PNG;
+        }
+        if (f.endsWith(".webp")) {
+            return MediaType.parseMediaType("image/webp");
+        }
+        return MediaType.IMAGE_JPEG;
     }
 }

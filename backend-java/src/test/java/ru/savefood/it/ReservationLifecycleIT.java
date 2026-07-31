@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
+import java.util.Map;
 import ru.savefood.needy.NeedyRepository;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.PasswordService;
@@ -148,6 +149,28 @@ class ReservationLifecycleIT extends PostgresIT {
         assertThat(lotQuantity(lot)).as("guarded-возврат — no-op для taken").isEqualTo(4.0);
     }
 
+    @Test
+    @DisplayName("самовывоз не сохраняет домашний адрес и координаты получателя")
+    void selfPickupStripsRecipientLocationPii() {
+        int shop = insertShop("Магазин", 43.238, 76.889);
+        int lot = insertLot(shop, 5.0, "Выпечка");
+        int needy = insertNeedy("Получатель");
+
+        int ticket = needyService.createTicket(needy, "хлеб", "дом, кв. 7", 43.24, 76.90,
+            null, lot, "7", "3", "2", true);
+
+        Map<String, Object> row = jdbc.queryForMap(
+            "SELECT address, lat, lon, apartment, floor_num, entrance, self_pickup FROM tickets WHERE id = ?",
+            ticket);
+        assertThat(row.get("address")).isNull();
+        assertThat(row.get("lat")).isNull();
+        assertThat(row.get("lon")).isNull();
+        assertThat(row.get("apartment")).isNull();
+        assertThat(row.get("floor_num")).isNull();
+        assertThat(row.get("entrance")).isNull();
+        assertThat(row.get("self_pickup")).isEqualTo(true);
+    }
+
     // ── displacement counter (§59/Q1-C) ────────────────────────────────────────
 
     /**
@@ -205,6 +228,32 @@ class ReservationLifecycleIT extends PostgresIT {
 
         assertThat(status("lots", lot)).isEqualTo("active");
         assertThat(status("tickets", ticket)).isEqualTo("open");
+    }
+
+    @Test
+    @DisplayName("снятие незавершённого маршрута очищает доказательство курьера до повторного назначения")
+    void teardownClearsCourierProofBeforeReopeningTicket() {
+        int shop = insertShop("Магазин", 43.238, 76.889);
+        int lot = insertLot(shop, 5.0, "Выпечка");
+        int needy = insertNeedy("Получатель");
+        int ticket = needyService.createTicket(needy, "хлеб", "адрес", 43.24, 76.90, null, lot,
+            null, null, null, false);
+        int volunteer = insertVolunteer("Волонтёр");
+        claim(lot, ticket, volunteer);
+        jdbc.update("UPDATE tickets SET delivery_photo = '/delivery_photos/proof.jpg', "
+            + "delivery_photo_status = 'pending' WHERE id = ?", ticket);
+
+        String points = """
+            [{"kind":"shop","lat":43.238,"lon":76.889},
+             {"kind":"ticket","ticket_id":%d,"lat":43.24,"lon":76.90}]
+            """.formatted(ticket);
+        revert.revertRouteLot(lot, points);
+
+        assertThat(status("tickets", ticket)).isEqualTo("open");
+        assertThat(jdbc.queryForObject("SELECT delivery_photo FROM tickets WHERE id = ?", String.class, ticket))
+            .isNull();
+        assertThat(jdbc.queryForObject("SELECT delivery_photo_status FROM tickets WHERE id = ?", String.class,
+            ticket)).isNull();
     }
 
     /**

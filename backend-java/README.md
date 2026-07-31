@@ -358,9 +358,10 @@ location alongside `/shops` when cutting over the shop module. The public
 `GET /lots` recipient map lives in the needy module but is served by the same
 Java service, so the `/lots` location can be flipped with either step. The
 `/ws/needy` WebSocket location needs nginx's `Upgrade`/`Connection` headers (as
-the Python deployment already sets). Note the public `/uploads/…` lot photos and
-`/needy_uploads` / `/volunteer_uploads` files stay served by the Python
-app/nginx; the Java service only writes the files.
+the Python deployment already sets). Public `/uploads/…` lot photos are served
+by nginx. Legacy `/needy_uploads` / `/volunteer_uploads` files remain reachable
+only through Java authorization-checked migration endpoints; new delivery proofs
+are never served directly by nginx.
 
 This split is intentionally left as an explicit deployment step rather than
 enacted here, so the Python modules stay authoritative until you flip them.

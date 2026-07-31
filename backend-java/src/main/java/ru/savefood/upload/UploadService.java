@@ -24,9 +24,13 @@ import org.springframework.web.multipart.MultipartFile;
 @Service
 public class UploadService {
 
+    // The stock JDK ImageIO codecs can decode and safely re-encode JPEG/PNG,
+    // but do not provide a WebP reader/writer. Do not advertise WebP until a
+    // vetted codec is shipped: accepting it would either fail every honest
+    // upload or tempt a fallback that preserves untrusted EXIF bytes.
     private static final Set<String> ALLOWED_IMAGE_TYPES =
-        Set.of("image/jpeg", "image/jpg", "image/png", "image/webp");
-    private static final Set<String> ALLOWED_IMAGE_EXTS = Set.of(".jpg", ".jpeg", ".png", ".webp");
+        Set.of("image/jpeg", "image/jpg", "image/png");
+    private static final Set<String> ALLOWED_IMAGE_EXTS = Set.of(".jpg", ".jpeg", ".png");
     private static final long MAX_UPLOAD_BYTES = 5L * 1024 * 1024;
 
     public String validateAndSave(MultipartFile file, String destDir) {
@@ -66,7 +70,13 @@ public class UploadService {
             throw new ApiException(413, "File too large (limit " + (MAX_UPLOAD_BYTES / (1024 * 1024)) + " MB)");
         }
 
-        boolean isPdf = ".pdf".equals(ext) || "application/pdf".equals(contentType);
+        boolean isPdf = ".pdf".equals(ext);
+        if ("application/pdf".equals(contentType) != isPdf) {
+            throw new ApiException(415, "File extension and MIME type do not match");
+        }
+        if (!isPdf && !contentType.isEmpty() && !matchesImageType(ext, contentType)) {
+            throw new ApiException(415, "File extension and MIME type do not match");
+        }
         // A .pdf extension / content-type alone is attacker-controlled — real PDFs
         // start with "%PDF". Images are re-encoded below, so they self-validate.
         if (allowPdf && isPdf
@@ -76,9 +86,9 @@ public class UploadService {
         }
 
         // Strip metadata (privacy): re-encode so EXIF GPS/orientation can't survive
-        // onto the public impact feed. JPEG/PNG round-trip through ImageIO; formats
-        // it can't decode (some WEBP builds) fall through with the original bytes.
-        // PDFs are stored verbatim.
+        // onto the public impact feed.  An image decoder/writer must be present;
+        // accepting the original bytes on a WebP fallback would both retain EXIF
+        // and let arbitrary bytes masquerade as an image. PDFs are stored verbatim.
         byte[] toWrite = isPdf ? content : reencode(content, ext);
 
         try {
@@ -95,17 +105,14 @@ public class UploadService {
     private static byte[] reencode(byte[] content, String ext) {
         String fmt = switch (ext) {
             case ".png" -> "png";
-            case ".webp" -> "webp";
             default -> "jpeg";
         };
         try {
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(content));
-            if (img == null) {
-                return content; // decoder unavailable for this format — keep as-is
-            }
+            if (img == null) throw new ApiException(415, "File is not a supported image");
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             if (!ImageIO.write(img, fmt, out)) {
-                return content; // no writer for this format
+                throw new ApiException(415, "Image format cannot be safely processed");
             }
             return out.toByteArray();
         } catch (IOException e) {
@@ -116,6 +123,14 @@ public class UploadService {
     private static String extension(String filename) {
         int dot = filename.lastIndexOf('.');
         return dot < 0 ? "" : filename.substring(dot).toLowerCase();
+    }
+
+    private static boolean matchesImageType(String ext, String contentType) {
+        return switch (ext) {
+            case ".jpg", ".jpeg" -> "image/jpeg".equals(contentType) || "image/jpg".equals(contentType);
+            case ".png" -> "image/png".equals(contentType);
+            default -> false;
+        };
     }
 
     private static Set<String> union(Set<String> base, String extra) {

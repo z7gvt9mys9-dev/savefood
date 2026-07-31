@@ -3,6 +3,7 @@ package ru.savefood.volunteer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -17,15 +18,19 @@ import java.util.regex.Pattern;
 import ru.savefood.esg.EsgService;
 import ru.savefood.gamification.Gamification;
 import ru.savefood.needy.NeedyService;
+import ru.savefood.photo.CourierProofService;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.security.PasswordService;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.util.Clamp;
 import ru.savefood.util.FoodCategories;
+import ru.savefood.util.Geo;
 import ru.savefood.util.Html;
 import ru.savefood.util.JoinCode;
 import ru.savefood.util.Qr;
 import ru.savefood.volunteer.dto.VolunteerCreate;
 import ru.savefood.web.ApiException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -65,12 +70,16 @@ public class VolunteerService {
     private final PasswordService passwords;
     private final NeedyService needyService;
     private final TelegramService telegram;
+    private final CourierProofService courierProofs;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();
     private final ZoneId zone;
     private final String localTzName;
 
+    @Autowired
     public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
                             PasswordService passwords, NeedyService needyService, TelegramService telegram,
+                            CourierProofService courierProofs, DeliveryPhotoStorage deliveryPhotos,
                             @Value("${savefood.local-tz:Europe/Moscow}") String localTz) {
         this.jdbc = jdbc;
         this.repo = repo;
@@ -78,6 +87,8 @@ public class VolunteerService {
         this.passwords = passwords;
         this.needyService = needyService;
         this.telegram = telegram;
+        this.courierProofs = courierProofs;
+        this.deliveryPhotos = deliveryPhotos;
         ZoneId z;
         try {
             z = ZoneId.of(localTz);
@@ -86,6 +97,13 @@ public class VolunteerService {
         }
         this.zone = z;
         this.localTzName = z.getId();
+    }
+
+    /** Constructor retained for focused unit tests without Spring/file storage. */
+    public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
+                            PasswordService passwords, NeedyService needyService, TelegramService telegram,
+                            String localTz) {
+        this(jdbc, repo, routeRevert, passwords, needyService, telegram, null, null, localTz);
     }
 
     // ── register ─────────────────────────────────────────────────────────────────
@@ -123,15 +141,27 @@ public class VolunteerService {
     public StartRouteResult startRoute(int volunteerId, Map<String, Object> vol, int lotId, Integer maxStops) {
         String volName = str(vol.get("name"), "volunteer_" + volunteerId);
 
-        Map<String, Object> lot = one("SELECT * FROM lots WHERE id = ?", lotId);
+        // Lock the lot before checking its state: a direct start_route request
+        // must not race a reservation/expiry transition after the UI map was read.
+        Map<String, Object> lot = one("SELECT * FROM lots WHERE id = ? FOR UPDATE", lotId);
         if (lot == null) {
             throw new ApiException(404, "Lot not found");
+        }
+        if (!"active".equals(lot.get("status"))) {
+            throw new ApiException(400, "Lot is not available");
+        }
+        if (!isRouteableExpiry(lot.get("expiry_date"))) {
+            throw new ApiException(400, "Срок годности лота слишком близок или уже истёк");
+        }
+        double availableQuantity = num(lot.get("quantity"));
+        if (!Double.isFinite(availableQuantity) || availableQuantity < 0) {
+            throw new ApiException(400, "У лота некорректный остаток");
         }
         Map<String, Object> shop = one("SELECT * FROM shops WHERE id = ?", ((Number) lot.get("shop_id")).intValue());
         if (shop == null) {
             throw new ApiException(404, "Shop not found");
         }
-        if (shop.get("lat") == null || shop.get("lon") == null) {
+        if (!Geo.isValidCoordinates(asDouble(shop.get("lat")), asDouble(shop.get("lon")))) {
             throw new ApiException(400, "Shop has no coordinates");
         }
         // Cold chain (§47): a refrigerated lot may only be carried with a thermal bag.
@@ -142,6 +172,9 @@ public class VolunteerService {
         // Carrying capacity (§14): a lot is claimed whole, so refuse one the
         // volunteer cannot physically carry. Undeclared capacity ⇒ no limit.
         double lotKg = lotWeightKg(lot);
+        if (!Double.isFinite(lotKg) || lotKg <= 0) {
+            throw new ApiException(400, "У лота некорректный вес");
+        }
         if (vol.get("capacity_kg") instanceof Number capacity && capacity.doubleValue() > 0
                 && lotKg > capacity.doubleValue()) {
             throw new ApiException(400, String.format(
@@ -154,6 +187,11 @@ public class VolunteerService {
             "SELECT t.* FROM tickets t WHERE t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
             + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) AND t.lot_id = ?", lotId);
 
+        // Historic malformed rows must never become a route point. New ticket
+        // writes are range-checked at the controller, this protects old data too.
+        tickets = tickets.stream()
+            .filter(t -> Geo.isValidCoordinates(asDouble(t.get("lat")), asDouble(t.get("lon"))))
+            .collect(java.util.stream.Collectors.toList());
         boolean hadAny = !tickets.isEmpty();
         // §59/Q1-A: include recipients whose window is open now OR within the horizon.
         tickets = tickets.stream()
@@ -207,6 +245,10 @@ public class VolunteerService {
             Map<String, Object> p = point("ticket", num(t.get("lat")), num(t.get("lon")),
                 str(t.get("items"), null), ((Number) t.get("id")).intValue(),
                 addr.isEmpty() ? null : String.join(", ", addr));
+            // Keep the recipient's actual address separate from the requested
+            // products. The route is private to the assigned volunteer only.
+            p.put("address", t.get("address"));
+            p.put("items", t.get("items"));
             p.put("apartment", t.get("apartment"));
             p.put("floor_num", t.get("floor_num"));
             p.put("entrance", t.get("entrance"));
@@ -285,7 +327,7 @@ public class VolunteerService {
         String pointsJson = writeJson(filteredPoints);
 
         Double startDistM = null;
-        if (vol.get("lat") != null && vol.get("lon") != null) {
+        if (Geo.isValidCoordinates(asDouble(vol.get("lat")), asDouble(vol.get("lon")))) {
             startDistM = haversine(num(vol.get("lat")), num(vol.get("lon")),
                 num(shop.get("lat")), num(shop.get("lon"))) * 1000.0;
         }
@@ -311,8 +353,10 @@ public class VolunteerService {
 
     // ── complete_point (discrete writes, like the per-block Python cursors) ──────
 
+    @Transactional
     public void completePoint(Map<String, Object> route, int routeVolunteerId,
                               Integer ticketId, Double lat, Double lon, String qrCode) {
+        route = lockActiveRoute(route, routeVolunteerId);
         List<Map<String, Object>> points = readPoints(route.get("points"));
         int targetIdx = -1;
         if (ticketId == null) {
@@ -342,30 +386,45 @@ public class VolunteerService {
 
         if ("ticket".equals(point.get("kind")) && point.get("ticket_id") != null) {
             int tid = ((Number) point.get("ticket_id")).intValue();
-            String secret = jdbc.query("SELECT qr_secret FROM tickets WHERE id = ?",
-                (rs, n) -> rs.getString("qr_secret"), tid).stream().findFirst().orElse(null);
-            String expected = Qr.buildCode(tid, secret);
-            if (!expected.equals(qrCode == null ? "" : qrCode.strip())) {
-                throw new ApiException(400, "QR-код не совпадает с тикетом");
-            }
-            if (lat == null || lon == null) {
-                throw new ApiException(400, "Координаты волонтёра обязательны для подтверждения доставки");
-            }
-            if (point.get("lat") != null && point.get("lon") != null) {
-                double distM = haversine(lat, lon, num(point.get("lat")), num(point.get("lon"))) * 1000.0;
-                if (distM > GPS_RADIUS_METERS) {
-                    throw new ApiException(400, "Вы слишком далеко от точки доставки ("
-                        + (int) distM + " м, лимит " + GPS_RADIUS_METERS + " м)");
-                }
-            }
-            verifyPositionAgainstPings(routeVolunteerId, lat, lon);
+            ensurePickupCompleted(points);
+            requireCoordinates(lat, lon, "Координаты волонтёра обязательны для подтверждения доставки");
+            requirePointCoordinates(point, "У точки доставки некорректные координаты");
             Map<String, Object> ticket = one("SELECT * FROM tickets WHERE id = ?", tid);
             if (ticket == null) {
                 throw new ApiException(404, "Ticket not found");
             }
+            if (!"assigned".equals(ticket.get("status"))
+                    || !(ticket.get("assigned_volunteer_id") instanceof Number assigned)
+                    || assigned.intValue() != routeVolunteerId) {
+                throw new ApiException(409,
+                    "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+            }
+            String secret = jdbc.query("SELECT qr_secret FROM tickets WHERE id = ?",
+                (rs, n) -> rs.getString("qr_secret"), tid).stream().findFirst().orElse(null);
+            String expected = Qr.buildCode(tid, secret);
+            if (!expected.equals(qrCode == null ? "" : qrCode.strip())) {
+                // The image was captured for an invalid recipient QR. Persist the
+                // cleanup in its own transaction before returning 400 so it
+                // cannot be replayed on a later stop/route.
+                if (courierProofs != null) {
+                    courierProofs.discardForAssignedTicket(tid);
+                }
+                throw new ApiException(400, "QR-код не совпадает с тикетом");
+            }
+            double distM = haversine(lat, lon, num(point.get("lat")), num(point.get("lon"))) * 1000.0;
+            if (distM > GPS_RADIUS_METERS) {
+                throw new ApiException(400, "Вы слишком далеко от точки доставки ("
+                    + (int) distM + " м, лимит " + GPS_RADIUS_METERS + " м)");
+            }
+            verifyPositionAgainstPings(routeVolunteerId, lat, lon);
+            if (!hasUsableCourierProof(ticket)) {
+                throw new ApiException(409,
+                    "Перед подтверждением доставки загрузите фото-подтверждение");
+            }
             int updated = jdbc.update(
                 "UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? "
-                + "WHERE id = ? AND status = 'assigned' AND assigned_volunteer_id = ?",
+                + "WHERE id = ? AND status = 'assigned' AND assigned_volunteer_id = ? "
+                + "AND delivery_photo IS NOT NULL AND delivery_photo_status IN ('pending', 'approved')",
                 OffsetDateTime.now(), tid, routeVolunteerId);
             if (updated == 0) {
                 throw new ApiException(409,
@@ -385,15 +444,12 @@ public class VolunteerService {
             Object shopLat = point.get("lat");
             Object shopLon = point.get("lon");
             // «Я забрал» disarms the GPS drift monitor (§27), so it must itself prove presence.
-            if (lat == null || lon == null) {
-                throw new ApiException(400, "Координаты волонтёра обязательны для подтверждения получения лота");
-            }
-            if (shopLat != null && shopLon != null) {
-                double distM = haversine(lat, lon, num(shopLat), num(shopLon)) * 1000.0;
-                if (distM > SHOP_GPS_RADIUS_METERS) {
-                    throw new ApiException(400, "Вы слишком далеко от магазина ("
-                        + (int) distM + " м, лимит " + SHOP_GPS_RADIUS_METERS + " м)");
-                }
+            requireCoordinates(lat, lon, "Координаты волонтёра обязательны для подтверждения получения лота");
+            requirePointCoordinates(point, "У точки магазина некорректные координаты");
+            double distM = haversine(lat, lon, num(shopLat), num(shopLon)) * 1000.0;
+            if (distM > SHOP_GPS_RADIUS_METERS) {
+                throw new ApiException(400, "Вы слишком далеко от магазина ("
+                    + (int) distM + " м, лимит " + SHOP_GPS_RADIUS_METERS + " м)");
             }
             verifyPositionAgainstPings(routeVolunteerId, lat, lon);
             Map<String, Object> vol = repo.getVolunteerById(routeVolunteerId);
@@ -446,7 +502,10 @@ public class VolunteerService {
 
     // ── attempt_delivery ─────────────────────────────────────────────────────────
 
-    public Map<String, Object> attemptDelivery(Map<String, Object> route, Integer ticketId) {
+    @Transactional
+    public Map<String, Object> attemptDelivery(Map<String, Object> route, int routeVolunteerId,
+                                               Integer ticketId, Double lat, Double lon) {
+        route = lockActiveRoute(route, routeVolunteerId);
         List<Map<String, Object>> points = readPoints(route.get("points"));
         int targetIdx = -1;
         for (int i = 0; i < points.size(); i++) {
@@ -464,18 +523,57 @@ public class VolunteerService {
         if (truthy(target.get("done"))) {
             throw new ApiException(400, "Point already completed");
         }
+        ensurePickupCompleted(points);
+        requireCoordinates(lat, lon, "Координаты волонтёра обязательны для фиксации попытки доставки");
+        requirePointCoordinates(target, "У точки доставки некорректные координаты");
+        double distM = haversine(lat, lon, num(target.get("lat")), num(target.get("lon"))) * 1000.0;
+        if (distM > GPS_RADIUS_METERS) {
+            throw new ApiException(400, "Вы слишком далеко от точки доставки ("
+                + (int) distM + " м, лимит " + GPS_RADIUS_METERS + " м)");
+        }
+        verifyPositionAgainstPings(routeVolunteerId, lat, lon);
+
+        Map<String, Object> ticket = one("SELECT * FROM tickets WHERE id = ?", ticketId);
+        if (ticket == null) {
+            throw new ApiException(404, "Ticket not found");
+        }
+        if (!"assigned".equals(ticket.get("status"))
+                || !(ticket.get("assigned_volunteer_id") instanceof Number assigned)
+                || assigned.intValue() != routeVolunteerId) {
+            throw new ApiException(409,
+                "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+        }
 
         int attemptCount = (target.get("attempt_count") instanceof Number n ? n.intValue() : 0) + 1;
         target.put("attempt_count", attemptCount);
         boolean released = false;
 
-        Integer needyId = jdbc.query("SELECT needy_id FROM tickets WHERE id = ?",
-            (rs, n) -> (Integer) rs.getObject("needy_id"), ticketId).stream().findFirst().orElse(null);
+        Integer needyId = ticket.get("needy_id") instanceof Number n ? n.intValue() : null;
         if (needyId != null) {
             String msg;
             if (attemptCount >= MAX_DELIVERY_ATTEMPTS) {
-                jdbc.update("UPDATE tickets SET status = 'open', assigned_volunteer = NULL, "
-                    + "assigned_volunteer_id = NULL WHERE id = ? AND status = 'assigned'", ticketId);
+                // Read the old reference under a row lock before clearing it:
+                // UPDATE ... RETURNING would only expose the new NULL value.
+                List<Map<String, Object>> locked = jdbc.queryForList(
+                    "SELECT delivery_photo FROM tickets WHERE id = ? AND status = 'assigned' "
+                        + "AND assigned_volunteer_id = ? FOR UPDATE", ticketId, routeVolunteerId);
+                if (locked.isEmpty()) {
+                    throw new ApiException(409,
+                        "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+                }
+                String proof = locked.get(0).get("delivery_photo") instanceof String s ? s : null;
+                int releasedRows = jdbc.update("UPDATE tickets SET status = 'open', assigned_volunteer = NULL, "
+                    + "assigned_volunteer_id = NULL, delivery_photo = NULL, delivery_photo_status = NULL, "
+                    + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
+                    + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL "
+                    + "WHERE id = ? AND status = 'assigned' AND assigned_volunteer_id = ?", ticketId, routeVolunteerId);
+                if (releasedRows == 0) {
+                    throw new ApiException(409,
+                        "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+                }
+                if (proof != null && deliveryPhotos != null) {
+                    deliveryPhotos.deleteAfterCommit(proof);
+                }
                 target.put("done", true);
                 target.put("released", true);
                 released = true;
@@ -503,10 +601,72 @@ public class VolunteerService {
         return out;
     }
 
+    /**
+     * Attach a courier's delivery proof before QR completion. The file is saved by
+     * the controller first, then this guarded update binds it only to the active
+     * route's still-assigned stop. Returns the replaced private photo reference.
+     */
+    @Transactional
+    public String attachDeliveryPhoto(Map<String, Object> route, int routeVolunteerId,
+                                      int ticketId, Double lat, Double lon, String photoRef) {
+        route = lockActiveRoute(route, routeVolunteerId);
+        List<Map<String, Object>> points = readPoints(route.get("points"));
+        ensurePickupCompleted(points);
+        boolean targetFound = false;
+        for (Map<String, Object> point : points) {
+            if ("ticket".equals(point.get("kind")) && point.get("ticket_id") instanceof Number id
+                    && id.intValue() == ticketId) {
+                if (truthy(point.get("done"))) {
+                    throw new ApiException(400, "Точка доставки уже завершена");
+                }
+                targetFound = true;
+                break;
+            }
+        }
+        if (!targetFound) {
+            throw new ApiException(404, "Point not found in route");
+        }
+        Map<String, Object> target = points.stream()
+            .filter(p -> "ticket".equals(p.get("kind")) && p.get("ticket_id") instanceof Number id
+                && id.intValue() == ticketId)
+            .findFirst().orElseThrow(() -> new ApiException(404, "Point not found in route"));
+        requireCoordinates(lat, lon, "Координаты волонтёра обязательны для загрузки фото доставки");
+        requirePointCoordinates(target, "У точки доставки некорректные координаты");
+        double distM = haversine(lat, lon, num(target.get("lat")), num(target.get("lon"))) * 1000.0;
+        if (distM > GPS_RADIUS_METERS) {
+            throw new ApiException(400, "Вы слишком далеко от точки доставки ("
+                + (int) distM + " м, лимит " + GPS_RADIUS_METERS + " м)");
+        }
+        verifyPositionAgainstPings(routeVolunteerId, lat, lon);
+        Map<String, Object> ticket = one("SELECT * FROM tickets WHERE id = ?", ticketId);
+        if (ticket == null) {
+            throw new ApiException(404, "Ticket not found");
+        }
+        if (!"assigned".equals(ticket.get("status"))
+                || !(ticket.get("assigned_volunteer_id") instanceof Number assigned)
+                || assigned.intValue() != routeVolunteerId) {
+            throw new ApiException(409,
+                "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+        }
+        int rows = jdbc.update(
+            "UPDATE tickets SET delivery_photo = ?, delivery_photo_status = 'pending', "
+            + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
+            + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL "
+            + "WHERE id = ? AND status = 'assigned' AND assigned_volunteer_id = ?",
+            photoRef, ticketId, routeVolunteerId);
+        if (rows == 0) {
+            throw new ApiException(409,
+                "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
+        }
+        return (String) ticket.get("delivery_photo");
+    }
+
     // ── finish_route ─────────────────────────────────────────────────────────────
 
     @Transactional
     public void finishRoute(Map<String, Object> route) {
+        int volunteerId = ((Number) route.get("volunteer_id")).intValue();
+        route = lockActiveRoute(route, volunteerId);
         Integer lotId = route.get("lot_id") == null ? null : ((Number) route.get("lot_id")).intValue();
         routeRevert.revertRouteLot(lotId, route.get("points") == null ? null : route.get("points").toString());
         jdbc.update("UPDATE volunteer_routes SET status = 'finished', finished_at = ? WHERE id = ?",
@@ -583,10 +743,17 @@ public class VolunteerService {
         Map<Integer, Map<String, Object>> shopsMap = new LinkedHashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
                 "SELECT s.id as shop_id, s.name, s.lat, s.lon, s.kind, l.id as lot_id, l.description, "
-                + "l.quantity, l.photo, l.category FROM shops s JOIN lots l ON s.id = l.shop_id "
-                + "WHERE l.status = 'active' AND l.quantity > 0 "
-                + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')")) {
-            if (r.get("lat") == null || r.get("lon") == null) {
+                + "l.quantity, l.photo, l.category, "
+                + "(SELECT COUNT(*) FROM tickets t WHERE t.lot_id = l.id AND t.status = 'open' "
+                + "AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
+                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)) AS open_delivery_tickets "
+                + "FROM shops s JOIN lots l ON s.id = l.shop_id "
+                + "WHERE l.status = 'active' "
+                + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day') "
+                + "AND (l.quantity > 0 OR EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
+                + "AND t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
+                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)))")) {
+            if (!Geo.isValidCoordinates(asDouble(r.get("lat")), asDouble(r.get("lon")))) {
                 continue;
             }
             int sid = ((Number) r.get("shop_id")).intValue();
@@ -606,6 +773,13 @@ public class VolunteerService {
             lot.put("quantity", r.get("quantity"));
             lot.put("photo", r.get("photo"));
             lot.put("category", r.get("category"));
+            int openDeliveryTickets = r.get("open_delivery_tickets") instanceof Number n ? n.intValue() : 0;
+            boolean reserved = num(r.get("quantity")) <= 0 && openDeliveryTickets > 0;
+            lot.put("status", reserved ? "reserved" : "active");
+            lot.put("open_delivery_tickets", openDeliveryTickets);
+            // Lets old clients render the lot normally and gives newer clients a
+            // clear action path for the last unit already reserved by a recipient.
+            lot.put("route_available", openDeliveryTickets > 0);
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> lots = (List<Map<String, Object>>) shop.get("lots");
             lots.add(lot);
@@ -613,10 +787,22 @@ public class VolunteerService {
 
         List<Map<String, Object>> tickets = new ArrayList<>();
         for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT * FROM tickets WHERE status = 'open' AND lat IS NOT NULL AND lon IS NOT NULL "
-                + "AND (self_pickup IS NULL OR self_pickup = FALSE)")) {
+            "SELECT t.*, l.description AS lot_description, l.quantity AS lot_quantity, l.photo AS lot_photo, "
+                + "l.category AS lot_category, l.status AS lot_status, s.id AS shop_id, s.name AS shop_name, "
+                + "s.lat AS shop_lat, s.lon AS shop_lon, s.kind AS shop_kind "
+                + "FROM tickets t JOIN lots l ON l.id = t.lot_id JOIN shops s ON s.id = l.shop_id "
+                + "WHERE t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
+                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) AND l.status = 'active' "
+                + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')")) {
+            if (!Geo.isValidCoordinates(asDouble(r.get("lat")), asDouble(r.get("lon")))) {
+                continue;
+            }
+            if (!Geo.isValidCoordinates(asDouble(r.get("shop_lat")), asDouble(r.get("shop_lon")))) {
+                continue;
+            }
             Map<String, Object> t = new LinkedHashMap<>();
             t.put("ticket_id", r.get("id"));
+            t.put("lot_id", r.get("lot_id"));
             t.put("needy_id", r.get("needy_id"));
             t.put("items", r.get("items"));
             t.put("available_time", r.get("available_time"));
@@ -625,6 +811,20 @@ public class VolunteerService {
             t.put("lat", coarsenCoord(num(r.get("lat"))));
             t.put("lon", coarsenCoord(num(r.get("lon"))));
             t.put("approx", true);
+            t.put("route_available", r.get("lot_id") != null);
+            // A reserved last unit has no public /lots card. Include the minimal
+            // lot + shop card here so mobile/web clients can still call
+            // start_route(lot_id) from its coarsened ticket marker.
+            t.put("lot_description", r.get("lot_description"));
+            t.put("lot_quantity", r.get("lot_quantity"));
+            t.put("lot_photo", r.get("lot_photo"));
+            t.put("lot_category", r.get("lot_category"));
+            t.put("lot_status", r.get("lot_status"));
+            t.put("shop_id", r.get("shop_id"));
+            t.put("shop_name", r.get("shop_name"));
+            t.put("shop_lat", r.get("shop_lat"));
+            t.put("shop_lon", r.get("shop_lon"));
+            t.put("shop_kind", r.get("shop_kind"));
             tickets.add(t);
         }
 
@@ -845,12 +1045,18 @@ public class VolunteerService {
     }
 
     void verifyPositionAgainstPings(int volunteerId, double lat, double lon) {
+        requireCoordinates(lat, lon, "Некорректные координаты подтверждения");
         Map<String, Object> loc = repo.getVolunteerLocation(volunteerId);
         if (loc == null || loc.get("lat") == null || loc.get("lon") == null || loc.get("updated_at") == null) {
             return;
         }
         Instant updated = toInstant(loc.get("updated_at"));
         if (updated == null) {
+            return;
+        }
+        if (!Geo.isValidCoordinates(asDouble(loc.get("lat")), asDouble(loc.get("lon")))) {
+            // Legacy bad pings cannot prove anything; new pings are rejected at
+            // both Java and Go ingress, so treating it as absent is safest.
             return;
         }
         double age = (Instant.now().toEpochMilli() - updated.toEpochMilli()) / 1000.0;
@@ -920,6 +1126,28 @@ public class VolunteerService {
     private Map<String, Object> one(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /**
+     * Controllers read a route to authorize its owner, but that snapshot can go
+     * stale while another request finishes/resets it. Lifecycle mutations must
+     * operate on a locked, freshly rechecked row to avoid lost point updates.
+     */
+    private Map<String, Object> lockActiveRoute(Map<String, Object> staleRoute, int expectedVolunteerId) {
+        if (!(staleRoute.get("id") instanceof Number id)) {
+            throw new ApiException(404, "Route not found");
+        }
+        Map<String, Object> route = repo.getRouteByIdForUpdate(id.intValue());
+        if (route == null) {
+            throw new ApiException(404, "Route not found");
+        }
+        if (!(route.get("volunteer_id") instanceof Number owner) || owner.intValue() != expectedVolunteerId) {
+            throw new ApiException(409, "Маршрут уже изменился — обновите страницу");
+        }
+        if (!"in_progress".equals(route.get("status"))) {
+            throw new ApiException(409, "Маршрут уже завершён или сброшен");
+        }
+        return route;
     }
 
     /**
@@ -1013,6 +1241,70 @@ public class VolunteerService {
 
     private static double num(Object o) {
         return o instanceof Number n ? n.doubleValue() : 0.0;
+    }
+
+    private static Double asDouble(Object value) {
+        return value instanceof Number n ? n.doubleValue() : null;
+    }
+
+    /** A lot may have quantity 0 only when its already-reserved open tickets are served. */
+    private static boolean isRouteableExpiry(Object value) {
+        if (value == null) {
+            return true;
+        }
+        LocalDate expiry = toLocalDate(value);
+        return expiry != null && expiry.isAfter(LocalDate.now().plusDays(1));
+    }
+
+    private static LocalDate toLocalDate(Object value) {
+        if (value instanceof LocalDate d) {
+            return d;
+        }
+        if (value instanceof java.sql.Date d) {
+            return d.toLocalDate();
+        }
+        if (value instanceof java.time.OffsetDateTime odt) {
+            return odt.toLocalDate();
+        }
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value.toString().substring(0, 10));
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private static void requireCoordinates(Double lat, Double lon, String message) {
+        if (!Geo.isValidCoordinates(lat, lon)) {
+            throw new ApiException(400, message + " (широта -90..90, долгота -180..180)");
+        }
+    }
+
+    private static void requirePointCoordinates(Map<String, Object> point, String message) {
+        requireCoordinates(asDouble(point.get("lat")), asDouble(point.get("lon")), message);
+    }
+
+    private static boolean hasUsableCourierProof(Map<String, Object> ticket) {
+        if (!(ticket.get("delivery_photo") instanceof String photo) || photo.isBlank()) {
+            return false;
+        }
+        String status = ticket.get("delivery_photo_status") instanceof String s ? s : "";
+        return "pending".equals(status) || "approved".equals(status);
+    }
+
+    static void ensurePickupCompleted(List<Map<String, Object>> points) {
+        for (Map<String, Object> point : points) {
+            if ("shop".equals(point.get("kind"))) {
+                if (!truthy(point.get("done"))) {
+                    throw new ApiException(409,
+                        "Сначала подтвердите получение лота в магазине");
+                }
+                return;
+            }
+        }
+        throw new ApiException(409, "Маршрут не содержит точки получения лота");
     }
 
     private static String str(Object o, String dflt) {

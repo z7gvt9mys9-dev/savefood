@@ -6,6 +6,43 @@ import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Admin.css';
 
+/** An admin image endpoint requires Bearer auth, which a plain <img> cannot send. */
+const ProtectedDeliveryPhoto = ({ path, token }) => {
+  const [objectUrl, setObjectUrl] = useState(null);
+
+  useEffect(() => {
+    if (!path || !token) {
+      setObjectUrl(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let createdUrl = null;
+    setObjectUrl(null);
+    fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        if (!res.ok) throw new Error('photo unavailable');
+        return res.blob();
+      })
+      .then(blob => {
+        createdUrl = URL.createObjectURL(blob);
+        if (cancelled) URL.revokeObjectURL(createdUrl);
+        else setObjectUrl(createdUrl);
+      })
+      .catch(() => { if (!cancelled) setObjectUrl(null); });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [path, token]);
+
+  if (!objectUrl) return <div className="photo-mod-img" aria-label="Photo unavailable" />;
+  return (
+    <a href={objectUrl} target="_blank" rel="noopener noreferrer">
+      <img src={objectUrl} alt="Delivery proof" className="photo-mod-img" />
+    </a>
+  );
+};
+
 const AdminPanel = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -134,12 +171,27 @@ const AdminPanel = () => {
 
   // Delivery photo moderation: publish or drop a recipient photo before it
   // reaches the public Impact feed.
-  const handleModeratePhoto = async (ticketId, action) => {
+  const handleModeratePhoto = async (photo, action) => {
+    const ticketId = photo.ticket_id;
+    if (!photo.photo_ref) {
+      await fetchDeliveryPhotos();
+      alert(t('common.error'));
+      return;
+    }
     setPhotoBusy(prev => ({ ...prev, [ticketId]: true }));
     try {
-      const res = await fetch(`${API_URL}/admin/delivery_photos/${ticketId}/${action}`, { method: 'POST', headers: authHeader });
+      const ref = encodeURIComponent(photo.photo_ref);
+      const res = await fetch(
+        `${API_URL}/admin/delivery_photos/${ticketId}/${action}?photo_ref=${ref}`,
+        { method: 'POST', headers: authHeader },
+      );
       if (res.ok) setDeliveryPhotos(prev => prev.filter(p => p.ticket_id !== ticketId));
-      else alert(t('common.error'));
+      else {
+        // A replacement was uploaded while this card was open. Refresh rather
+        // than applying a decision to the wrong proof image.
+        await fetchDeliveryPhotos();
+        alert(t('common.error'));
+      }
     } catch { alert(t('common.connection_error')); }
     finally { setPhotoBusy(prev => ({ ...prev, [ticketId]: false })); }
   };
@@ -267,9 +319,7 @@ const AdminPanel = () => {
       <div className="photo-mod-grid">
         {deliveryPhotos.map(p => (
           <div key={p.ticket_id} className="photo-mod-card">
-            <a href={`${API_URL}${p.delivery_photo}`} target="_blank" rel="noopener noreferrer">
-              <img src={`${API_URL}${p.delivery_photo}`} alt="" className="photo-mod-img" />
-            </a>
+            <ProtectedDeliveryPhoto path={p.photo_url} token={user?.token} />
             <div className="photo-mod-meta">
               <div>{photoBadge(p)}</div>
               {p.delivery_photo_ai_notes && (
@@ -281,9 +331,9 @@ const AdminPanel = () => {
             </div>
             <div className="photo-mod-actions">
               <button className="btn-small btn-success" disabled={!!photoBusy[p.ticket_id]}
-                onClick={() => handleModeratePhoto(p.ticket_id, 'approve')}>{t('admin.publish')}</button>
+                onClick={() => handleModeratePhoto(p, 'approve')}>{t('admin.publish')}</button>
               <button className="btn-small btn-danger" disabled={!!photoBusy[p.ticket_id]}
-                onClick={() => handleModeratePhoto(p.ticket_id, 'reject')}>{t('admin.reject')}</button>
+                onClick={() => handleModeratePhoto(p, 'reject')}>{t('admin.reject')}</button>
             </div>
           </div>
         ))}

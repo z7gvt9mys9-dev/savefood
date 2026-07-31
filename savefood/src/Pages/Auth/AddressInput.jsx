@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 const inputStyle = {
@@ -56,15 +56,53 @@ const geocode = async (item) => {
   }
 };
 
-const AddressInput = ({ value, onChange, placeholder, label }) => {
+const validCoordinate = (value) => (
+  value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+    ? null
+    : Number(value)
+);
+
+const AddressInput = ({
+  value,
+  onChange,
+  placeholder,
+  label,
+  lat: initialLat,
+  lon: initialLon,
+  city: initialCity,
+  apartment: initialApartment,
+  floorNum: initialFloorNum,
+  entrance: initialEntrance,
+}) => {
   const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState([]);
   const [query, setQuery] = useState(value || '');
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [apartment, setApartment] = useState('');
-  const [floorNum, setFloorNum] = useState('');
-  const [entrance, setEntrance] = useState('');
-  const [latLon, setLatLon] = useState({ lat: null, lon: null, city: null });
+  const [apartment, setApartment] = useState(initialApartment || '');
+  const [floorNum, setFloorNum] = useState(initialFloorNum || '');
+  const [entrance, setEntrance] = useState(initialEntrance || '');
+  const [latLon, setLatLon] = useState({
+    lat: validCoordinate(initialLat),
+    lon: validCoordinate(initialLon),
+    city: initialCity || null,
+  });
+  const geocodeRequestRef = useRef(0);
+
+  // Profiles are fetched after this component mounts. Keep the controlled
+  // fields in sync with those values, including their coordinates, so changing
+  // an apartment/floor cannot accidentally wipe a previously selected point.
+  useEffect(() => {
+    setQuery(value || '');
+    setLatLon({
+      lat: validCoordinate(initialLat),
+      lon: validCoordinate(initialLon),
+      city: initialCity || null,
+    });
+  }, [value, initialLat, initialLon, initialCity]);
+
+  useEffect(() => setApartment(initialApartment || ''), [initialApartment]);
+  useEffect(() => setFloorNum(initialFloorNum || ''), [initialFloorNum]);
+  useEffect(() => setEntrance(initialEntrance || ''), [initialEntrance]);
 
   useEffect(() => {
     const fetchSuggestions = async () => {
@@ -108,9 +146,13 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
   };
 
   const handleSelect = async (s) => {
+    const requestId = ++geocodeRequestRef.current;
     setQuery(s.address);
     setShowSuggestions(false);
     const coords = await geocode(s);
+    // A slow geocoder response for an old suggestion must not attach its point
+    // to text the user typed in the meantime.
+    if (requestId !== geocodeRequestRef.current) return;
     setLatLon(coords);
     onChange({
       address: s.address,
@@ -127,6 +169,18 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
   const handleFloor = (v) => { setFloorNum(v); emit({ floor_num: v }); };
   const handleEntrance = (v) => { setEntrance(v); emit({ entrance: v }); };
 
+  const handleAddressInput = (event) => {
+    const address = event.target.value;
+    // Coordinates are only valid for the exact address selected from the
+    // geocoder. Clear them as soon as the street/house text changes; otherwise
+    // an edit from address A to B sends B with A's GPS point.
+    geocodeRequestRef.current += 1;
+    setQuery(address);
+    setLatLon(EMPTY_COORDS);
+    setShowSuggestions(false);
+    emit({ address, ...EMPTY_COORDS });
+  };
+
   return (
     <div style={{ marginBottom: '18px' }}>
       {label && <label style={labelStyle}>{label}</label>}
@@ -136,7 +190,7 @@ const AddressInput = ({ value, onChange, placeholder, label }) => {
         <input
           type="text"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); emit({ address: e.target.value }); }}
+          onChange={handleAddressInput}
           placeholder={placeholder || t('address.street_placeholder')}
           className="form-input"
           autoComplete="off"

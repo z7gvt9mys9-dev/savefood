@@ -1,5 +1,6 @@
 package ru.savefood.app.feature.volunteer.route
 
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -136,7 +137,7 @@ class RouteViewModel @Inject constructor(
      * Confirms a delivery: QR already scanned by the caller, GPS read here.
      * [onDone] is invoked on success so the screen can leave the QR/photo flow.
      */
-    fun confirmDelivery(ticketId: Int, qrCode: String, onDone: () -> Unit) {
+    fun confirmDelivery(ticketId: Int, qrCode: String, photoUri: Uri, onDone: () -> Unit) {
         val routeId = _state.value.route?.id ?: return
         val volunteerId = _state.value.volunteerId ?: return
         viewModelScope.launch {
@@ -145,6 +146,15 @@ class RouteViewModel @Inject constructor(
             if (loc == null) {
                 _state.update { it.copy(busyPointTicketId = null, actionError = NO_LOCATION) }
                 return@launch
+            }
+            when (val photo = repo.uploadDeliveryPhoto(
+                routeId, ticketId, photoUri, loc.latitude, loc.longitude,
+            )) {
+                is ApiResult.Error -> {
+                    _state.update { it.copy(busyPointTicketId = null, actionError = photo.message) }
+                    return@launch
+                }
+                is ApiResult.Success -> Unit
             }
             val res = repo.completePoint(
                 routeId = routeId,
@@ -168,7 +178,12 @@ class RouteViewModel @Inject constructor(
         val volunteerId = _state.value.volunteerId ?: return
         viewModelScope.launch {
             _state.update { it.copy(busyPointTicketId = ticketId, actionError = null) }
-            val res = repo.attemptDelivery(routeId, volunteerId, ticketId)
+            val loc = locationProvider.lastLocation()
+            if (loc == null) {
+                _state.update { it.copy(busyPointTicketId = null, actionError = NO_LOCATION) }
+                return@launch
+            }
+            val res = repo.attemptDelivery(routeId, volunteerId, ticketId, loc.latitude, loc.longitude)
             _state.update { it.copy(busyPointTicketId = null) }
             when (res) {
                 is ApiResult.Success -> load()

@@ -66,6 +66,18 @@ public class BillingService {
      * is visible to its COUNT. Unlimited plans skip the lock entirely.
      */
     public void acquireLotQuota(int shopId) {
+        acquireLotQuota(shopId, 1);
+    }
+
+    /**
+     * Same transaction-scoped quota guard for a batch (receipt confirmation).
+     * The old one-lot check let a receipt with several drafts cross the monthly
+     * cap after a single successful pre-check.
+     */
+    public void acquireLotQuota(int shopId, int lotsToCreate) {
+        if (lotsToCreate < 1) {
+            throw new IllegalArgumentException("lotsToCreate must be positive");
+        }
         String plan = getShopPlan(shopId);
         Integer limit = Plans.get(plan).monthlyLotLimit();
         if (limit == null) {
@@ -73,7 +85,7 @@ public class BillingService {
         }
         jdbc.queryForList("SELECT pg_advisory_xact_lock(?, ?)", LOT_QUOTA_LOCK_NS, shopId);
         int used = lotsCreatedThisMonth(shopId);
-        if (used >= limit) {
+        if (used > limit - lotsToCreate) {
             throw new ApiException(402,
                 "Лимит тарифа «" + Plans.get(plan).label() + "» исчерпан: " + used + "/" + limit
                 + " лотов в этом месяце. Перейдите на тариф «Профи» для безлимитной публикации.");

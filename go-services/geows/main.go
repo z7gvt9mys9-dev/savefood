@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -65,6 +66,9 @@ type claims struct {
 
 func parseToken(token string) (*claims, error) {
 	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
+		// Do not select an algorithm from untrusted JWT metadata.  Java explicitly
+		// mints HS256 even for long secrets, and this service accepts that one
+		// cross-service contract only.
 		if t.Method.Alg() != "HS256" {
 			return nil, errors.New("unexpected signing method")
 		}
@@ -95,10 +99,32 @@ func bearerClaims(r *http.Request) (*claims, error) {
 	return parseToken(strings.TrimSpace(h[7:]))
 }
 
-func isBlocked(ctx context.Context, username string) bool {
-	var blocked bool
-	err := pool.QueryRow(ctx, "SELECT is_blocked FROM users WHERE username = $1", username).Scan(&blocked)
-	return err == nil && blocked
+// accountState distinguishes a blocked account from a deleted one.  The latter
+// used to look identical to an unblocked account, leaving an erased user's
+// unexpired JWT usable through the Go hot paths.
+func accountState(ctx context.Context, username string) (exists bool, blocked bool) {
+	var isBlocked bool
+	err := pool.QueryRow(ctx, "SELECT is_blocked FROM users WHERE username = $1", username).Scan(&isBlocked)
+	return err == nil, isBlocked
+}
+
+func rejectInactiveAccount(ctx context.Context, w http.ResponseWriter, username string) bool {
+	exists, blocked := accountState(ctx, username)
+	if !exists {
+		httpError(w, http.StatusUnauthorized, "Could not validate credentials")
+		return true
+	}
+	if blocked {
+		httpError(w, http.StatusForbidden, "Аккаунт заблокирован администратором")
+		return true
+	}
+	return false
+}
+
+func validCoordinates(lat, lon float64) bool {
+	return !math.IsNaN(lat) && !math.IsInf(lat, 0) &&
+		!math.IsNaN(lon) && !math.IsInf(lon, 0) &&
+		lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -125,8 +151,7 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		httpError(w, http.StatusUnauthorized, "Could not validate credentials")
 		return
 	}
-	if isBlocked(ctx, c.Sub) {
-		httpError(w, http.StatusForbidden, "Аккаунт заблокирован администратором")
+	if rejectInactiveAccount(ctx, w, c.Sub) {
 		return
 	}
 
@@ -141,6 +166,11 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		var body locationUpdate
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Lat == nil || body.Lon == nil {
 			httpError(w, http.StatusUnprocessableEntity, "lat and lon are required")
+			return
+		}
+		if !validCoordinates(*body.Lat, *body.Lon) {
+			httpError(w, http.StatusUnprocessableEntity,
+				"lat must be between -90 and 90 and lon between -180 and 180")
 			return
 		}
 		// CONTRACT: the FastAPI backend keeps a write-through Redis cache of
@@ -183,6 +213,12 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 			Scan(&lat, &lon, &updatedAt)
 		if err != nil {
 			httpError(w, http.StatusNotFound, "Volunteer not found")
+			return
+		}
+		// Historic/corrupt rows must not propagate NaN/Infinity to clients. New
+		// writes are checked above; a null location remains a valid "not shared" state.
+		if lat != nil && lon != nil && !validCoordinates(*lat, *lon) {
+			httpError(w, http.StatusNotFound, "Volunteer location unavailable")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"lat": lat, "lon": lon, "updated_at": updatedAt})
@@ -347,7 +383,8 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 			return
 		}
 		ctx := r.Context()
-		if isBlocked(ctx, c.Sub) {
+		exists, blocked := accountState(ctx, c.Sub)
+		if !exists || blocked {
 			closeWith(websocket.ClosePolicyViolation)
 			return
 		}

@@ -102,6 +102,7 @@ data class NeedyProfileUpdateDto(
     val city: String? = null,
     val lat: Double? = null,
     val lon: Double? = null,
+    @SerialName("clear_coordinates") val clearCoordinates: Boolean? = null,
 )
 
 @Serializable
