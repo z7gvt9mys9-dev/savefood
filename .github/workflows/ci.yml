@@ -112,7 +112,10 @@ jobs:
       # UPDATE … RETURNING and rollback — plus it applies V1__baseline.sql through
       # Flyway, which is the only check that a fresh deploy actually comes up.
       - name: Integration tests
-        run: ./mvnw -B --no-transfer-progress -Pintegration verify
+        # GitHub-hosted runners currently expose Docker API v1.48 at most.
+        # The project default is tuned for newer local Docker Desktop releases,
+        # so override it here rather than making local integration tests fail.
+        run: ./mvnw -B --no-transfer-progress -Dapi.version=1.48 -Pintegration verify
 
   frontend-build:
     needs: changes
