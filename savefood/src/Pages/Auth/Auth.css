@@ -212,3 +212,33 @@
   background-color: #111111;
   border-color: #ffffff;
 }
+
+.auth-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  stroke: currentColor;
+  stroke-width: 1.45;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: #f5f2ed;
+}
+
+.auth-form .btn,
+.auth-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.auth-form .limit-notice p {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0;
+}
+
+.auth-form .limit-notice .auth-icon {
+  margin-top: 1px;
+}

@@ -7,9 +7,26 @@ import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
 
+const AuthIcon = ({ name }) => {
+  const paths = {
+    telegram: <path d="M3 9.6 17 4l-3.2 12-4.5-3.4-2.8 2.2.6-4.1L14 6.5 7.1 10.7 3 9.6Z" />,
+    business: <><path d="M3 9.5V18h14V9.5M2 8l2-4h12l2 4" /><path d="M2 8a2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0 2 2 0 0 0 4 0M8 18v-5h4v5" /></>,
+    private: <><path d="m2.5 9.5 7.5-6 7.5 6" /><path d="M4.5 8v10h11V8M8 18v-5h4v5" /></>,
+    info: <><circle cx="10" cy="10" r="7" /><path d="M10 9v5M10 6.5v.2" /></>,
+  };
+  return (
+    <svg className={`auth-icon auth-icon-${name}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+};
+
 const AuthPage = () => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [role, setRole] = useState('shop'); // shop, volunteer, needy
+  const initialParams = new URLSearchParams(window.location.search);
+  const requestedRole = initialParams.get('role');
+  const initialRole = ['shop', 'volunteer', 'needy', 'admin'].includes(requestedRole) ? requestedRole : 'shop';
+  const [isLogin, setIsLogin] = useState(initialParams.get('mode') !== 'register');
+  const [role, setRole] = useState(initialRole); // shop, volunteer, needy, admin
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
   const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
   const [regToken, setRegToken] = useState(null); // token after registration
@@ -172,7 +189,7 @@ const AuthPage = () => {
           )}
           {providers.telegram && (
             <button type="button" className="btn btn-secondary" onClick={handleTelegramLogin}>
-              ✈️&nbsp;Telegram
+              <AuthIcon name="telegram" />Telegram
             </button>
           )}
         </div>
@@ -392,7 +409,8 @@ const AuthPage = () => {
               color: donorKind === kind ? '#4CAF50' : '#999',
             }}
           >
-            {kind === 'business' ? `🏪 ${t('auth.donor_business')}` : `🏠 ${t('auth.donor_private')}`}
+            <AuthIcon name={kind === 'business' ? 'business' : 'private'} />
+            {kind === 'business' ? t('auth.donor_business') : t('auth.donor_private')}
           </button>
         ))}
       </div>
@@ -422,7 +440,7 @@ const AuthPage = () => {
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-          <span>{t('auth.agree')} (<a href="#" onClick={(e) => { e.preventDefault(); alert(t('auth.privacy_text')); }}>{t('auth.privacy')}</a>)</span>
+          <span>{t('auth.agree')} (<a href="/privacy">{t('auth.privacy')}</a>)</span>
         </label>
       </div>
 
@@ -527,7 +545,7 @@ const AuthPage = () => {
         </select>
 
         <div className="limit-notice">
-          <p>ℹ️ {t('auth.limit_notice')}</p>
+          <p><AuthIcon name="info" />{t('auth.limit_notice')}</p>
         </div>
 
         <button type="submit" className="btn btn-primary">{t('auth.finish_register')}</button>

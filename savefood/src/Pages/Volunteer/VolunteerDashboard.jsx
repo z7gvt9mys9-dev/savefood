@@ -12,6 +12,7 @@ import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
 import TicketChat from '../../components/TicketChat';
+import MonoIcon from '../../components/MonoIcon';
 import './Volunteer.css';
 
 const CAT_KEYS = {
@@ -19,6 +20,21 @@ const CAT_KEYS = {
   'Овощи/Фрукты': 'vegetables',
   'Готовая еда': 'prepared',
   'Молочные продукты': 'dairy',
+};
+
+const ACHIEVEMENT_ICONS = {
+  first_delivery: 'award',
+  kg_100: 'bag',
+  night_courier: 'wait',
+  sprinter: 'bicycle',
+};
+
+const LEVEL_ICONS = {
+  novice: 'leaf',
+  helper: 'users',
+  courier: 'bicycle',
+  guardian: 'shield',
+  city_hero: 'award',
 };
 
 // Yandex Maps' balloonContent renders raw HTML, so any string interpolated
@@ -67,6 +83,45 @@ const displayRouteAddress = (point) => {
   }
   return point.address || point.description || '';
 };
+
+const RoutePointIcon = ({ kind }) => (
+  <span className="point-kind-icon" aria-hidden="true">
+    {kind === 'shop' ? (
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M4 10.5V20h16v-9.5M3 9l2-5h14l2 5" />
+        <path d="M3 9a2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 5 0 2.5 2.5 0 0 0 3-2" />
+        <path d="M9 20v-5h6v5" />
+      </svg>
+    ) : (
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M3 11.5 12 4l9 7.5" />
+        <path d="M5.5 10v10h13V10M9.5 20v-6h5v6" />
+      </svg>
+    )}
+  </span>
+);
+
+const RouteStatusCheckbox = ({ done, current }) => (
+  <span
+    className={`point-checkbox${done ? ' is-checked' : current ? ' is-current' : ''}`}
+    role="checkbox"
+    aria-checked={done}
+    aria-readonly="true"
+  >
+    {done && (
+      <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+        <path d="m5 10.5 3.1 3L15.5 6" />
+      </svg>
+    )}
+    {!done && current && <span className="point-checkbox-dot" aria-hidden="true" />}
+  </span>
+);
+
+const NavigatorIcon = () => (
+  <svg className="navigator-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    <path d="M16.2 3.8 11.8 16l-2.5-5.3L4 8.2l12.2-4.4Z" />
+  </svg>
+);
 
 const mapLotId = (lot) => lot?.lot_id ?? lot?.lotId ?? lot?.id ?? null;
 const ticketLotId = (ticket) => ticket?.lot_id ?? ticket?.lotId ?? null;
@@ -621,7 +676,7 @@ const VolunteerDashboard = () => {
           ))}
         </div>
         {mapShops.length === 0 && mapTickets.length === 0 && (
-          <EmptyState icon="🗺️" title={t('empty.map_title')} description={t('empty.map_desc')} />
+          <EmptyState icon={<MonoIcon name="map" />} title={t('empty.map_title')} description={t('empty.map_desc')} />
         )}
         {mapShops.flatMap(s =>
           (Array.isArray(s.lots) ? s.lots : [])
@@ -649,7 +704,7 @@ const VolunteerDashboard = () => {
                     )}
                     {s.kind === 'private' && (
                       <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
-                        🏠 {t('donor.badge')}
+                        <MonoIcon name="home" /> {t('donor.badge')}
                       </span>
                     )}
                     <h4>{s.name}</h4>
@@ -704,7 +759,7 @@ const VolunteerDashboard = () => {
     <div className="volunteer-tab route-page">
       {!activeRoute ? (
         <EmptyState
-          icon="🚗"
+          icon={<span className="empty-route-icon"><NavigatorIcon /></span>}
           title={t('empty.route_title')}
           description={t('empty.route_desc')}
           action={t('empty.route_action')}
@@ -713,7 +768,7 @@ const VolunteerDashboard = () => {
       ) : (
         <>
           {!isOnline && (
-            <div className="offline-banner">📴 {t('volunteer.offline_route')}</div>
+            <div className="offline-banner"><span className="offline-dot" aria-hidden="true" />{t('volunteer.offline_route')}</div>
           )}
           <div className="map-container-mobile mini-map">
             <YMaps query={{ apikey: import.meta.env.VITE_YANDEX_MAPS_API_KEY, load: 'package.full' }}>
@@ -741,7 +796,8 @@ const VolunteerDashboard = () => {
                   style={{ marginBottom: 12 }}
                   onClick={() => openInNavigator(remaining)}
                 >
-                  🧭 {t('volunteer.open_navigator')}
+                  <NavigatorIcon />
+                  {t('volunteer.open_navigator')}
                   {remaining.length > 1 && !isMobileDevice() && ` (${remaining.length})`}
                 </button>
               );
@@ -749,39 +805,42 @@ const VolunteerDashboard = () => {
 
             <div className="route-points">
               {points.map((p, i) => {
-                const letter = p.kind === 'shop' ? 'A' : String.fromCharCode(65 + points.filter((x, j) => x.kind === 'ticket' && j <= i).length);
                 const address = displayRouteAddress(p);
                 const recipientItems = p.kind === 'ticket' ? (p.items || p.description) : null;
                 const hasRecipientAddress = p.kind === 'ticket' && Boolean(p.address || p.recipient_address);
+                const isCurrent = !p.done && p === (isShopDone ? (nextTicket || null) : shopPoint);
                 return (
-                  <div key={i} className={`point ${!p.done && p === (isShopDone ? (nextTicket || null) : shopPoint) ? 'current' : p.done ? 'done' : ''}`}>
-                    <div className="point-icon">{letter}</div>
-                    <div className="point-text" style={{ flex: 1 }}>
-                      <p className="point-label">{p.kind === 'shop' ? t('volunteer.shop_label') : t('volunteer.recipient_label')}</p>
+                  <div key={i} className={`point${isCurrent ? ' current' : p.done ? ' done' : ''}`}>
+                    <RoutePointIcon kind={p.kind} />
+                    <div className="point-text">
+                      <div className="point-meta">
+                        <p className="point-label">{p.kind === 'shop' ? t('volunteer.shop_label') : t('volunteer.recipient_label')}</p>
+                        <span className="point-sequence">{String(i + 1).padStart(2, '0')}</span>
+                      </div>
                       <p className="point-addr">{address || t('needy.address_tbd')}</p>
                       {hasRecipientAddress && recipientItems && recipientItems !== address && (
-                        <p style={{ fontSize: '0.78rem', color: '#bbb', margin: '2px 0 0' }}>
+                        <p className="point-detail point-items">
                           {t('needy.items_label')} {recipientItems}
                         </p>
                       )}
                       {p.kind === 'ticket' && p.addr_detail && (
-                        <p style={{ fontSize: '0.78rem', color: '#aaa', margin: '2px 0 0' }}>{p.addr_detail}</p>
+                        <p className="point-detail">{p.addr_detail}</p>
                       )}
                       {p.kind === 'ticket' && p.attempt_count > 0 && (
-                        <p style={{ color: '#f90', fontSize: '0.75rem', margin: '2px 0 0' }}>{t('volunteer.attempts_count', { count: p.attempt_count })}</p>
+                        <p className="point-attempts">{t('volunteer.attempts_count', { count: p.attempt_count })}</p>
                       )}
                       {p.kind === 'ticket' && !p.done && isShopDone && (
-                        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <div className="point-actions">
                           <button className="btn-small btn-warning" onClick={() => handleAttemptDelivery(p.ticket_id)}>
                             {t('volunteer.no_answer')}
                           </button>
                           {attemptMsgs[p.ticket_id] && (
-                            <span style={{ color: '#f90', fontSize: '0.75rem', alignSelf: 'center' }}>{attemptMsgs[p.ticket_id]}</span>
+                            <span className="point-attempt-message">{attemptMsgs[p.ticket_id]}</span>
                           )}
                         </div>
                       )}
                     </div>
-                    {p.done && <span style={{ color: '#0f0', marginLeft: 'auto' }}>✓</span>}
+                    <RouteStatusCheckbox done={Boolean(p.done)} current={isCurrent} />
                   </div>
                 );
               })}
@@ -875,7 +934,8 @@ const VolunteerDashboard = () => {
         borderRadius: 12, padding: 14, margin: '10px 12px',
       }}>
         <strong style={{ display: 'block', marginBottom: 6 }}>
-          {rejected ? `⚠️ ${t('volunteer.kyc_rejected_title')}` : `🪪 ${t('volunteer.kyc_pending_title')}`}
+          <MonoIcon name={rejected ? 'warning' : 'id'} />{' '}
+          {rejected ? t('volunteer.kyc_rejected_title') : t('volunteer.kyc_pending_title')}
         </strong>
         <p style={{ fontSize: '0.82rem', color: '#bbb', margin: '0 0 10px' }}>
           {rejected ? t('volunteer.kyc_rejected_hint') : t('volunteer.kyc_pending_hint')}
@@ -904,12 +964,12 @@ const VolunteerDashboard = () => {
                 checked={!!volunteerInfo?.has_thermal_bag}
                 onChange={(e) => toggleThermalBag(e.target.checked)}
               />
-              <span>❄️ {t('volunteer.thermal_bag')}</span>
+              <span><MonoIcon name="snow" /> {t('volunteer.thermal_bag')}</span>
             </label>
             <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
 
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span>🎒 {t('volunteer.capacity')}</span>
+              <span><MonoIcon name="bag" /> {t('volunteer.capacity')}</span>
               <select
                 value={volunteerInfo?.capacity_kg ?? ''}
                 onChange={(e) => setCapacity(e.target.value)}
@@ -923,7 +983,7 @@ const VolunteerDashboard = () => {
             <p style={{ fontSize: '0.78rem', color: '#888', marginBottom: 14 }}>{t('volunteer.capacity_hint')}</p>
 
             <div style={{ background: '#1a1a26', border: '1px solid #2a2a3a', borderRadius: 12, padding: 12, marginBottom: 16 }}>
-              <h4 style={{ margin: '0 0 4px' }}>🗓️ {t('volunteer.availability_title')}</h4>
+              <h4 style={{ margin: '0 0 4px' }}><MonoIcon name="calendar" /> {t('volunteer.availability_title')}</h4>
               <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 10px' }}>{t('volunteer.availability_hint')}</p>
               {availability.length === 0 && (
                 <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>
@@ -952,6 +1012,7 @@ const VolunteerDashboard = () => {
                   <div style={{ background: '#4CAF5012', border: '1px solid #4CAF5044', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 6 }}>
                       <strong style={{ color: '#4CAF50' }}>
+                        <MonoIcon name={LEVEL_ICONS[stats.level.code] || 'award'} />{' '}
                         {t(`volunteer.level_${stats.level.code}`)}
                       </strong>
                       <span style={{ fontSize: '0.8rem', color: '#aaa' }}>
@@ -991,7 +1052,7 @@ const VolunteerDashboard = () => {
                 </div>
                 {thanks && thanks.length > 0 && (
                   <>
-                    <h4 style={{ margin: '18px 0 8px' }}>💌 {t('volunteer.thanks_title')}</h4>
+                    <h4 style={{ margin: '18px 0 8px' }}><MonoIcon name="mail" /> {t('volunteer.thanks_title')}</h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {thanks.map((th, i) => (
                         <div key={i} style={{ background: '#E91E6310', border: '1px solid #E91E6333', borderRadius: 12, padding: '10px 12px' }}>
@@ -1021,18 +1082,19 @@ const VolunteerDashboard = () => {
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {stats.achievements.map(a => (
                       <span key={a} className="category-badge" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>
+                        <MonoIcon name={ACHIEVEMENT_ICONS[a] || 'award'} />{' '}
                         {t(`volunteer.ach_${a}`)}
                       </span>
                     ))}
                   </div>
                 )}
-                <h4 style={{ margin: '18px 0 8px' }}>👥 {t('volunteer.team_title')}</h4>
+                <h4 style={{ margin: '18px 0 8px' }}><MonoIcon name="users" /> {t('volunteer.team_title')}</h4>
                 {team === undefined ? (
                   <p className="empty-msg" style={{ fontSize: '0.85rem' }}>{t('common.loading')}</p>
                 ) : team ? (
                   <div className="team-card">
                     <div className="team-card-header">
-                      <span className="team-card-icon">🏢</span>
+                      <span className="team-card-icon"><MonoIcon name="building" /></span>
                       <div className="team-card-title">
                         <strong>{team.name}</strong>
                         <span>{t('volunteer.team_members', { count: team.members })}</span>
@@ -1096,7 +1158,7 @@ const VolunteerDashboard = () => {
                     {leaderboard.volunteers.map((v, i) => (
                       <div key={v.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 4px', borderBottom: '1px solid #2a2a3a', fontSize: '0.9rem' }}>
                         <span>
-                          {['🥇', '🥈', '🥉'][i] || `${i + 1}.`} {v.name}
+                          {i + 1}. {v.name}
                           <span style={{ color: '#888', fontSize: '0.78rem' }}> · {t(`volunteer.level_${v.level}`)}</span>
                         </span>
                         <span style={{ color: '#aaa' }}>{v.deliveries} {t('volunteer.total_deliveries').toLowerCase()}</span>
@@ -1122,7 +1184,7 @@ const VolunteerDashboard = () => {
               )}
             </div>
           {routes.length === 0 ? (
-            <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+            <EmptyState icon={<MonoIcon name="clipboard" />} title={t('empty.history_title')} description={t('empty.history_desc')} />
           ) : routes.map(r => (
               <div key={r.id} className="task-card-mobile">
                 <div className="task-info">
@@ -1137,7 +1199,7 @@ const VolunteerDashboard = () => {
         {activeTab === 'profile' && (
           <div className="volunteer-tab profile-page">
             <div className="profile-head">
-              <div className="profile-avatar">🚴</div>
+              <div className="profile-avatar"><MonoIcon name="bicycle" /></div>
               <div className="profile-head-text">
                 <p className="profile-name">{volunteerInfo?.name || t('nav.roles.volunteer')}</p>
                 <p className="profile-role">{t('nav.roles.volunteer')}
@@ -1145,7 +1207,7 @@ const VolunteerDashboard = () => {
                     <span className={`kyc-chip kyc-${kycStatus}`}>
                       {kycStatus === 'approved' ? `✓ ${t('volunteer.kyc_status_approved')}`
                         : kycStatus === 'rejected' ? `✕ ${t('volunteer.kyc_status_rejected')}`
-                        : `⏳ ${t('volunteer.kyc_status_pending')}`}
+                        : <><MonoIcon name="wait" /> {t('volunteer.kyc_status_pending')}</>}
                     </span>
                   )}
                 </p>
@@ -1153,7 +1215,7 @@ const VolunteerDashboard = () => {
             </div>
 
             <div className="profile-section">
-              <h4>🪪 {t('volunteer.kyc_section')}</h4>
+              <h4><MonoIcon name="id" /> {t('volunteer.kyc_section')}</h4>
               <p className="profile-hint">
                 {kycStatus === 'approved' ? t('volunteer.kyc_ok_hint')
                   : kycStatus === 'rejected' ? t('volunteer.kyc_rejected_hint')
@@ -1167,20 +1229,20 @@ const VolunteerDashboard = () => {
             </div>
 
             <div className="profile-section">
-              <h4>⚙️ {t('volunteer.equipment_title')}</h4>
+              <h4><MonoIcon name="gear" /> {t('volunteer.equipment_title')}</h4>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={!!volunteerInfo?.has_thermal_bag}
                   onChange={(e) => toggleThermalBag(e.target.checked)}
                 />
-                <span>❄️ {t('volunteer.thermal_bag')}</span>
+                <span><MonoIcon name="snow" /> {t('volunteer.thermal_bag')}</span>
               </label>
               <p className="profile-hint" style={{ marginTop: 6 }}>{t('volunteer.thermal_bag_hint')}</p>
             </div>
 
             <div className="profile-section">
-              <h4>🗓️ {t('volunteer.availability_title')}</h4>
+              <h4><MonoIcon name="calendar" /> {t('volunteer.availability_title')}</h4>
               <p className="profile-hint">{t('volunteer.availability_hint')}</p>
               {availability.length === 0 && (
                 <p style={{ fontSize: '0.8rem', color: '#aaa' }}>{t('volunteer.availability_empty')}</p>

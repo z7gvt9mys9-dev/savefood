@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api';
+import './OnboardingChecklist.css';
 
 // Interactive onboarding: a short checklist of real first steps, computed from
 // actual account state (not a fake tour). Disappears once everything is done
@@ -40,22 +41,39 @@ const OnboardingChecklist = ({ storageKey, items = [], withTelegram = true }) =>
   };
 
   return (
-    <div style={{ background: '#FF980012', border: '1px solid #FF980044', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-        <strong style={{ color: '#FFB74D' }}>🚀 {t('onboarding.title')}</strong>
-        <span style={{ fontSize: '0.78rem', color: '#aaa' }}>{doneCount}/{allItems.length}</span>
+    <section className="onboarding-card" aria-label={t('onboarding.title')}>
+      <div className="onboarding-head">
+        <span className="onboarding-mark" aria-hidden="true">
+          <svg viewBox="0 0 20 20" fill="none">
+            <path d="M4 3.5v13M5 4.5h9l-2 3 2 3H5" />
+          </svg>
+        </span>
+        <strong>{t('onboarding.title')}</strong>
+        <span className="onboarding-progress">{String(doneCount).padStart(2, '0')} / {String(allItems.length).padStart(2, '0')}</span>
       </div>
-      <ul style={{ listStyle: 'none', padding: 0, margin: '8px 0' }}>
+      <ul className="onboarding-list">
         {allItems.map(item => (
-          <li key={item.id} style={{ padding: '3px 0', fontSize: '0.88rem', opacity: item.done ? 0.55 : 1 }}>
-            {item.done ? '✅' : '⬜'} <span style={{ textDecoration: item.done ? 'line-through' : 'none' }}>{item.label}</span>
+          <li key={item.id} className={item.done ? 'is-done' : ''}>
+            <span
+              className={`onboarding-checkbox${item.done ? ' is-checked' : ''}`}
+              role="checkbox"
+              aria-checked={item.done}
+              aria-readonly="true"
+            >
+              {item.done && (
+                <svg viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                  <path d="m4.5 9.3 2.8 2.8 6.2-6.2" />
+                </svg>
+              )}
+            </span>
+            <span className="onboarding-label">{item.label}</span>
           </li>
         ))}
       </ul>
-      <button className="btn-small" onClick={dismiss} style={{ opacity: 0.8 }}>
+      <button className="onboarding-dismiss" onClick={dismiss}>
         {t('onboarding.dismiss')}
       </button>
-    </div>
+    </section>
   );
 };
 

@@ -131,7 +131,7 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Integer needyId : matched) {
             try {
-                telegram.notifyNeedy(needyId, "🛒 " + safe);
+                telegram.notifyNeedy(needyId, "□ " + safe);
             } catch (RuntimeException ignore) {
                 // best-effort, like the Python try/except: pass
             }
@@ -195,7 +195,7 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Map<String, Object> v : targets) {
             try {
-                telegram.notifyVolunteer(((Number) v.get("id")).intValue(), "📦 " + safe);
+                telegram.notifyVolunteer(((Number) v.get("id")).intValue(), "□ " + safe);
             } catch (RuntimeException ignore) {
                 // best-effort, like the Python try/except: pass
             }

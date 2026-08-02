@@ -8,6 +8,8 @@ const Footer = () => {
   const location = useLocation();
   const { t } = useTranslation();
 
+  if (location.pathname === '/') return null;
+
   const smoothScrollTo = (targetY, duration = 900) => {
     const startY = window.scrollY;
     const diff = targetY - startY;

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import EmptyState from '../../components/EmptyState';
+import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Admin.css';
@@ -274,6 +275,7 @@ const AdminPanel = () => {
                       .filter(Boolean).join(' · ') || '—'}
                   </div>
                   <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>
+                    <MonoIcon name={item.has_document ? 'paperclip' : 'warning'} />{' '}
                     {item.has_document ? t('admin.kyc_doc_present') : t('admin.kyc_doc_missing')}
                   </div>
                 </div>
@@ -298,7 +300,7 @@ const AdminPanel = () => {
         <h2>{t('admin.moderation_queue')}</h2>
         <p style={{ opacity: 0.75 }}>{t('admin.kyc_hint')}</p>
         {total === 0 ? (
-          <EmptyState icon="🗂" title={t('empty.moderation_title')} description={t('empty.moderation_desc')} />
+          <EmptyState icon={<MonoIcon name="folder" />} title={t('empty.moderation_title')} description={t('empty.moderation_desc')} />
         ) : (
           <>
             {renderKycGroup('needy', kycQueue.needy)}
@@ -314,7 +316,7 @@ const AdminPanel = () => {
       <h2>{t('admin.photo_queue')}</h2>
       <p style={{ opacity: 0.75 }}>{t('admin.photo_hint')}</p>
       {deliveryPhotos.length === 0 ? (
-        <EmptyState icon="📷" title={t('empty.photos_title')} description={t('empty.photos_desc')} />
+        <EmptyState icon={<MonoIcon name="camera" />} title={t('empty.photos_title')} description={t('empty.photos_desc')} />
       ) : (
       <div className="photo-mod-grid">
         {deliveryPhotos.map(p => (
@@ -347,7 +349,7 @@ const AdminPanel = () => {
       <h2>{t('admin.plans_title')}</h2>
       <p style={{ opacity: 0.75 }}>{t('admin.plans_hint')}</p>
       {shops.length === 0 ? (
-        <EmptyState icon="🏪" title={t('common.no_data')} description="" />
+        <EmptyState icon={<MonoIcon name="store" />} title={t('common.no_data')} description="" />
       ) : (
       <table className="admin-table">
         <thead>
@@ -383,7 +385,7 @@ const AdminPanel = () => {
       <div className="incident-list">
         <h3>{t('admin.active_routes')}</h3>
         {activeRoutes.length === 0 ? (
-          <EmptyState icon="🗺️" title={t('empty.routes_title')} description={t('empty.routes_desc')} />
+          <EmptyState icon={<MonoIcon name="map" />} title={t('empty.routes_title')} description={t('empty.routes_desc')} />
         ) : activeRoutes.map(r => (
           <div key={r.id} className="incident-card">
             <div style={{ flex: 1 }}>
@@ -452,7 +454,7 @@ const AdminPanel = () => {
               </div>
               {(esgGlobal.top_shops || []).slice(0, 3).map(s => (
                 <div className="analytic-card" key={s.id}>
-                  <h4>🏪 {s.name}</h4>
+                  <h4><MonoIcon name="store" /> {s.name}</h4>
                   <p className="big-value">{s.kg} {t('shop.kg')}</p>
                 </div>
               ))}
@@ -572,7 +574,7 @@ const AdminPanel = () => {
     <div className="admin-tab">
       <h2>{t('admin.logs')}</h2>
       {auditLog.length === 0 ? (
-        <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+        <EmptyState icon={<MonoIcon name="clipboard" />} title={t('empty.history_title')} description={t('empty.history_desc')} />
       ) : (
       <table className="admin-table audit-table">
         <thead>

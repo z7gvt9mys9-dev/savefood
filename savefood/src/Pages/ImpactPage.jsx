@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api';
+import MonoIcon from '../components/MonoIcon';
 import './Style/ImpactPage.css';
 
 const POLL_MS = 20000;
@@ -136,7 +137,7 @@ const ImpactPage = () => {
           <div className="impact-cities">
             {cities.map((c, i) => (
               <div key={c.city} className="impact-city-row">
-                <span className="impact-city-rank">{['🥇', '🥈', '🥉'][i] || i + 1}</span>
+                <span className="impact-city-rank">{i + 1}</span>
                 <span className="impact-city-name">{c.city}</span>
                 <div className="impact-city-bar">
                   <div
@@ -158,8 +159,8 @@ const ImpactPage = () => {
           <div className="impact-cities">
             {teams.map((tm, i) => (
               <div key={tm.id} className="impact-city-row">
-                <span className="impact-city-rank">{['🥇', '🥈', '🥉'][i] || i + 1}</span>
-                <span className="impact-city-name">🏢 {tm.name}</span>
+                <span className="impact-city-rank">{i + 1}</span>
+                <span className="impact-city-name"><MonoIcon name="building" /> {tm.name}</span>
                 <div className="impact-city-bar">
                   <div
                     className="impact-city-fill"

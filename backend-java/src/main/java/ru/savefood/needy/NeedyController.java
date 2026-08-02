@@ -220,7 +220,7 @@ public class NeedyController {
             try {
                 // After the transaction, like Python's post-cursor send.
                 telegram.notifyVolunteer(volId,
-                    "❌ Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.");
+                    "× Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.");
             } catch (RuntimeException ignore) {
                 // best-effort
             }
@@ -406,7 +406,7 @@ public class NeedyController {
             "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
             needyId, approved ? "moderation_approved" : "moderation_rejected", msg, OffsetDateTime.now());
         try {
-            telegram.notifyNeedy(needyId, (approved ? "✅ " : "⚠️ ") + msg);
+            telegram.notifyNeedy(needyId, (approved ? "✓ " : "! ") + msg);
         } catch (RuntimeException ignore) {
             // best-effort
         }

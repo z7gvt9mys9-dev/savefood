@@ -203,7 +203,7 @@ public class VolunteerController {
             "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
             volunteerId, approved ? "moderation_approved" : "moderation_rejected", msg, OffsetDateTime.now());
         try {
-            telegram.notifyVolunteer(volunteerId, (approved ? "✅ " : "⚠️ ") + msg);
+            telegram.notifyVolunteer(volunteerId, (approved ? "✓ " : "! ") + msg);
         } catch (RuntimeException ignore) {
             // best-effort
         }
@@ -378,14 +378,14 @@ public class VolunteerController {
         String lotDesc = result.lotDescription() == null || result.lotDescription().isEmpty()
             ? "лот #" + payload.lotId() : result.lotDescription();
         try {
-            telegram.notifyShop(result.shopId(), "🛒 Волонтёр <b>" + safeVolName + "</b> взял ваш лот «"
+            telegram.notifyShop(result.shopId(), "□ Волонтёр <b>" + safeVolName + "</b> взял ваш лот «"
                 + Html.escape(lotDesc) + "». Маршрут #" + result.routeId() + " в пути.");
         } catch (RuntimeException ignore) {
             // best-effort
         }
         for (int[] pair : result.assignedNeedy()) {
             try {
-                telegram.notifyNeedy(pair[0], "🚚 Волонтёр <b>" + safeVolName + "</b> принял вашу заявку #"
+                telegram.notifyNeedy(pair[0], "→ Волонтёр <b>" + safeVolName + "</b> принял вашу заявку #"
                     + pair[1] + " и скоро поедет в магазин.");
             } catch (RuntimeException ignore) {
                 // best-effort

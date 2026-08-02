@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api';
+import MonoIcon from './MonoIcon';
 
 const urlBase64ToUint8Array = (base64String) => {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -116,7 +117,7 @@ const PushToggle = () => {
   return (
     <div className="info-section" style={{ marginTop: 12 }}>
       <h3>
-        🔔 {t('push.title')}
+        <MonoIcon name="bell" /> {t('push.title')}
         {subscribed && (
           <span style={{
             marginLeft: 8, fontSize: '0.72rem', verticalAlign: 'middle',

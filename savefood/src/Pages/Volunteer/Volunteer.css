@@ -111,43 +111,115 @@
 }
 
 .route-points {
-  margin-bottom: 40px;
+  display: grid;
+  gap: 10px;
+  margin-bottom: 32px;
 }
 
 .point {
-  display: flex;
-  gap: 15px;
-  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 26px;
+  gap: 14px;
+  align-items: start;
   position: relative;
+  padding: 16px;
+  border: 1px solid #292929;
+  border-radius: 14px;
+  background: #151515;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
 }
 
-.point:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  left: 12px;
-  top: 30px;
-  width: 2px;
-  height: 20px;
-  background-color: #222;
+.point.current {
+  border-color: #e8e8e8;
+  background: #1a1a1a;
 }
 
-.point-icon {
-  width: 25px;
-  height: 25px;
-  background-color: #222;
-  border-radius: 50%;
+.point.done {
+  background: #111;
+  border-color: #242424;
+}
+
+.point-kind-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  color: #f2f2f2;
+  background: #0d0d0d;
+  border: 1px solid #333;
+  border-radius: 11px;
+}
+
+.point-kind-icon svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.point.done .point-kind-icon { color: #888; border-color: #262626; }
+
+.point-text { min-width: 0; }
+
+.point-meta {
   display: flex;
-  justify-content: center;
   align-items: center;
-  font-size: 0.8rem;
-  font-weight: bold;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 5px;
 }
 
-.point.current .point-icon { background-color: #fff; color: #000; }
-.point.done .point-icon { background-color: #2ecc71; }
+.point-label { font-size: 0.68rem; color: #888; text-transform: uppercase; letter-spacing: 0.1em; margin: 0; }
+.point-sequence { color: #666; font-size: 0.68rem; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
+.point-addr { color: #f3f3f3; font-size: 0.96rem; font-weight: 650; line-height: 1.35; margin: 0; overflow-wrap: anywhere; }
+.point-detail { color: #999; font-size: 0.78rem; line-height: 1.45; margin: 5px 0 0; }
+.point-items { color: #bdbdbd; }
+.point-attempts, .point-attempt-message { color: #d2d2d2; font-size: 0.75rem; margin: 5px 0 0; }
+.point-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+.point-attempt-message { align-self: center; margin: 0; }
 
-.point-label { font-size: 0.7rem; color: #666; text-transform: uppercase; margin: 0; }
-.point-addr { font-weight: bold; margin: 2px 0 0 0; }
+.point-checkbox {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  margin-top: 1px;
+  color: #0b0b0b;
+  background: transparent;
+  border: 1.5px solid #4b4b4b;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 2px #151515;
+}
+
+.point-checkbox svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.point-checkbox.is-current { border-color: #f4f4f4; }
+.point-checkbox.is-checked { color: #0b0b0b; background: #f1f1f1; border-color: #f1f1f1; box-shadow: none; }
+.point-checkbox-dot { width: 7px; height: 7px; background: #f4f4f4; border-radius: 2px; }
+
+.navigator-icon { width: 17px; height: 17px; flex: 0 0 auto; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
+.navigator-card .btn .navigator-icon { margin-right: 8px; vertical-align: -3px; }
+.empty-route-icon { display: grid; width: 46px; height: 46px; place-items: center; color: #ddd; border: 1px solid #444; border-radius: 14px; }
+.empty-route-icon .navigator-icon { width: 23px; height: 23px; }
+.offline-banner { display: flex; align-items: center; gap: 8px; }
+.offline-dot { width: 8px; height: 8px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; }
+
+@media (max-width: 420px) {
+  .point { grid-template-columns: 36px minmax(0, 1fr) 24px; gap: 11px; padding: 14px 12px; }
+  .point-kind-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .point-kind-icon svg { width: 19px; height: 19px; }
+  .point-meta { align-items: flex-start; }
+  .point-sequence { display: none; }
+}
 
 .gps-status {
   text-align: center;

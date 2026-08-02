@@ -185,7 +185,7 @@ public class AdminController {
             + ", type, payload, created_at, read) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
             recipientId, approved ? "moderation_approved" : "moderation_rejected", message);
         try {
-            String prefixed = (approved ? "✅ " : "⚠️ ") + message;
+            String prefixed = (approved ? "✓ " : "! ") + message;
             if ("needy".equals(role)) {
                 telegram.notifyNeedy(recipientId, prefixed);
             } else {

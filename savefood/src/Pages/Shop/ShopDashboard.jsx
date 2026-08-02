@@ -7,6 +7,7 @@ import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
+import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import './Shop.css';
@@ -493,7 +494,7 @@ const ShopDashboard = () => {
       </div>
       {forecast && (forecast.today.items.length > 0 || forecast.tomorrow.items.length > 0) && (
         <div className="info-section">
-          <h3>📈 {t('shop.forecast_title')}</h3>
+          <h3><MonoIcon name="chart" /> {t('shop.forecast_title')}</h3>
           <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>
             {t('shop.forecast_hint', { weeks: forecast.basis_weeks })}
           </p>
@@ -527,7 +528,7 @@ const ShopDashboard = () => {
             style={{ flex: 1, minWidth: 160 }}
           />
           <button type="button" className="btn btn-secondary" onClick={() => setPickupScanning(s => !s)}>
-            {pickupScanning ? t('common.cancel') : `📷 ${t('shop.self_pickup_scan')}`}
+            {pickupScanning ? t('common.cancel') : <><MonoIcon name="camera" /> {t('shop.self_pickup_scan')}</>}
           </button>
           <button type="submit" className="btn btn-primary" disabled={pickupBusy || !pickupCode.trim()}>
             {pickupBusy ? t('common.loading') : t('shop.self_pickup_confirm')}
@@ -641,7 +642,7 @@ const ShopDashboard = () => {
               onChange={(e) => setNewLot({ ...newLot, requires_cold: e.target.checked })}
               style={{ width: 'auto' }}
             />
-            {t('shop.cold_chain')}
+            <MonoIcon name="snow" /> {t('shop.cold_chain')}
           </label>
         </div>
 
@@ -755,7 +756,7 @@ const ShopDashboard = () => {
 
   const renderUpgradeNotice = () => (
     <div className="warning-box" style={{ marginTop: 16 }}>
-      <p>💎 {t('shop.plan_upgrade_hint')}</p>
+      <p><MonoIcon name="diamond" /> {t('shop.plan_upgrade_hint')}</p>
       <p style={{ opacity: 0.8 }}>{t('shop.plan_current')}: {plan?.label || '—'}</p>
     </div>
   );
@@ -784,13 +785,13 @@ const ShopDashboard = () => {
         <form className="admin-form" onSubmit={handleConfirmReceipt}>
           <h2>{t('shop.ocr_review')}</h2>
           <p>
-            {receipt.merchant && <>🏪 {receipt.merchant} · </>}
-            {receipt.receipt_date && <>📅 {receipt.receipt_date} · </>}
-            {receipt.total != null && <>💰 {receipt.total} {receipt.currency || ''}</>}
+            {receipt.merchant && <><MonoIcon name="store" /> {receipt.merchant} · </>}
+            {receipt.receipt_date && <><MonoIcon name="calendar" /> {receipt.receipt_date} · </>}
+            {receipt.total != null && <><MonoIcon name="money" /> {receipt.total} {receipt.currency || ''}</>}
           </p>
           {receipt.status === 'rejected' ? (
             <div className="warning-box">
-              <p>🚫 {t('shop.ocr_rejected')}</p>
+              <p><MonoIcon name="blocked" /> {t('shop.ocr_rejected')}</p>
               <p>{receipt.fraud_reasons}</p>
               <button type="button" className="btn btn-secondary" onClick={() => { setReceipt(null); setReceiptFile(null); }}>
                 {t('common.cancel')}
@@ -800,7 +801,7 @@ const ShopDashboard = () => {
             <>
               {receipt.fraud_flagged && (
                 <div className="warning-box">
-                  <p>⚠️ {t('shop.ocr_flagged')}: {receipt.fraud_reasons}</p>
+                  <p><MonoIcon name="warning" /> {t('shop.ocr_flagged')}: {receipt.fraud_reasons}</p>
                 </div>
               )}
               {receiptDrafts.map((d, i) => (
@@ -914,7 +915,7 @@ const ShopDashboard = () => {
             </table>
           )}
           <p style={{ marginTop: 16, fontSize: '0.85rem', opacity: 0.7 }}>{t('shop.esg_methodology')}: {esgReport.methodology}</p>
-          <button className="btn-small" style={{ marginTop: 8 }} onClick={downloadEsgCsv}>⬇ {t('shop.download_csv')}</button>
+          <button className="btn-small" style={{ marginTop: 8 }} onClick={downloadEsgCsv}><MonoIcon name="download" /> {t('shop.download_csv')}</button>
 
           <div style={{ marginTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
             <h4>{t('shop.embed_title')}</h4>
@@ -938,11 +939,11 @@ const ShopDashboard = () => {
     <div className="tab-content">
       <div className="lot-list">
         {lots.length === 0
-          ? <EmptyState icon="📦" title={t('empty.lots_title')} description={t('empty.lots_shop_desc')} action={t('empty.lots_action')} onAction={() => setActiveTab('create')} />
+          ? <EmptyState icon={<MonoIcon name="box" />} title={t('empty.lots_title')} description={t('empty.lots_shop_desc')} action={t('empty.lots_action')} onAction={() => setActiveTab('create')} />
           : lots.map(lot => (
           <div key={lot.id} className="lot-item">
             <div className="lot-info">
-              <h4>{lot.description} {lot.requires_cold && <span className="cold-badge">{t('shop.cold_badge')}</span>}</h4>
+              <h4>{lot.description} {lot.requires_cold && <span className="cold-badge"><MonoIcon name="snow" /> {t('shop.cold_badge')}</span>}</h4>
               <p>{t('common.status')}: <span className={`status-${lot.status}`}>{lot.status === 'active' ? t('shop.status_waiting') : t('shop.status_taken')}</span></p>
               {lot.time_slot && <p>{t('shop.time_slot')}: {lot.time_slot}</p>}
               <p>{t('shop.expiry')}: {lot.expiry_date ? new Date(lot.expiry_date).toLocaleDateString() : '—'}</p>
@@ -967,7 +968,7 @@ const ShopDashboard = () => {
     <div className="tab-content">
       <h3>{t('common.notifications')}</h3>
       {notifications.length === 0 ? (
-        <EmptyState icon="🔔" title={t('empty.notifications_title')} description={t('empty.notifications_desc')} />
+        <EmptyState icon={<MonoIcon name="bell" />} title={t('empty.notifications_title')} description={t('empty.notifications_desc')} />
       ) : (
         <div className="notification-list">
           {notifications.map(n => (
@@ -984,7 +985,7 @@ const ShopDashboard = () => {
   const renderHistory = () => (
     <div className="tab-content">
       {history.length === 0 ? (
-        <EmptyState icon="📋" title={t('empty.history_title')} description={t('empty.history_desc')} />
+        <EmptyState icon={<MonoIcon name="clipboard" />} title={t('empty.history_title')} description={t('empty.history_desc')} />
       ) : (
       <table className="history-table">
         <thead>
@@ -1064,7 +1065,7 @@ const ShopDashboard = () => {
                     onChange={e => setEditLot({...editLot, requires_cold: e.target.checked})}
                     style={{ width: 'auto' }}
                   />
-                  {t('shop.cold_chain')}
+                  <MonoIcon name="snow" /> {t('shop.cold_chain')}
                 </label>
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -1085,7 +1086,7 @@ const ShopDashboard = () => {
               </div>
               <p style={{ fontWeight: 700, margin: '10px 0 2px' }}>{labelLot.description}</p>
               <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>SaveFood · лот #{labelLot.id}</p>
-              {labelLot.requires_cold && <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>{t('shop.cold_badge')}</p>}
+              {labelLot.requires_cold && <p style={{ margin: '2px 0', fontSize: '0.85rem' }}><MonoIcon name="snow" /> {t('shop.cold_badge')}</p>}
               {labelLot.expiry_date && <p style={{ margin: '2px 0', fontSize: '0.85rem' }}>{t('shop.expiry')}: {new Date(labelLot.expiry_date).toLocaleDateString()}</p>}
             </div>
             <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
@@ -1099,12 +1100,12 @@ const ShopDashboard = () => {
         <h2>{shopInfo.name || t('common.loading')}</h2>
         {plan && (
           <p style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-            💎 {t('shop.plan_label')}: {plan.label}
+            <MonoIcon name="diamond" /> {t('shop.plan_label')}: {plan.label}
             {plan.monthly_lot_limit != null && ` (${plan.lots_used_this_month}/${plan.monthly_lot_limit})`}
           </p>
         )}
         {shopInfo.kind === 'private' && (
-          <p style={{ fontSize: '0.85rem', color: '#FFB74D' }}>🏠 {t('donor.badge')}</p>
+          <p style={{ fontSize: '0.85rem', color: '#FFB74D' }}><MonoIcon name="home" /> {t('donor.badge')}</p>
         )}
         <nav>
           <button className={activeTab === 'overview' ? 'active' : ''} onClick={() => setActiveTab('overview')}>{t('shop.overview')}</button>

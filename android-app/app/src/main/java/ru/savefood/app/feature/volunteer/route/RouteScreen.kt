@@ -299,6 +299,7 @@ private fun RoutePointCard(
                         text = stringResource(R.string.vol_route_navigate_btn),
                         onClick = { Navigation.openRoute(context, listOf(lat to lon)) },
                         modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = Icons.Filled.Route,
                     )
                 }
                 if (isShop) {

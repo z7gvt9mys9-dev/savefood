@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api';
+import MonoIcon from './MonoIcon';
 
 // Profile block: link / unlink Telegram, Google and Yandex.
 // Telegram uses the existing bot deep-link (init-link); Google/Yandex go
 // through the server-side OAuth flow (/auth/oauth/{p}/start?mode=link), the
 // callback redirects back to `dashboardPath` with #linked=<provider>.
 const PROVIDER_META = [
-  { id: 'telegram', icon: '✈️' },
+  { id: 'telegram', icon: <MonoIcon name="send" /> },
   { id: 'google', icon: 'G' },
   { id: 'yandex', icon: 'Я' },
 ];

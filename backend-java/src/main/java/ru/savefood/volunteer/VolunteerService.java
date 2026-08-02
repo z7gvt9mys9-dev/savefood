@@ -488,7 +488,7 @@ public class VolunteerService {
                     + "). Ожидаемое время прибытия" + etaText + ".", OffsetDateTime.now());
                 try {
                     // vol_name is user-supplied — escape before HTML parse_mode.
-                    telegram.notifyNeedy(needyId, "🚗 Волонтёр " + Html.escape(volName) + " едет к вам (тикет "
+                    telegram.notifyNeedy(needyId, "→ Волонтёр " + Html.escape(volName) + " едет к вам (тикет "
                         + p.get("ticket_id") + "). Ожидаемое время прибытия" + etaText + ".");
                 } catch (RuntimeException ignore) {
                     // best-effort, like the Python try/except: pass

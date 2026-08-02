@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="SaveFood — цифровая платформа, которая соединяет магазины, волонтёров и получателей помощи."
+    />
+    <meta name="theme-color" content="#070b09" />
+    <title>SaveFood — еда доходит до людей</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="./script.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Перейти к содержанию</a>
+
+    <header class="site-header" data-header>
+      <div class="shell header-inner">
+        <a class="brand" href="#top" aria-label="SaveFood — на главную">
+          <span class="brand-mark" aria-hidden="true">SF</span>
+          <span class="brand-name">SaveFood</span>
+        </a>
+
+        <div class="system-status" aria-label="Статус системы: онлайн">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Система онлайн</span>
+        </div>
+
+        <button
+          class="menu-toggle"
+          type="button"
+          aria-label="Открыть меню"
+          aria-controls="site-navigation"
+          aria-expanded="false"
+          data-menu-toggle
+        >
+          <span></span>
+          <span></span>
+        </button>
+
+        <nav class="site-nav" id="site-navigation" aria-label="Основная навигация" data-menu>
+          <a href="#how">Как работает</a>
+          <a href="#roles">Участникам</a>
+          <a href="#impact">Вклад</a>
+          <a href="#safety">Безопасность</a>
+          <button class="nav-login" type="button" data-open-join data-dialog-mode="login">
+            Войти
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="hero" id="top">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-one" aria-hidden="true"></div>
+        <div class="hero-glow hero-glow-two" aria-hidden="true"></div>
+
+        <div class="shell hero-layout">
+          <div class="hero-copy">
+            <p class="eyebrow">
+              <span class="eyebrow-code">01 / FOOD RESCUE NETWORK</span>
+              <span class="eyebrow-line" aria-hidden="true"></span>
+            </p>
+            <h1>
+              Еда должна доходить
+              <span>до людей,</span>
+              а не до контейнера.
+            </h1>
+            <p class="hero-lead">
+              SaveFood синхронизирует магазины с излишками, волонтёров и тех,
+              кому нужна помощь — от публикации лота до подтверждённой доставки.
+            </p>
+
+            <div class="hero-actions">
+              <button class="button button-primary" type="button" data-open-join>
+                Стать участником
+                <span aria-hidden="true">↗</span>
+              </button>
+              <a class="button button-ghost" href="#how">
+                Смотреть механику
+                <span aria-hidden="true">↓</span>
+              </a>
+            </div>
+
+            <ul class="trust-row" aria-label="Основные возможности платформы">
+              <li><span aria-hidden="true">✓</span> QR-подтверждение</li>
+              <li><span aria-hidden="true">✓</span> GPS-проверка</li>
+              <li><span aria-hidden="true">✓</span> Уведомления</li>
+            </ul>
+          </div>
+
+          <div class="product-window" aria-label="Предпросмотр рабочего интерфейса SaveFood">
+            <div class="window-topbar">
+              <div class="window-brand">
+                <span class="window-logo" aria-hidden="true">S</span>
+                <span>
+                  <strong>Операционный центр</strong>
+                  <small>Москва · 16:42</small>
+                </span>
+              </div>
+              <span class="live-badge"><i aria-hidden="true"></i> LIVE</span>
+            </div>
+
+            <div class="dashboard-tabs" role="tablist" aria-label="Разделы дашборда">
+              <button
+                id="tab-operations"
+                class="dashboard-tab is-active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="panel-operations"
+                tabindex="0"
+                data-dashboard-tab="operations"
+              >
+                Сейчас
+              </button>
+              <button
+                id="tab-esg"
+                class="dashboard-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-esg"
+                tabindex="-1"
+                data-dashboard-tab="esg"
+              >
+                ESG
+              </button>
+              <button
+                id="tab-ocr"
+                class="dashboard-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="panel-ocr"
+                tabindex="-1"
+                data-dashboard-tab="ocr"
+              >
+                OCR
+              </button>
+            </div>
+
+            <section
+              class="dashboard-panel is-active"
+              id="panel-operations"
+              role="tabpanel"
+              aria-labelledby="tab-operations"
+              data-dashboard-panel="operations"
+            >
+              <div class="ops-metrics">
+                <div>
+                  <span>Лотов в работе</span>
+                  <strong>14</strong>
+                  <small>+3 за час</small>
+                </div>
+                <div>
+                  <span>Маршрутов</span>
+                  <strong>04</strong>
+                  <small>2 в пути</small>
+                </div>
+                <div>
+                  <span>Объём</span>
+                  <strong>86.4</strong>
+                  <small>кг сегодня</small>
+                </div>
+              </div>
+
+              <div class="ops-stage">
+                <div class="route-map" aria-label="Схема активного маршрута">
+                  <div class="map-grid" aria-hidden="true"></div>
+                  <span class="map-zone zone-one" aria-hidden="true"></span>
+                  <span class="map-zone zone-two" aria-hidden="true"></span>
+                  <span class="route-line route-line-one" aria-hidden="true"></span>
+                  <span class="route-line route-line-two" aria-hidden="true"></span>
+                  <span class="route-line route-line-three" aria-hidden="true"></span>
+                  <span class="route-node node-shop" aria-label="Магазин">
+                    <i aria-hidden="true"></i>
+                    <b>М</b>
+                  </span>
+                  <span class="route-node node-volunteer" aria-label="Волонтёр">
+                    <i aria-hidden="true"></i>
+                    <b>В</b>
+                  </span>
+                  <span class="route-node node-family-one" aria-label="Первая доставка">
+                    <b>1</b>
+                  </span>
+                  <span class="route-node node-family-two" aria-label="Вторая доставка">
+                    <b>2</b>
+                  </span>
+                  <span class="route-label label-shop">Пекарня №8</span>
+                  <span class="route-label label-time">ETA 28 мин</span>
+                </div>
+
+                <article class="route-card">
+                  <div class="route-card-head">
+                    <span class="route-index">R–042</span>
+                    <span class="route-state">В пути</span>
+                  </div>
+                  <h2>Пекарня №8 → 3 адреса</h2>
+                  <p>Выпечка · готовая еда · 12.6 кг</p>
+                  <div class="route-progress" aria-label="Маршрут выполнен на 40 процентов">
+                    <span style="width: 40%"></span>
+                  </div>
+                  <div class="route-meta">
+                    <span><b>1/3</b> точек</span>
+                    <span><b>6.2</b> км</span>
+                    <span><b>28</b> мин</span>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section
+              class="dashboard-panel"
+              id="panel-esg"
+              role="tabpanel"
+              aria-labelledby="tab-esg"
+              data-dashboard-panel="esg"
+              hidden
+            >
+              <div class="esg-head">
+                <div>
+                  <span class="panel-label">Июль 2026</span>
+                  <h2>Вклад сети</h2>
+                </div>
+                <span class="demo-label">демо-данные</span>
+              </div>
+              <div class="esg-counters">
+                <article>
+                  <span>Спасено</span>
+                  <strong>1 284 <small>кг</small></strong>
+                  <em>+18% к июню</em>
+                </article>
+                <article>
+                  <span>CO₂ предотвращено</span>
+                  <strong>1.54 <small>т</small></strong>
+                  <em>Методология v1</em>
+                </article>
+                <article>
+                  <span>Приёмов пищи</span>
+                  <strong>2 568</strong>
+                  <em>Расчёт платформы</em>
+                </article>
+              </div>
+              <div class="mini-chart" aria-label="График спасённой еды за семь дней">
+                <div><i style="height: 37%"></i><span>Пн</span></div>
+                <div><i style="height: 58%"></i><span>Вт</span></div>
+                <div><i style="height: 45%"></i><span>Ср</span></div>
+                <div><i style="height: 72%"></i><span>Чт</span></div>
+                <div><i style="height: 62%"></i><span>Пт</span></div>
+                <div><i style="height: 91%"></i><span>Сб</span></div>
+                <div><i style="height: 78%"></i><span>Вс</span></div>
+              </div>
+            </section>
+
+            <section
+              class="dashboard-panel"
+              id="panel-ocr"
+              role="tabpanel"
+              aria-labelledby="tab-ocr"
+              data-dashboard-panel="ocr"
+              hidden
+            >
+              <div class="ocr-status">
+                <div class="scan-box" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <i></i>
+                  <b>87%</b>
+                </div>
+                <div>
+                  <span class="panel-label">Чек #SF-8214</span>
+                  <h2>Распознано 3 лота</h2>
+                  <p>Антифрод: проверка пройдена</p>
+                </div>
+              </div>
+              <div class="ocr-list">
+                <article>
+                  <span class="food-code">01</span>
+                  <div><strong>Хлеб и выпечка</strong><small>6 позиций</small></div>
+                  <span class="food-weight">4.8 кг</span>
+                  <span class="food-ready">Готово</span>
+                </article>
+                <article>
+                  <span class="food-code">02</span>
+                  <div><strong>Овощи и фрукты</strong><small>9 позиций</small></div>
+                  <span class="food-weight">7.2 кг</span>
+                  <span class="food-ready">Готово</span>
+                </article>
+                <article>
+                  <span class="food-code">03</span>
+                  <div><strong>Молочные продукты</strong><small>4 позиции</small></div>
+                  <span class="food-weight">3.1 кг</span>
+                  <span class="food-review">Проверить</span>
+                </article>
+              </div>
+              <button class="publish-preview" type="button" data-demo-action>
+                Подготовить к публикации
+                <span aria-hidden="true">→</span>
+              </button>
+            </section>
+
+            <div class="window-footer">
+              <span>Последняя синхронизация: сейчас</span>
+              <span class="window-footer-id">NODE / MSK-04</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="signal-strip" aria-label="Демонстрационные показатели платформы">
+        <div class="shell signal-layout">
+          <p class="data-note">
+            <span aria-hidden="true">●</span>
+            Макет · демонстрационные данные
+          </p>
+          <dl class="metric-line">
+            <div>
+              <dt>Спасено еды</dt>
+              <dd>12 840 <span>кг</span></dd>
+            </div>
+            <div>
+              <dt>Доставок</dt>
+              <dd>4 218</dd>
+            </div>
+            <div>
+              <dt>Активных волонтёров</dt>
+              <dd>326</dd>
+            </div>
+            <div>
+              <dt>Предотвращено CO₂</dt>
+              <dd>15.4 <span>т</span></dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="section how-section" id="how">
+        <div class="shell">
+          <div class="section-heading">
+            <p class="kicker"><span>02</span> Механика платформы</p>
+            <div>
+              <h2>Один цифровой маршрут.<br />Четыре проверенных шага.</h2>
+              <p>
+                Система управляет скоростью, приоритетами и подтверждениями,
+                оставляя решения понятными для людей.
+              </p>
+            </div>
+          </div>
+
+          <ol class="process-list">
+            <li class="process-item">
+              <div class="process-index">01</div>
+              <div class="process-icon process-icon-receipt" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="process-copy">
+                <span class="process-owner">Магазин</span>
+                <h3>Публикует излишки</h3>
+                <p>
+                  Вручную или по фото чека: OCR распознаёт позиции, категории
+                  и готовит лоты к публикации.
+                </p>
+              </div>
+              <span class="process-signal" aria-hidden="true">LOT.CREATED</span>
+            </li>
+
+            <li class="process-item">
+              <div class="process-index">02</div>
+              <div class="process-icon process-icon-map" aria-hidden="true">
+                <i></i><i></i><i></i>
+              </div>
+              <div class="process-copy">
+                <span class="process-owner">Платформа</span>
+                <h3>Сопоставляет заявки</h3>
+                <p>
+                  Показывает лоты на карте, учитывает городскую зону, срочность
+                  и доступное окно выдачи.
+                </p>
+              </div>
+              <span class="process-signal" aria-hidden="true">MATCH.READY</span>
+            </li>
+
+            <li class="process-item">
+              <div class="process-index">03</div>
+              <div class="process-icon process-icon-route" aria-hidden="true">
+                <i></i><i></i><i></i><b></b>
+              </div>
+              <div class="process-copy">
+                <span class="process-owner">Волонтёр</span>
+                <h3>Берёт оптимальный маршрут</h3>
+                <p>
+                  Забирает лот и доставляет его по нескольким адресам
+                  с навигацией и обновлением статуса.
+                </p>
+              </div>
+              <span class="process-signal" aria-hidden="true">ROUTE.ACTIVE</span>
+            </li>
+
+            <li class="process-item">
+              <div class="process-index">04</div>
+              <div class="process-icon process-icon-check" aria-hidden="true">
+                <span>✓</span>
+              </div>
+              <div class="process-copy">
+                <span class="process-owner">Получатель</span>
+                <h3>Подтверждает получение</h3>
+                <p>
+                  QR-код и GPS-проверка в радиусе до 100 метров закрывают
+                  доставку и обновляют показатели вклада.
+                </p>
+              </div>
+              <span class="process-signal" aria-hidden="true">DELIVERY.DONE</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section roles-section" id="roles">
+        <div class="roles-grid-bg" aria-hidden="true"></div>
+        <div class="shell">
+          <div class="section-heading section-heading-light">
+            <p class="kicker"><span>03</span> Точки входа</p>
+            <div>
+              <h2>Одна система.<br />Три понятных интерфейса.</h2>
+              <p>
+                Выберите роль — продуктовый превью покажет, какие инструменты
+                доступны каждому участнику.
+              </p>
+            </div>
+          </div>
+
+          <div class="role-console">
+            <div class="role-selector" role="tablist" aria-label="Роли участников">
+              <button
+                id="role-tab-shop"
+                class="role-tab is-active"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="role-panel-shop"
+                tabindex="0"
+                data-role-tab="shop"
+              >
+                <span class="role-tab-num">01</span>
+                <span>
+                  <strong>Магазин / кафе</strong>
+                  <small>Управляет лотами и отчётностью</small>
+                </span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button
+                id="role-tab-volunteer"
+                class="role-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="role-panel-volunteer"
+                tabindex="-1"
+                data-role-tab="volunteer"
+              >
+                <span class="role-tab-num">02</span>
+                <span>
+                  <strong>Волонтёр</strong>
+                  <small>Выбирает и выполняет маршруты</small>
+                </span>
+                <i aria-hidden="true">→</i>
+              </button>
+              <button
+                id="role-tab-recipient"
+                class="role-tab"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="role-panel-recipient"
+                tabindex="-1"
+                data-role-tab="recipient"
+              >
+                <span class="role-tab-num">03</span>
+                <span>
+                  <strong>Получатель</strong>
+                  <small>Находит продукты рядом</small>
+                </span>
+                <i aria-hidden="true">→</i>
+              </button>
+            </div>
+
+            <div class="role-panels">
+              <section
+                id="role-panel-shop"
+                class="role-panel is-active"
+                role="tabpanel"
+                aria-labelledby="role-tab-shop"
+                data-role-panel="shop"
+              >
+                <div class="role-panel-top">
+                  <div>
+                    <span class="panel-label">Кабинет партнёра</span>
+                    <h3>Управляйте списаниями как ресурсом</h3>
+                  </div>
+                  <span class="plan-badge">ПРОФИ</span>
+                </div>
+                <div class="role-content-grid">
+                  <div class="role-feature-list">
+                    <ul>
+                      <li><span>01</span> Лоты вручную или по фото чека</li>
+                      <li><span>02</span> Прогноз списаний по дням недели</li>
+                      <li><span>03</span> ESG-отчёт: кг, CO₂, приёмы пищи</li>
+                      <li><span>04</span> API, вебхуки и QR-этикетки</li>
+                    </ul>
+                    <button class="text-action" type="button" data-open-join data-role-choice="shop">
+                      Подключить точку <span aria-hidden="true">↗</span>
+                    </button>
+                  </div>
+                  <div class="lot-preview">
+                    <div class="preview-toolbar">
+                      <span>Активные лоты <b>6</b></span>
+                      <button type="button" data-demo-action>+ Новый лот</button>
+                    </div>
+                    <article class="lot-row">
+                      <span class="lot-photo lot-photo-bakery" aria-hidden="true"><i></i></span>
+                      <div>
+                        <strong>Пакет свежей выпечки</strong>
+                        <small>Выпечка · до 20:00</small>
+                      </div>
+                      <span class="lot-qty">8.4 кг</span>
+                      <span class="lot-status waiting">Ждёт волонтёра</span>
+                    </article>
+                    <article class="lot-row">
+                      <span class="lot-photo lot-photo-veg" aria-hidden="true"><i></i></span>
+                      <div>
+                        <strong>Овощи и фрукты</strong>
+                        <small>Овощи / фрукты · до 21:30</small>
+                      </div>
+                      <span class="lot-qty">12.1 кг</span>
+                      <span class="lot-status taken">В маршруте</span>
+                    </article>
+                    <div class="forecast-line">
+                      <span><i aria-hidden="true"></i> Прогноз на завтра</span>
+                      <strong>≈ 18 кг</strong>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section
+                id="role-panel-volunteer"
+                class="role-panel"
+                role="tabpanel"
+                aria-labelledby="role-tab-volunteer"
+                data-role-panel="volunteer"
+                hidden
+              >
+                <div class="role-panel-top">
+                  <div>
+                    <span class="panel-label">Мобильный маршрут</span>
+                    <h3>Помогайте в своём районе и ритме</h3>
+                  </div>
+                  <span class="online-badge"><i aria-hidden="true"></i> На связи</span>
+                </div>
+                <div class="role-content-grid">
+                  <div class="role-feature-list">
+                    <ul>
+                      <li><span>01</span> Карта доступных лотов рядом</li>
+                      <li><span>02</span> Оптимальный маршрут на несколько точек</li>
+                      <li><span>03</span> QR-сканер и фото доставки</li>
+                      <li><span>04</span> История, рейтинг и команды</li>
+                    </ul>
+                    <button class="text-action" type="button" data-open-join data-role-choice="volunteer">
+                      Стать волонтёром <span aria-hidden="true">↗</span>
+                    </button>
+                  </div>
+                  <div class="mobile-route-preview">
+                    <div class="mobile-route-map">
+                      <span class="mobile-street street-a" aria-hidden="true"></span>
+                      <span class="mobile-street street-b" aria-hidden="true"></span>
+                      <span class="mobile-street street-c" aria-hidden="true"></span>
+                      <span class="mobile-path path-a" aria-hidden="true"></span>
+                      <span class="mobile-path path-b" aria-hidden="true"></span>
+                      <i class="mobile-pin pickup" aria-label="Точка выдачи">М</i>
+                      <i class="mobile-pin delivery-one" aria-label="Первая доставка">1</i>
+                      <i class="mobile-pin delivery-two" aria-label="Вторая доставка">2</i>
+                    </div>
+                    <div class="next-stop">
+                      <div>
+                        <span>Следующая точка · 2.1 км</span>
+                        <strong>ул. Большая Ордынка, 24</strong>
+                        <small>Окно доставки 18:30–19:00</small>
+                      </div>
+                      <button type="button" data-demo-action aria-label="Открыть маршрут">→</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section
+                id="role-panel-recipient"
+                class="role-panel"
+                role="tabpanel"
+                aria-labelledby="role-tab-recipient"
+                data-role-panel="recipient"
+                hidden
+              >
+                <div class="role-panel-top">
+                  <div>
+                    <span class="panel-label">Доступная помощь</span>
+                    <h3>Выбирайте продукты прозрачно и без лишних шагов</h3>
+                  </div>
+                  <span class="verified-badge">Профиль подтверждён</span>
+                </div>
+                <div class="role-content-grid">
+                  <div class="role-feature-list">
+                    <ul>
+                      <li><span>01</span> Лоты на карте своего города</li>
+                      <li><span>02</span> Доставка или самостоятельный забор</li>
+                      <li><span>03</span> Статус заявки в реальном времени</li>
+                      <li><span>04</span> Уведомления в Telegram</li>
+                    </ul>
+                    <button class="text-action" type="button" data-open-join data-role-choice="recipient">
+                      Подать заявку <span aria-hidden="true">↗</span>
+                    </button>
+                  </div>
+                  <div class="recipient-preview">
+                    <div class="recipient-head">
+                      <span>Доступно рядом</span>
+                      <strong>7 лотов</strong>
+                    </div>
+                    <article class="recipient-lot">
+                      <div class="recipient-lot-visual" aria-hidden="true">
+                        <span></span><i></i><b></b>
+                      </div>
+                      <div class="recipient-lot-copy">
+                        <div>
+                          <span class="category">Готовая еда</span>
+                          <span class="distance">1.2 км</span>
+                        </div>
+                        <h4>Набор из кулинарии</h4>
+                        <p>4 порции · забрать сегодня до 20:30</p>
+                        <div class="recipient-lot-actions">
+                          <span>Самовывоз / доставка</span>
+                          <button type="button" data-demo-action>Выбрать</button>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section impact-section" id="impact">
+        <div class="shell">
+          <div class="section-heading">
+            <p class="kicker"><span>04</span> Публичный вклад</p>
+            <div>
+              <h2>Город видит результат<br />в понятных данных.</h2>
+              <p>
+                Открытый дашборд показывает спасённую еду, предотвращённые
+                выбросы, доставки и активность городских команд.
+              </p>
+            </div>
+          </div>
+
+          <div class="impact-console">
+            <div class="impact-topline">
+              <div>
+                <span class="impact-live"><i aria-hidden="true"></i> Публичный дашборд</span>
+                <span class="demo-label">макет · демо-данные</span>
+              </div>
+              <div class="period-switch" aria-label="Период статистики">
+                <button class="is-active" type="button" aria-pressed="true" data-period="week">7 дней</button>
+                <button type="button" aria-pressed="false" data-period="month">30 дней</button>
+                <button type="button" aria-pressed="false" data-period="year">12 месяцев</button>
+              </div>
+            </div>
+
+            <div class="impact-dashboard">
+              <div class="impact-primary">
+                <span>Спасено еды</span>
+                <strong data-impact-total>642 <small>кг</small></strong>
+                <p data-impact-trend>+14.8% к прошлой неделе</p>
+                <div class="impact-chart" aria-label="Динамика спасённой еды" data-impact-chart>
+                  <div><i style="height: 42%"></i><span>Пн</span></div>
+                  <div><i style="height: 58%"></i><span>Вт</span></div>
+                  <div><i style="height: 47%"></i><span>Ср</span></div>
+                  <div><i style="height: 76%"></i><span>Чт</span></div>
+                  <div><i style="height: 62%"></i><span>Пт</span></div>
+                  <div><i style="height: 93%"></i><span>Сб</span></div>
+                  <div><i style="height: 84%"></i><span>Вс</span></div>
+                </div>
+              </div>
+
+              <dl class="impact-secondary">
+                <div>
+                  <dt>Предотвращено CO₂</dt>
+                  <dd data-impact-co2>770 <span>кг</span></dd>
+                  <small>коэффициент 1.2 × кг еды</small>
+                </div>
+                <div>
+                  <dt>Доставок завершено</dt>
+                  <dd data-impact-deliveries>218</dd>
+                  <small>QR + геопроверка</small>
+                </div>
+                <div>
+                  <dt>Приёмов пищи</dt>
+                  <dd data-impact-meals>1 284</dd>
+                  <small>расчётный показатель</small>
+                </div>
+                <div>
+                  <dt>Активных партнёров</dt>
+                  <dd data-impact-partners>42</dd>
+                  <small>магазины и кафе</small>
+                </div>
+              </dl>
+
+              <div class="city-board">
+                <div class="board-head">
+                  <span>Города</span>
+                  <small>по объёму спасённой еды</small>
+                </div>
+                <ol>
+                  <li>
+                    <span class="city-rank">01</span>
+                    <span class="city-name">Москва</span>
+                    <span class="city-bar"><i style="width: 100%"></i></span>
+                    <strong>264 кг</strong>
+                  </li>
+                  <li>
+                    <span class="city-rank">02</span>
+                    <span class="city-name">Казань</span>
+                    <span class="city-bar"><i style="width: 74%"></i></span>
+                    <strong>196 кг</strong>
+                  </li>
+                  <li>
+                    <span class="city-rank">03</span>
+                    <span class="city-name">Санкт-Петербург</span>
+                    <span class="city-bar"><i style="width: 52%"></i></span>
+                    <strong>137 кг</strong>
+                  </li>
+                  <li>
+                    <span class="city-rank">04</span>
+                    <span class="city-name">Тула</span>
+                    <span class="city-bar"><i style="width: 29%"></i></span>
+                    <strong>76 кг</strong>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section retail-section">
+        <div class="shell retail-layout">
+          <div>
+            <p class="kicker"><span>05</span> Для ритейла</p>
+            <h2>Помощь людям — бесплатно.<br />А бизнес получает управляемый сервис.</h2>
+            <p class="retail-lead">
+              Магазины подключают инструменты под свой масштаб: от ручной
+              публикации лотов до автоматизации списаний и ESG-отчётности.
+            </p>
+            <div class="retail-actions">
+              <button class="button button-primary" type="button" data-open-join data-role-choice="shop">
+                Стать партнёром <span aria-hidden="true">↗</span>
+              </button>
+              <a class="text-link" href="#safety">Как защищены операции <span aria-hidden="true">→</span></a>
+            </div>
+          </div>
+
+          <div class="plan-stack">
+            <article>
+              <div><span>БАЗОВЫЙ</span><strong>20 лотов / месяц</strong></div>
+              <p>Ручная публикация и контроль выдачи</p>
+              <small>Для небольшой точки</small>
+            </article>
+            <article class="plan-featured">
+              <div><span>ПРОФИ</span><strong>Без лимита</strong></div>
+              <p>OCR чеков, прогноз и ESG-отчёт</p>
+              <small>Для сети магазинов</small>
+            </article>
+            <article>
+              <div><span>ENTERPRISE</span><strong>Интеграции</strong></div>
+              <p>API, вебхуки и процессы сети</p>
+              <small>Для крупных партнёров</small>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section safety-section" id="safety">
+        <div class="shell">
+          <div class="section-heading section-heading-light">
+            <p class="kicker"><span>06</span> Контур доверия</p>
+            <div>
+              <h2>Каждое действие<br />оставляет проверяемый след.</h2>
+              <p>
+                Верификация, антифрод и подтверждение передачи встроены
+                в сценарий — безопасность не становится отдельной задачей пользователя.
+              </p>
+            </div>
+          </div>
+
+          <div class="safety-grid">
+            <article>
+              <span class="safety-code">KYC / 01</span>
+              <h3>Проверенные участники</h3>
+              <p>Документы получателей и волонтёров проходят предпроверку и модерацию.</p>
+            </article>
+            <article>
+              <span class="safety-code">RISK / 02</span>
+              <h3>Антифрод чеков</h3>
+              <p>Система проверяет дату, дубликаты и признаки подлинности перед публикацией.</p>
+            </article>
+            <article>
+              <span class="safety-code">GEO / 03</span>
+              <h3>QR + GPS</h3>
+              <p>Получение фиксируется QR-кодом и геопроверкой в радиусе до 100 метров.</p>
+            </article>
+            <article>
+              <span class="safety-code">AUDIT / 04</span>
+              <h3>Прозрачная история</h3>
+              <p>Статусы, действия и смены тарифов сохраняются в журнале операций.</p>
+            </article>
+          </div>
+
+          <div class="faq-grid">
+            <div>
+              <span class="panel-label">Частые вопросы</span>
+              <h3>Коротко о важном</h3>
+            </div>
+            <div class="faq-list">
+              <details>
+                <summary>Это бесплатно для волонтёров и получателей?<span aria-hidden="true">+</span></summary>
+                <p>
+                  Да. Помощь и участие волонтёров бесплатны. Развитие платформы
+                  поддерживают тарифы для ритейла.
+                </p>
+              </details>
+              <details>
+                <summary>Кто может получить помощь?<span aria-hidden="true">+</span></summary>
+                <p>
+                  Люди и семьи в трудной жизненной ситуации после подтверждения
+                  анкеты. Решение о доступе проходит модерацию.
+                </p>
+              </details>
+              <details>
+                <summary>Можно забрать продукты самостоятельно?<span aria-hidden="true">+</span></summary>
+                <p>
+                  Да. При оформлении заявки можно выбрать доставку или самовывоз;
+                  магазин закроет выдачу по QR-коду.
+                </p>
+              </details>
+              <details>
+                <summary>Где работает сервис?<span aria-hidden="true">+</span></summary>
+                <p>
+                  Платформа работает по городским зонам: магазин, волонтёр
+                  и получатель должны находиться в одном городе.
+                </p>
+              </details>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="final-cta">
+        <div class="final-grid" aria-hidden="true"></div>
+        <div class="shell final-layout">
+          <div>
+            <span class="final-code">READY / WHEN YOU ARE</span>
+            <h2>Включайтесь в городскую сеть, где еда становится помощью.</h2>
+          </div>
+          <button class="round-cta" type="button" data-open-join aria-label="Стать участником SaveFood">
+            <span>Стать<br />участником</span>
+            <i aria-hidden="true">↗</i>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-grid">
+        <div>
+          <a class="brand footer-brand" href="#top" aria-label="SaveFood — на главную">
+            <span class="brand-mark" aria-hidden="true">SF</span>
+            <span class="brand-name">SaveFood</span>
+          </a>
+          <p>Цифровая инфраструктура спасения еды.</p>
+        </div>
+        <div class="footer-links">
+          <div>
+            <strong>Платформа</strong>
+            <a href="#how">Как работает</a>
+            <a href="#roles">Участникам</a>
+            <a href="#impact">Вклад</a>
+          </div>
+          <div>
+            <strong>Информация</strong>
+            <a href="#safety">Безопасность</a>
+            <a href="#safety">Частые вопросы</a>
+            <button type="button" data-demo-action>Контакты</button>
+          </div>
+          <div>
+            <strong>Участие</strong>
+            <button type="button" data-open-join data-role-choice="shop">Магазинам</button>
+            <button type="button" data-open-join data-role-choice="volunteer">Волонтёрам</button>
+            <button type="button" data-open-join data-role-choice="recipient">Получателям</button>
+          </div>
+        </div>
+      </div>
+      <div class="shell footer-bottom">
+        <span>© <span data-year>2026</span> SaveFood</span>
+        <span>RU / EN</span>
+        <span>Прототип дизайн-концепции</span>
+      </div>
+    </footer>
+
+    <dialog class="join-dialog" id="join-dialog" aria-labelledby="join-title">
+      <form method="dialog">
+        <button class="dialog-close" value="cancel" aria-label="Закрыть окно">×</button>
+        <p class="panel-label" data-dialog-kicker>Выберите роль</p>
+        <h2 id="join-title" data-dialog-title>Как вы хотите присоединиться?</h2>
+        <p class="dialog-lead" data-dialog-lead>
+          Покажем подходящий сценарий и следующий шаг.
+        </p>
+        <div class="dialog-options">
+          <button type="button" data-dialog-role="shop">
+            <span>01</span>
+            <strong>Магазин / кафе</strong>
+            <small>Публиковать лоты и видеть вклад</small>
+            <i aria-hidden="true">→</i>
+          </button>
+          <button type="button" data-dialog-role="volunteer">
+            <span>02</span>
+            <strong>Волонтёр</strong>
+            <small>Брать маршруты рядом</small>
+            <i aria-hidden="true">→</i>
+          </button>
+          <button type="button" data-dialog-role="recipient">
+            <span>03</span>
+            <strong>Получатель</strong>
+            <small>Найти доступную помощь</small>
+            <i aria-hidden="true">→</i>
+          </button>
+        </div>
+        <p class="dialog-note">
+          Это интерактивный дизайн-прототип: отправка данных отключена.
+        </p>
+      </form>
+    </dialog>
+
+    <div class="toast" role="status" aria-live="polite" aria-atomic="true" data-toast></div>
+  </body>
+</html>

@@ -49,5 +49,5 @@
     <string name="profile_language">Язык приложения</string>
     <string name="lang_ru">Русский</string>
     <string name="lang_en">English</string>
-    <string name="vol_route_navigate_btn">🧭 Проложить маршрут</string>
+    <string name="vol_route_navigate_btn">Проложить маршрут</string>
 </resources>

@@ -1,0 +1,122 @@
+.onboarding-card {
+  margin-bottom: 16px;
+  padding: 16px;
+  color: #f5f2ed;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+}
+
+.onboarding-head {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.onboarding-head strong {
+  font-size: 0.9rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.onboarding-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: #f5f2ed;
+  background: #0d0c0b;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9px;
+}
+
+.onboarding-mark svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.onboarding-progress {
+  color: #87827c;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.onboarding-list {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  margin: 13px 0 11px;
+  list-style: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.onboarding-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 42px;
+  color: #d6d1ca;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.onboarding-list li.is-done { color: #77736e; }
+
+.onboarding-checkbox {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: #0b0a09;
+  background: transparent;
+  border: 1.5px solid #5f5b56;
+  border-radius: 6px;
+}
+
+.onboarding-checkbox.is-checked {
+  color: #0b0a09;
+  background: #f1eee9;
+  border-color: #f1eee9;
+}
+
+.onboarding-checkbox svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.onboarding-list li.is-done .onboarding-label {
+  text-decoration: line-through;
+  text-decoration-color: #5c5853;
+  text-decoration-thickness: 1px;
+}
+
+.onboarding-dismiss {
+  padding: 5px 0;
+  color: #8f8a84;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.onboarding-dismiss:hover { color: #f5f2ed; }
+.onboarding-dismiss:focus-visible { outline: 1px solid #f5f2ed; outline-offset: 4px; }
+
+@media (max-width: 420px) {
+  .onboarding-card { padding: 14px; }
+  .onboarding-list li { font-size: 0.78rem; }
+}

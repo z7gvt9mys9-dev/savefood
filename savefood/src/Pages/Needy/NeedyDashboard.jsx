@@ -9,6 +9,7 @@ import AccountLinks from '../../components/AccountLinks';
 import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
 import TicketChat from '../../components/TicketChat';
+import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL } from '../../api';
 import { hasDeliveryLocation, hasValidCoordinates, isTerminalTicketStatus } from '../../utils/ticket';
@@ -510,7 +511,7 @@ const NeedyDashboard = () => {
               onChange={(e) => toggleGeoPush(e.target.checked)}
               style={{ width: 'auto' }}
             />
-            🔔 {t('needy.geo_push')}
+            <MonoIcon name="bell" /> {t('needy.geo_push')}
           </label>
         </div>
         <button type="submit" className="btn btn-primary">{t('needy.save_profile')}</button>
@@ -522,7 +523,7 @@ const NeedyDashboard = () => {
       <div className="admin-form" style={{ marginTop: 16 }}>
         <h3>{t('needy.privacy_title')}</h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-secondary" onClick={exportData}>⬇ {t('needy.export_data')}</button>
+          <button type="button" className="btn btn-secondary" onClick={exportData}><MonoIcon name="download" /> {t('needy.export_data')}</button>
           <button type="button" className="btn btn-danger" onClick={deleteAccount}>{t('needy.delete_account')}</button>
         </div>
       </div>
@@ -602,11 +603,11 @@ const NeedyDashboard = () => {
         )}
       </div>
       <div className="tab-content">
-        {lots.length === 0 && <EmptyState icon="🛒" title={t('empty.lots_title')} description={t('empty.lots_city_desc')} />}
+        {lots.length === 0 && <EmptyState icon={<MonoIcon name="cart" />} title={t('empty.lots_title')} description={t('empty.lots_city_desc')} />}
         {lotsByShop.map(group => (
           <div key={group.shopId} className="shop-group">
             <div className="shop-group-header">
-              <span className="shop-group-icon">🏪</span>
+              <span className="shop-group-icon"><MonoIcon name="store" /></span>
               <h4>{group.shopName}</h4>
             </div>
             <div className="lot-grid">
@@ -634,12 +635,12 @@ const NeedyDashboard = () => {
                   {lot.category && <span className="category-badge">{t(`categories.${CAT_KEYS[lot.category]}`, { defaultValue: lot.category })}</span>}
                   {lot.shop_kind === 'private' && (
                     <span className="category-badge" style={{ background: '#FF980022', color: '#FFB74D', borderColor: '#FF980044', marginLeft: 4 }}>
-                      🏠 {t('donor.badge')}
+                      <MonoIcon name="home" /> {t('donor.badge')}
                     </span>
                   )}
                   {lot.requires_cold && (
                     <span className="category-badge" style={{ background: '#4fc3f722', color: '#4fc3f7', borderColor: '#4fc3f744', marginLeft: 4 }}>
-                      {t('shop.cold_badge')}
+                      <MonoIcon name="snow" /> {t('shop.cold_badge')}
                     </span>
                   )}
                   <h4>{lot.description}</h4>
@@ -647,8 +648,8 @@ const NeedyDashboard = () => {
                   <span className="distance">{lot.quantity} {t('needy.qty_unit')}</span>
                   {lot.time_slot && <p style={{ fontSize: '0.8em', color: '#aaa' }}>{t('needy.pickup_time_prefix')}{lot.time_slot}</p>}
                   <div className="lot-actions">
-                    <button className="btn-small" onClick={() => handleBook(lot, false)}>🚚 {t('needy.await_volunteer_btn')}</button>
-                    <button className="btn-small btn-outline" onClick={() => handleBook(lot, true)}>🚶 {t('needy.self_pickup_btn')}</button>
+                    <button className="btn-small" onClick={() => handleBook(lot, false)}><MonoIcon name="truck" /> {t('needy.await_volunteer_btn')}</button>
+                    <button className="btn-small btn-outline" onClick={() => handleBook(lot, true)}><MonoIcon name="walk" /> {t('needy.self_pickup_btn')}</button>
                   </div>
                 </div>
               ))}
@@ -676,7 +677,7 @@ const NeedyDashboard = () => {
           {activeOrder.selfPickup ? (
             <>
               <div className="self-pickup-banner">
-                <span style={{ fontSize: '2rem' }}>🚶</span>
+                <span style={{ fontSize: '2rem' }}><MonoIcon name="walk" /></span>
                 <div>
                   <p style={{ fontWeight: 'bold', margin: '0 0 4px' }}>{t('needy.self_pickup_title')}</p>
                   <p style={{ color: '#aaa', fontSize: '0.85em', margin: 0 }}>{activeOrder.shopName}</p>
@@ -754,7 +755,7 @@ const NeedyDashboard = () => {
           </button>
         </div>
       ) : (
-        <EmptyState icon="📦" title={t('empty.tickets_title')} description={t('empty.tickets_desc')} action={t('empty.tickets_action')} onAction={() => setActiveTab('map')} />
+        <EmptyState icon={<MonoIcon name="box" />} title={t('empty.tickets_title')} description={t('empty.tickets_desc')} action={t('empty.tickets_action')} onAction={() => setActiveTab('map')} />
       )}
     </div>
   );
@@ -847,7 +848,7 @@ const NeedyDashboard = () => {
                   {item.status === 'fulfilled' && (ratings[item.id] || item.rating) && (
                     (sentNotes[item.id] ?? item.rating_comment) ? (
                       <p style={{ color: '#aaa', fontSize: '0.85em', margin: '6px 0 0', fontStyle: 'italic' }}>
-                        💌 “{sentNotes[item.id] ?? item.rating_comment}”
+                        <MonoIcon name="mail" /> “{sentNotes[item.id] ?? item.rating_comment}”
                       </p>
                     ) : (
                       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
