@@ -57,6 +57,37 @@
   margin-bottom: 20px;
 }
 
+.donor-kind-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.donor-kind-btn {
+  flex: 0 1 auto;
+  min-height: 40px;
+  padding: 8px 11px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: transparent;
+  color: #999;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  cursor: pointer;
+}
+
+.donor-kind-btn.active {
+  border-color: #4CAF50;
+  background: rgba(76, 175, 80, 0.13);
+  color: #4CAF50;
+}
+
+.donor-kind-btn .auth-icon {
+  width: 16px;
+  height: 16px;
+}
+
 /* :not([type="checkbox"]) — чекбоксы оформляются единым правилом в index.css. */
 .auth-form input:not([type="checkbox"]),
 .auth-form textarea,
@@ -137,6 +168,12 @@
 .moderation-box {
   text-align: center;
   padding: 40px 20px;
+}
+
+.auth-error {
+  margin-top: 16px;
+  color: #f1c40f;
+  font-size: 0.9rem;
 }
 
 .spinner {

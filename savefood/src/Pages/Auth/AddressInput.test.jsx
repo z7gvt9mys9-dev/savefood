@@ -8,6 +8,22 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('AddressInput', () => {
+  it('can hide residential unit fields for non-residential addresses', () => {
+    render(<AddressInput onChange={vi.fn()} showUnitFields={false} />);
+
+    expect(screen.queryByText('address.apartment')).toBeNull();
+    expect(screen.queryByText('address.floor')).toBeNull();
+    expect(screen.queryByText('address.entrance')).toBeNull();
+  });
+
+  it('shows residential unit fields by default', () => {
+    render(<AddressInput onChange={vi.fn()} />);
+
+    expect(screen.getByText('address.apartment')).toBeTruthy();
+    expect(screen.getByText('address.floor')).toBeTruthy();
+    expect(screen.getByText('address.entrance')).toBeTruthy();
+  });
+
   it('clears a selected address point when the street text is edited manually', () => {
     const onChange = vi.fn();
     render(

@@ -73,6 +73,7 @@ const AddressInput = ({
   apartment: initialApartment,
   floorNum: initialFloorNum,
   entrance: initialEntrance,
+  showUnitFields = true,
 }) => {
   const { t } = useTranslation();
   const [suggestions, setSuggestions] = useState([]);
@@ -233,44 +234,45 @@ const AddressInput = ({
         )}
       </div>
 
-      {/* Квартира + Этаж + Подъезд */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-        <div>
-          <label style={labelStyle}>{t('address.apartment')}</label>
-          <input
-            type="text"
-            value={apartment}
-            onChange={(e) => handleApartment(e.target.value)}
-            placeholder={t('address.apartment_placeholder')}
-            style={inputStyle}
-          />
+      {showUnitFields && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+          <div>
+            <label style={labelStyle}>{t('address.apartment')}</label>
+            <input
+              type="text"
+              value={apartment}
+              onChange={(e) => handleApartment(e.target.value)}
+              placeholder={t('address.apartment_placeholder')}
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>{t('address.floor')}</label>
+            <input
+              type="number"
+              value={floorNum}
+              onChange={(e) => handleFloor(e.target.value)}
+              placeholder={t('address.floor')}
+              min="1"
+              max="100"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>
+              {t('address.entrance')}
+              <span style={{ color: '#555', fontWeight: 'normal', marginLeft: 4 }}>{t('address.entrance_hint')}</span>
+            </label>
+            <input
+              type="text"
+              value={entrance}
+              onChange={(e) => handleEntrance(e.target.value)}
+              placeholder={t('address.entrance_placeholder')}
+              style={inputStyle}
+            />
+          </div>
         </div>
-        <div>
-          <label style={labelStyle}>{t('address.floor')}</label>
-          <input
-            type="number"
-            value={floorNum}
-            onChange={(e) => handleFloor(e.target.value)}
-            placeholder={t('address.floor')}
-            min="1"
-            max="100"
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label style={labelStyle}>
-            {t('address.entrance')}
-            <span style={{ color: '#555', fontWeight: 'normal', marginLeft: 4 }}>{t('address.entrance_hint')}</span>
-          </label>
-          <input
-            type="text"
-            value={entrance}
-            onChange={(e) => handleEntrance(e.target.value)}
-            placeholder={t('address.entrance_placeholder')}
-            style={inputStyle}
-          />
-        </div>
-      </div>
+      )}
     </div>
   );
 };

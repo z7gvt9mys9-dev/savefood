@@ -7,6 +7,9 @@ import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
 
+const MODERATION_POLL_MS = 3000;
+const NEEDY_REGISTRATION_KEY = 'savefood_needy_registration_id';
+
 const AuthIcon = ({ name }) => {
   const paths = {
     telegram: <path d="M3 9.6 17 4l-3.2 12-4.5-3.4-2.8 2.2.6-4.1L14 6.5 7.1 10.7 3 9.6Z" />,
@@ -24,13 +27,21 @@ const AuthIcon = ({ name }) => {
 const AuthPage = () => {
   const initialParams = new URLSearchParams(window.location.search);
   const requestedRole = initialParams.get('role');
-  const initialRole = ['shop', 'volunteer', 'needy', 'admin'].includes(requestedRole) ? requestedRole : 'shop';
-  const [isLogin, setIsLogin] = useState(initialParams.get('mode') !== 'register');
+  const startsInRegisterMode = initialParams.get('mode') === 'register';
+  const allowedInitialRoles = startsInRegisterMode
+    ? ['shop', 'volunteer', 'needy']
+    : ['shop', 'volunteer', 'needy', 'admin'];
+  const initialRole = allowedInitialRoles.includes(requestedRole) ? requestedRole : 'shop';
+  const [isLogin, setIsLogin] = useState(!startsInRegisterMode);
   const [role, setRole] = useState(initialRole); // shop, volunteer, needy, admin
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
   const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
   const [regToken, setRegToken] = useState(null); // token after registration
   const [regSession, setRegSession] = useState(null);
+  const [regNeedyId, setRegNeedyId] = useState(null);
+  const [needySubmitting, setNeedySubmitting] = useState(false);
+  const [moderationStatus, setModerationStatus] = useState('pending');
+  const [moderationError, setModerationError] = useState('');
   // C2C: 'business' (магазин/кафе) | 'private' (частное лицо отдаёт излишки)
   const [donorKind, setDonorKind] = useState('business');
 
@@ -72,7 +83,7 @@ const AuthPage = () => {
   };
 
   const { t } = useTranslation();
-  const { login } = useAuth();
+  const { user, login } = useAuth();
   const navigate = useNavigate();
 
   const [agreed, setAgreed] = useState(false);
@@ -88,6 +99,61 @@ const AuthPage = () => {
       .catch(() => {});
     return () => clearInterval(tgPollRef.current);
   }, []);
+
+  // Keep a submitted registration resumable across reloads without storing the
+  // password or document. The auth context already restores the owner's token.
+  useEffect(() => {
+    if (!startsInRegisterMode || initialRole !== 'needy' || regNeedyId) return;
+    if (user?.role !== 'needy' || !user.token || !user.relatedId) return;
+    const savedId = Number(window.localStorage.getItem(NEEDY_REGISTRATION_KEY));
+    if (savedId !== Number(user.relatedId)) return;
+    setRegNeedyId(savedId);
+    setRegToken(user.token);
+    setRegSession({ role: 'needy', relatedId: savedId });
+    setStep(2);
+  }, [startsInRegisterMode, initialRole, regNeedyId, user]);
+
+  // Registration creates the account and uploads the document before this step.
+  // Poll the owner-protected record until Auto-KYC or a moderator makes a decision.
+  useEffect(() => {
+    if (role !== 'needy' || step !== 2 || !regNeedyId || !regToken) return undefined;
+
+    let cancelled = false;
+    let timeoutId;
+
+    const checkModeration = async () => {
+      try {
+        const res = await fetch(`${API_URL}/needy/${regNeedyId}`, {
+          headers: { Authorization: `Bearer ${regToken}` },
+        });
+        if (!res.ok) {
+          if ([401, 403, 404].includes(res.status)) {
+            if (!cancelled) setModerationError(t('auth.moderation_check_error'));
+            return;
+          }
+          throw new Error('Transient moderation status error');
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        setModerationError('');
+        setModerationStatus(data.status || 'pending');
+        if (data.status === 'approved') {
+          setStep(3);
+          return;
+        }
+        if (data.status === 'rejected') return;
+      } catch {
+        if (!cancelled) setModerationError(t('auth.moderation_retrying'));
+      }
+      if (!cancelled) timeoutId = window.setTimeout(checkModeration, MODERATION_POLL_MS);
+    };
+
+    checkModeration();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [role, step, regNeedyId, regToken]);
 
   // OAuth callback returns here with the JWT in the URL fragment
   // (#oauth_token=...&role=...) — fragments never reach servers or logs.
@@ -169,6 +235,11 @@ const AuthPage = () => {
     setTgLogin(null);
   };
 
+  const showRequestError = (error, fallbackKey) => {
+    const isNetworkError = error?.name === 'TypeError';
+    alert(isNetworkError ? t('common.connection_error') : (error?.message || t(fallbackKey)));
+  };
+
   const renderSocialLogin = () => {
     if (!providers || (!providers.google && !providers.yandex && !providers.telegram)) return null;
     return (
@@ -208,27 +279,131 @@ const AuthPage = () => {
     );
   };
 
-  // The «Далее» button on needy step 1 is not a form submit, so the browser's
-  // required-field validation never fires — check by hand, otherwise the final
-  // submit registers a needy with an empty username/password (no account).
   const validateNeedyStep1 = () => {
     if (!formData.name || !formData.phone || !formData.password) {
       alert(t('auth.fill_required'));
-      return;
+      return false;
     }
     if (formData.password.length < 8) {
       alert(t('auth.password_min'));
-      return;
+      return false;
     }
     if (!formData.document) {
       alert(t('auth.document_required'));
-      return;
+      return false;
     }
     if (!agreed) {
       alert(t('auth.agree_required'));
+      return false;
+    }
+    return true;
+  };
+
+  const submitNeedyStep1 = async () => {
+    if (needySubmitting || !validateNeedyStep1()) return;
+    setNeedySubmitting(true);
+    try {
+      let needyId = regNeedyId;
+      if (!needyId) {
+        const registerRes = await fetch(`${API_URL}/needy/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: formData.name,
+            contact: formData.phone,
+            username: formData.phone,
+            password: formData.password,
+          }),
+        });
+        if (!registerRes.ok) {
+          const err = await registerRes.json().catch(() => null);
+          throw new Error(err?.detail || t('auth.register_error'));
+        }
+        const registered = await registerRes.json();
+        needyId = registered.id;
+        if (!needyId) throw new Error(t('auth.register_error'));
+        setRegNeedyId(needyId);
+      }
+
+      let token = regToken;
+      if (!token) {
+        const fd = new FormData();
+        fd.append('username', formData.phone);
+        fd.append('password', formData.password);
+        const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
+        if (!loginRes.ok) throw new Error(t('auth.login_after_register_error'));
+        const loginData = await loginRes.json();
+        token = loginData.access_token;
+        if (!token) throw new Error(t('auth.login_after_register_error'));
+        const sessionRole = loginData.role || 'needy';
+        const relatedId = loginData.related_id ?? needyId;
+        setRegToken(token);
+        setRegSession({ role: sessionRole, relatedId });
+        login(token, sessionRole, relatedId);
+      }
+
+      const documentBody = new FormData();
+      documentBody.append('file', formData.document);
+      const uploadRes = await fetch(`${API_URL}/needy/${needyId}/profile/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: documentBody,
+      });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => null);
+        throw new Error(err?.detail || t('auth.document_upload_error'));
+      }
+
+      setModerationStatus('pending');
+      setModerationError('');
+      window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
+      setStep(2);
+    } catch (err) {
+      showRequestError(err, 'auth.register_error');
+    } finally {
+      setNeedySubmitting(false);
+    }
+  };
+
+  const submitNeedyProfile = async (e) => {
+    e.preventDefault();
+    if (!regNeedyId || !regToken) {
+      alert(t('auth.registration_session_error'));
       return;
     }
-    setStep(2);
+    if (!hasDeliveryLocation(formData)) {
+      alert(t('auth.delivery_location_required'));
+      return;
+    }
+    setNeedySubmitting(true);
+    try {
+      const res = await fetch(`${API_URL}/needy/${regNeedyId}/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${regToken}` },
+        body: JSON.stringify({
+          address: formData.address || null,
+          family_size: formData.familySize ? Number(formData.familySize) : null,
+          preferences: formData.preferences || null,
+          urgency: formData.urgency || 'normal',
+          city: formData.city || null,
+          lat: formData.lat ?? null,
+          lon: formData.lon ?? null,
+          apartment: formData.apartment || null,
+          floor_num: formData.floor_num || null,
+          entrance: formData.entrance || null,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || t('auth.profile_save_error'));
+      }
+      window.localStorage.removeItem(NEEDY_REGISTRATION_KEY);
+      setTgStep(true);
+    } catch (err) {
+      showRequestError(err, 'auth.profile_save_error');
+    } finally {
+      setNeedySubmitting(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -249,7 +424,7 @@ const AuthPage = () => {
         login(data.access_token, data.role, data.related_id);
         navigate(`/${data.role}`);
       } catch (err) {
-        alert(err.message);
+        showRequestError(err, 'auth.invalid_credentials');
       }
     } else {
       try {
@@ -257,10 +432,6 @@ const AuthPage = () => {
         // A manually typed address has no trustworthy coordinates until it is
         // selected from the geocoder, so do not create a profile that cannot be
         // served by a volunteer.
-        if (role === 'needy' && !hasDeliveryLocation(formData)) {
-          alert(t('auth.delivery_location_required'));
-          return;
-        }
         let endpoint = '';
         let body = {};
         if (role === 'shop') {
@@ -269,14 +440,11 @@ const AuthPage = () => {
         } else if (role === 'volunteer') {
           endpoint = `${API_URL}/volunteers/register`;
           body = { name: formData.name, contact: formData.phone, city: formData.city, lat: formData.lat, lon: formData.lon, username: formData.phone, password: formData.password };
-        } else {
-          endpoint = `${API_URL}/needy/register`;
-          body = { name: formData.name, contact: formData.phone, username: formData.phone, password: formData.password };
-        }
+        } else return;
         const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         if (!res.ok) {
-          const err = await res.json();
-          throw new Error(err.detail || t('auth.register_error'));
+          const err = await res.json().catch(() => null);
+          throw new Error(err?.detail || t('auth.register_error'));
         }
         const data = await res.json();
 
@@ -303,39 +471,9 @@ const AuthPage = () => {
           }
         } catch {}
 
-        if (role === 'needy' && data.id && token) {
-          const authHeader = { Authorization: `Bearer ${token}` };
-          if (formData.document) {
-            const fd = new FormData();
-            fd.append('file', formData.document);
-            await fetch(`${API_URL}/needy/${data.id}/profile/upload`, {
-              method: 'POST',
-              headers: authHeader,
-              body: fd,
-            }).catch(() => {});
-          }
-          // Persist the step-3 profile (address/coords/family/urgency) so delivery
-          // tickets carry the recipient's coordinates without re-entering everything.
-          await fetch(`${API_URL}/needy/${data.id}/profile`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeader },
-            body: JSON.stringify({
-              address: formData.address || null,
-              family_size: formData.familySize ? Number(formData.familySize) : null,
-              preferences: formData.preferences || null,
-              urgency: formData.urgency || 'normal',
-              city: formData.city || null,
-              lat: formData.lat ?? null,
-              lon: formData.lon ?? null,
-              apartment: formData.apartment || null,
-              floor_num: formData.floor_num || null,
-              entrance: formData.entrance || null,
-            }),
-          }).catch(() => {});
-        }
         setTgStep(true);
       } catch (err) {
-        alert(err.message);
+        showRequestError(err, 'auth.register_error');
       }
     }
   };
@@ -359,12 +497,6 @@ const AuthPage = () => {
         onClick={() => { setRole('needy'); setStep(1); }}
       >
         {t('auth.role_needy')}
-      </button>
-      <button
-        className={`role-btn ${role === 'admin' ? 'active' : ''}`}
-        onClick={() => { setRole('admin'); setStep(1); }}
-      >
-        {t('auth.role_admin')}
       </button>
     </div>
   );
@@ -396,18 +528,14 @@ const AuthPage = () => {
   const renderShopReg = () => (
     <form onSubmit={handleSubmit} className="auth-form">
       <h2>{t('auth.register')}: {donorKind === 'private' ? t('auth.donor_private') : t('auth.role_shop')}</h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div className="donor-kind-selector">
         {['business', 'private'].map(kind => (
           <button
             key={kind}
             type="button"
+            className={`donor-kind-btn ${donorKind === kind ? 'active' : ''}`}
+            aria-pressed={donorKind === kind}
             onClick={() => setDonorKind(kind)}
-            style={{
-              flex: 1, padding: '8px 6px', fontSize: '0.85rem', borderRadius: 8, cursor: 'pointer',
-              border: '1px solid', borderColor: donorKind === kind ? '#4CAF50' : '#444',
-              background: donorKind === kind ? '#4CAF5022' : 'transparent',
-              color: donorKind === kind ? '#4CAF50' : '#999',
-            }}
           >
             <AuthIcon name={kind === 'business' ? 'business' : 'private'} />
             {kind === 'business' ? t('auth.donor_business') : t('auth.donor_private')}
@@ -435,6 +563,7 @@ const AuthPage = () => {
         apartment={formData.apartment}
         floorNum={formData.floor_num}
         entrance={formData.entrance}
+        showUnitFields={false}
       />
 
       <div className="consent-box">
@@ -491,8 +620,8 @@ const AuthPage = () => {
           <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} minLength={8} required />
 
           <div className="file-upload">
-            <label>{t('auth.document_status')}</label>
-            <input type="file" onChange={(e) => setFormData({...formData, document: e.target.files[0]})} required />
+            <label htmlFor="needy-document">{t('auth.document_status')}</label>
+            <input id="needy-document" type="file" onChange={(e) => setFormData({...formData, document: e.target.files[0]})} required />
           </div>
 
           <div className="consent-box">
@@ -502,7 +631,9 @@ const AuthPage = () => {
             </label>
           </div>
 
-          <button onClick={validateNeedyStep1} className="btn btn-primary">{t('auth.next')}</button>
+          <button type="button" onClick={submitNeedyStep1} className="btn btn-primary" disabled={needySubmitting}>
+            {needySubmitting ? t('common.loading') : t('auth.next')}
+          </button>
           <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
         </div>
       );
@@ -512,16 +643,18 @@ const AuthPage = () => {
         <div className="auth-form">
           <h2>{t('auth.needy_step2_title')}</h2>
           <div className="moderation-box">
-            <div className="spinner"></div>
-            <p>{t('auth.docs_sent')}</p>
-            <p className="hint">{t('auth.docs_time')}</p>
+            {moderationStatus !== 'rejected' && <div className="spinner"></div>}
+            <p>{moderationStatus === 'rejected' ? t('auth.moderation_rejected') : t('auth.docs_sent')}</p>
+            <p className="hint">
+              {moderationStatus === 'rejected' ? t('auth.moderation_rejected_hint') : t('auth.docs_time')}
+            </p>
+            {moderationError && <p className="auth-error" role="alert">{moderationError}</p>}
           </div>
-          <button onClick={() => setStep(3)} className="btn btn-secondary">{t('auth.simulate_approve')}</button>
         </div>
       );
     }
     return (
-      <form onSubmit={handleSubmit} className="auth-form">
+      <form onSubmit={submitNeedyProfile} className="auth-form">
         <h2>{t('auth.needy_step3_title')}</h2>
         <AddressInput
           label={t('auth.home_address')}
@@ -548,7 +681,9 @@ const AuthPage = () => {
           <p><AuthIcon name="info" />{t('auth.limit_notice')}</p>
         </div>
 
-        <button type="submit" className="btn btn-primary">{t('auth.finish_register')}</button>
+        <button type="submit" className="btn btn-primary" disabled={needySubmitting}>
+          {needySubmitting ? t('common.loading') : t('auth.finish_register')}
+        </button>
       </form>
     );
   };
