@@ -139,3 +139,6 @@ docs/
 # в репозитории ему делать нечего (15 МБ на коммит).
 go-services/geows/geows
 # End of file
+
+
+./design

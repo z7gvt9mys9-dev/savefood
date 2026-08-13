@@ -1,5 +1,4 @@
 const EN_TEXT = {
-  'Перейти к содержимому': 'Skip to content',
   'Открыть меню': 'Open menu',
   'Как это работает': 'How it works',
   'Для кого': 'For whom',
@@ -247,6 +246,48 @@ export function localizeLandingMarkup(markup, language) {
   return template.innerHTML;
 }
 
+export function personalizeLandingMarkup(markup, user, copy) {
+  if (!user?.role || typeof document === 'undefined') return markup;
+
+  const template = document.createElement('template');
+  template.innerHTML = markup;
+  const header = template.content.querySelector('.header-actions');
+  const loginButton = header?.querySelector('[data-auth-mode="login"]');
+  const registerButton = header?.querySelector('[data-auth-mode="register"]');
+
+  if (loginButton) {
+    loginButton.removeAttribute('data-auth-mode');
+    loginButton.setAttribute('data-account-action', 'dashboard');
+    loginButton.className = 'landing-account-avatar';
+    loginButton.setAttribute('aria-label', copy.profileLabel);
+    loginButton.setAttribute('title', copy.profileLabel);
+    loginButton.textContent = '';
+
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('focusable', 'false');
+    const head = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    head.setAttribute('cx', '12');
+    head.setAttribute('cy', '8');
+    head.setAttribute('r', '3.25');
+    const shoulders = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    shoulders.setAttribute('d', 'M5.25 19c.6-3.6 3.05-5.4 6.75-5.4s6.15 1.8 6.75 5.4');
+    icon.append(head, shoulders);
+    loginButton.append(icon);
+    header.append(loginButton);
+    header.classList.add('header-actions--authenticated');
+    header.closest('.header-inner')?.classList.add('header-inner--authenticated');
+  }
+  if (registerButton) {
+    registerButton.removeAttribute('data-auth-mode');
+    registerButton.setAttribute('data-account-action', 'logout');
+    registerButton.textContent = copy.logout;
+  }
+
+  return template.innerHTML;
+}
+
 export const LANDING_COPY = {
   ru: {
     dialogLoginEyebrow: 'С возвращением',
@@ -264,6 +305,8 @@ export const LANDING_COPY = {
     tons: 'т',
     people: 'человек',
     unnamedCity: 'Без города',
+    profileLabel: 'Открыть профиль',
+    logout: 'Выйти',
     locale: 'ru-RU',
   },
   en: {
@@ -282,6 +325,8 @@ export const LANDING_COPY = {
     tons: 't',
     people: 'people',
     unnamedCity: 'Unknown city',
+    profileLabel: 'Open profile',
+    logout: 'Sign out',
     locale: 'en-US',
   },
 };

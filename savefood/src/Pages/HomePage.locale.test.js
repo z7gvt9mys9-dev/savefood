@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { LANDING_LOTS, localizeLandingMarkup } from './HomePage.locale';
+import {
+  LANDING_COPY,
+  LANDING_LOTS,
+  localizeLandingMarkup,
+  personalizeLandingMarkup,
+} from './HomePage.locale';
 
 const landingDocument = readFileSync(resolve(process.cwd(), 'src/Pages/HomePage.markup.html'), 'utf8');
 const bodyMatch = landingDocument.match(/<body>([\s\S]*)<\/body>/i);
@@ -55,11 +60,30 @@ describe('production landing localization', () => {
   it('routes every landing CTA to a real product action', () => {
     const template = document.createElement('template');
     template.innerHTML = markup;
+    expect(template.content.querySelector('.skip-link')).toBeNull();
     expect(template.content.querySelector('[data-open-dialog]')).toBeNull();
     expect(template.content.querySelector('[data-auth-mode="login"]')).not.toBeNull();
     expect(template.content.querySelector('[data-auth-mode="register"]')).not.toBeNull();
     expect(template.content.querySelector('a[href="/terms"]')).not.toBeNull();
     expect(template.content.querySelector('a[href="/privacy"]')).not.toBeNull();
     expect(template.content.querySelector('a[href="/impact"]')).not.toBeNull();
+  });
+
+  it('replaces public header actions for an authenticated volunteer', () => {
+    const personalized = personalizeLandingMarkup(markup, { role: 'volunteer' }, LANDING_COPY.ru);
+    const template = document.createElement('template');
+    template.innerHTML = personalized;
+    const header = template.content.querySelector('.header-actions');
+    const avatar = header.querySelector('[data-account-action="dashboard"]');
+
+    expect(header.querySelector('[data-auth-mode]')).toBeNull();
+    expect(header.classList.contains('header-actions--authenticated')).toBe(true);
+    expect(avatar?.classList.contains('landing-account-avatar')).toBe(true);
+    expect(avatar?.getAttribute('aria-label')).toBe('Открыть профиль');
+    expect(avatar?.textContent).toBe('');
+    expect(avatar?.querySelector('svg')).not.toBeNull();
+    expect(header.lastElementChild).toBe(avatar);
+    expect(header.querySelector('[data-account-action="logout"]')?.textContent).toBe('Выйти');
+    expect(template.content.querySelector('[data-auth-mode="register"]')).not.toBeNull();
   });
 });

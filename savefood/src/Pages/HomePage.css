@@ -121,32 +121,6 @@ a {
   border: 0 !important;
 }
 
-.skip-link {
-  position: fixed;
-  top: 12px;
-  left: 12px;
-  z-index: 100;
-  padding: 10px 16px;
-  border-radius: 9px;
-  background: var(--paper);
-  color: var(--ink);
-  font-weight: 750;
-  opacity: 0;
-  pointer-events: none;
-  clip-path: inset(50%);
-  transform: translateY(calc(-100% - 24px));
-  transition:
-    opacity 120ms ease,
-    transform 160ms ease;
-}
-
-.skip-link:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  clip-path: inset(0);
-  transform: translateY(0);
-}
-
 .shell {
   width: var(--shell);
   margin-inline: auto;
@@ -288,6 +262,44 @@ a {
   display: flex;
   align-items: center;
   gap: 18px;
+}
+
+.landing-account-avatar {
+  width: 44px;
+  height: 44px;
+  order: 100;
+  flex: 0 0 44px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(244, 111, 53, 0.52);
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(244, 111, 53, 0.24), rgba(244, 111, 53, 0.08));
+  box-shadow: 0 8px 24px rgba(244, 111, 53, 0.14);
+  color: var(--cream);
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.landing-account-avatar svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+
+.landing-account-avatar:hover {
+  border-color: var(--ember-bright);
+  background: rgba(244, 111, 53, 0.24);
+  transform: translateY(-1px);
+}
+
+.landing-account-avatar:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 3px;
 }
 
 .text-button {
@@ -2794,6 +2806,27 @@ a {
   }
 
   .header-actions {
+    display: none;
+  }
+
+  .header-inner--authenticated {
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+  }
+
+  .header-inner--authenticated .menu-button {
+    grid-column: 3;
+  }
+
+  .header-inner--authenticated .header-actions--authenticated {
+    display: flex;
+    grid-column: 4;
+    justify-self: end;
+    gap: 0;
+  }
+
+  .header-actions--authenticated [data-account-action="logout"],
+  .header-actions--authenticated .ember-language-switcher {
     display: none;
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { API_URL } from '../api';
+import { useAuth } from '../context/AuthContext';
 import landingDocument from './HomePage.markup.html?raw';
 import './HomePage.css';
 import {
@@ -9,10 +10,12 @@ import {
   LANDING_LOTS,
   localizeLandingMarkup,
   normalizeLandingLanguage,
+  personalizeLandingMarkup,
 } from './HomePage.locale';
 
 const bodyMatch = landingDocument.match(/<body>([\s\S]*)<\/body>/i);
 const landingMarkup = bodyMatch ? bodyMatch[1] : landingDocument;
+const ROLE_PATHS = { shop: '/shop', volunteer: '/volunteer', needy: '/needy', admin: '/admin' };
 
 const animateLanguageWords = (root) => {
   const document = root.ownerDocument;
@@ -26,7 +29,7 @@ const animateLanguageWords = (root) => {
   textNodes.forEach((textNode) => {
     if (!textNode.textContent.trim()) return;
     const parent = textNode.parentElement;
-    if (!parent || parent.closest('script, style, svg, [hidden], [aria-hidden="true"], .skip-link, .sr-only')) return;
+    if (!parent || parent.closest('script, style, svg, [hidden], [aria-hidden="true"], .sr-only')) return;
 
     const group = parent.closest('h1, h2, h3, p, a, button, li, strong, summary, label, [role="tabpanel"]') || parent;
     let wordIndex = wordIndexes.get(group) || 0;
@@ -60,10 +63,15 @@ export default function HomePage() {
   const rootRef = useRef(null);
   const previousLanguageRef = useRef(null);
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const { i18n } = useTranslation();
   const language = normalizeLandingLanguage(i18n.resolvedLanguage || i18n.language);
   const copy = LANDING_COPY[language];
-  const markup = useMemo(() => localizeLandingMarkup(landingMarkup, language), [language]);
+  const markup = useMemo(() => personalizeLandingMarkup(
+    localizeLandingMarkup(landingMarkup, language),
+    user,
+    copy,
+  ), [copy, language, user?.role]);
 
   useEffect(() => {
     const previousLanguage = previousLanguageRef.current;
@@ -97,12 +105,15 @@ export default function HomePage() {
 
     const headerActions = query('.header-actions');
     if (headerActions && !query('[data-language]')) {
-      headerActions.insertAdjacentHTML('beforeend', `
+      const languageSwitcherMarkup = `
         <div class="ember-language-switcher" aria-label="${language === 'en' ? 'Choose language' : 'Выбор языка'}">
           <button type="button" data-language="ru">RU</button>
           <button type="button" data-language="en">EN</button>
         </div>
-      `);
+      `;
+      const accountAvatar = headerActions.querySelector('[data-account-action="dashboard"]');
+      if (accountAvatar) accountAvatar.insertAdjacentHTML('beforebegin', languageSwitcherMarkup);
+      else headerActions.insertAdjacentHTML('beforeend', languageSwitcherMarkup);
     }
     const setLanguageButton = (language) => {
       queryAll('[data-language]').forEach((button) => {
@@ -194,18 +205,36 @@ export default function HomePage() {
     };
     const onScroll = () => header?.classList.toggle('is-scrolled', window.scrollY > 20);
     const onClick = (event) => {
+      const accountTrigger = event.target.closest('[data-account-action]');
       const authTrigger = event.target.closest('[data-auth-mode]');
       const lot = event.target.closest('[data-lot]');
       const demo = event.target.closest('[data-demo-action]');
       const pageAnchor = event.target.closest('.site-header a[href^="#"], .site-footer a[href^="#"]');
       const previewTab = event.target.closest('[data-preview-tab]');
+      if (accountTrigger) {
+        event.preventDefault();
+        closeMenu();
+        if (accountTrigger.dataset.accountAction === 'logout') {
+          logout();
+          return;
+        }
+        navigate(ROLE_PATHS[user?.role] || '/');
+        return;
+      }
       if (pageAnchor) {
         event.preventDefault();
         closeMenu();
         scrollToSection(pageAnchor.getAttribute('href'));
       }
       if (previewTab) setPreview(previewTab.dataset.previewTab);
-      if (authTrigger) openAuth(authTrigger.dataset.authMode, authTrigger.dataset.roleChoice);
+      if (authTrigger) {
+        if (user?.role) {
+          closeMenu();
+          navigate(ROLE_PATHS[user.role] || '/');
+        } else {
+          openAuth(authTrigger.dataset.authMode, authTrigger.dataset.roleChoice);
+        }
+      }
       if (lot) setLot(lot.dataset.lot);
       if (demo) showToast(`${demo.dataset.demoAction}. ${copy.demoSuffix}`);
       const language = event.target.closest('[data-language]');
@@ -387,7 +416,7 @@ export default function HomePage() {
       document.documentElement.classList.remove('is-programmatic-scrolling');
       alive = false;
     };
-  }, [copy, i18n, language, navigate]);
+  }, [copy, i18n, language, logout, navigate, user?.role]);
 
   return <div ref={rootRef} className="ember-page" lang={language} dangerouslySetInnerHTML={{ __html: markup }} />;
 }
