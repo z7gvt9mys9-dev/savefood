@@ -109,6 +109,41 @@ describe('AuthPage registration', () => {
     expect(screen.getByPlaceholderText('auth.email')).toBeTruthy();
   });
 
+  it('sends the selected role when a volunteer signs in', async () => {
+    fetchMock.mockImplementation((url) => {
+      if (String(url).endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
+      if (String(url).endsWith('/auth/login')) {
+        return Promise.resolve(jsonResponse({ access_token: 'volunteer-token', role: 'volunteer', related_id: 7 }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage('?role=volunteer');
+    fireEvent.change(screen.getByPlaceholderText('auth.phone'), { target: { value: '+79990000000' } });
+    fireEvent.change(screen.getByPlaceholderText('auth.password'), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'auth.submit_login' }));
+
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('volunteer-token', 'volunteer', 7));
+    const loginCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/auth/login'));
+    expect(loginCall[1].body.get('role')).toBe('volunteer');
+  });
+
+  it('does not accept a session for another role', async () => {
+    fetchMock.mockImplementation((url) => {
+      if (String(url).endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
+      if (String(url).endsWith('/auth/login')) {
+        return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage('?role=volunteer');
+    fireEvent.change(screen.getByPlaceholderText('auth.phone'), { target: { value: '+79990000000' } });
+    fireEvent.change(screen.getByPlaceholderText('auth.password'), { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'auth.submit_login' }));
+
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith('auth.invalid_credentials'));
+    expect(loginMock).not.toHaveBeenCalled();
+  });
+
   it('falls back to shop for an administrator registration deep link', () => {
     renderPage('?mode=register&role=admin');
 
@@ -144,6 +179,7 @@ describe('AuthPage registration', () => {
     const loginCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/auth/login'));
     expect(loginCall[1].body.get('username')).toBe('+79990000000');
     expect(loginCall[1].body.get('password')).toBe('password123');
+    expect(loginCall[1].body.get('role')).toBe('needy');
     const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/needy/42/profile/upload'));
     expect(uploadCall[1].headers.Authorization).toBe('Bearer needy-token');
     expect(uploadCall[1].body.get('file')).toBe(document);

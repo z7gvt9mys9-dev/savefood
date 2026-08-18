@@ -240,6 +240,23 @@ const AuthPage = () => {
     alert(isNetworkError ? t('common.connection_error') : (error?.message || t(fallbackKey)));
   };
 
+  // The login screen lets one phone number be used as the identifier for
+  // different account types. Never accept a session for a role other than the
+  // one the person selected: otherwise an account with a matching identifier
+  // could open the wrong dashboard.
+  const acceptLogin = (data, expectedRole) => {
+    if (!data.access_token || data.role !== expectedRole) {
+      throw new Error(t('auth.invalid_credentials'));
+    }
+    login(data.access_token, data.role, data.related_id);
+    navigate(`/${data.role}`);
+  };
+
+  const appendLoginRole = (formData, expectedRole) => {
+    formData.append('role', expectedRole);
+    return formData;
+  };
+
   const renderSocialLogin = () => {
     if (!providers || (!providers.google && !providers.yandex && !providers.telegram)) return null;
     return (
@@ -330,6 +347,7 @@ const AuthPage = () => {
         const fd = new FormData();
         fd.append('username', formData.phone);
         fd.append('password', formData.password);
+        appendLoginRole(fd, 'needy');
         const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
         if (!loginRes.ok) throw new Error(t('auth.login_after_register_error'));
         const loginData = await loginRes.json();
@@ -418,11 +436,11 @@ const AuthPage = () => {
         const fd = new FormData();
         fd.append('username', (role === 'shop' || role === 'admin') ? formData.email : formData.phone);
         fd.append('password', formData.password);
+        appendLoginRole(fd, role);
         const res = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
         if (!res.ok) throw new Error(t('auth.invalid_credentials'));
         const data = await res.json();
-        login(data.access_token, data.role, data.related_id);
-        navigate(`/${data.role}`);
+        acceptLogin(data, role);
       } catch (err) {
         showRequestError(err, 'auth.invalid_credentials');
       }
@@ -456,6 +474,7 @@ const AuthPage = () => {
           const fd = new FormData();
           fd.append('username', loginUsername);
           fd.append('password', formData.password);
+          appendLoginRole(fd, role);
           const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
           if (loginRes.ok) {
             const loginData = await loginRes.json();

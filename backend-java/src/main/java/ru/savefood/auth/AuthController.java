@@ -56,11 +56,18 @@ public class AuthController {
     })
     public Map<String, Object> login(@RequestParam("username") String username,
                                      @RequestParam("password") String password,
+                                     @RequestParam(value = "role", required = false) String expectedRole,
                                      HttpServletRequest request) {
         rateLimiter.check("auth:login", ClientIp.of(request), 5);
 
+        if (expectedRole != null && !List.of("shop", "volunteer", "needy", "admin").contains(expectedRole)) {
+            throw new ApiException(400, "Unknown account role");
+        }
+
         List<Map<String, Object>> rows = jdbc.query(
-            "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ?",
+            expectedRole == null
+                ? "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ?"
+                : "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ? AND role = ?",
             (rs, n) -> {
                 Map<String, Object> u = new LinkedHashMap<>();
                 u.put("hashed_password", rs.getString("hashed_password"));
@@ -68,7 +75,7 @@ public class AuthController {
                 u.put("related_id", rs.getObject("related_id"));
                 u.put("is_blocked", rs.getBoolean("is_blocked"));
                 return u;
-            }, username);
+            }, expectedRole == null ? new Object[] { username } : new Object[] { username, expectedRole });
 
         Map<String, Object> user = rows.isEmpty() ? null : rows.get(0);
         if (user == null || !passwords.verify(password, (String) user.get("hashed_password"))) {

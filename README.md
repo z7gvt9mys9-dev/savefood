@@ -2,6 +2,13 @@
 
 Платформа спасения еды — соединяет магазины с излишками, волонтёров и нуждающихся людей в единую систему распределения продуктов.
 
+**[Презентация проекта](./SaveFood_Presentation.pptx)** · **[Архитектура](#архитектура-и-структура-проекта)** · **[Быстрый старт](#быстрый-старт-docker)** · **[API](#api)**
+
+В системе четыре роли: магазин или частный донор публикует излишки, волонтёр
+доставляет, получатель бронирует помощь, администратор следит за модерацией и
+операциями. Web-клиент работает как PWA; для полевых сценариев есть нативный
+Android-клиент (вход и кабинеты трёх пользовательских ролей, без админки).
+
 ---
 
 ## Как это работает
@@ -17,13 +24,16 @@
 
 ## Монетизация (B2B SaaS)
 
-Помощь и работа волонтёров бесплатны — платит ритейл. Тариф хранится в `shops.plan`, фичи гейтятся на сервере (HTTP 402 с подсказкой об апгрейде):
+Помощь и работа волонтёров бесплатны — платит ритейл. Частный донор работает в
+базовой модели. Тариф хранится в `shops.plan`, фичи гейтятся на сервере
+(HTTP 402 с подсказкой об апгрейде):
 
 | | Базовый | Профи | Enterprise |
 |---|---|---|---|
 | Создание лотов | вручную, 20/мес | без лимита | без лимита |
 | OCR чеков (фото → лоты) | — | ✓ | ✓ |
 | ESG-отчёт (кг, CO₂, приёмы пищи) | — | ✓ | ✓ |
+| Партнёрский API и исходящие вебхуки | — | — | ✓ |
 
 Чеки проходят **антифрод** (дата, дубликаты по sha256/fingerprint, ИИ-оценка подлинности → `fraud_score`). Смена тарифа — админом (вкладка «Тарифы», пишется в audit log); биллинг-шлюз — в планах.
 
@@ -35,8 +45,9 @@
 |---|---|
 | Backend | Java 21, Spring Boot 3.3, JdbcTemplate + рукописный SQL, PostgreSQL 15 |
 | Схема БД | Flyway (`backend-java/src/main/resources/db/migration/`), baseline-on-migrate |
-| Микросервис горячих путей | Go 1.24 (`go-services/geows`): WebSocket-фанаут + геокоординаты |
+| Микросервис горячих путей | Go 1.26.4 (`go-services/geows`): WebSocket-фанаут + геокоординаты |
 | Frontend | React 18, Vite, react-router-dom v7 |
+| Web-режим | PWA: manifest + service worker |
 | Карты | Yandex Maps + Geosuggest/Геокодер (подсказки адресов) |
 | i18n | react-i18next (ru / en) |
 | Мобильное приложение | Нативный Android: Kotlin, Jetpack Compose, Hilt (`android-app/`) |
@@ -59,25 +70,23 @@
 ### Требования
 
 - Docker и Docker Compose
-- Yandex Maps API Key
-- Telegram Bot Token (опционально)
-- Gemini API Key (опционально — для ИИ-помощника в боте, https://aistudio.google.com/apikey)
+- Сильные значения `POSTGRES_PASSWORD`, `SECRET_KEY` и `KYC_ENCRYPTION_KEY`
+- Yandex Maps API Key (опционально: без него карты отключены)
+- Telegram Bot Token и Gemini API Key — опционально, для бота и ИИ-функций
 
 ### Запуск
 
 ```bash
-git clone https://github.com/your-username/savefood.git
+git clone https://github.com/z7gvt9mys9-dev/savefood.git
 cd savefood
 
-# создать .env в корне репозитория — шаблон в разделе
-# «Переменные окружения» ниже, скопируйте блок целиком и заполните значения
 $EDITOR .env
 
 docker compose up -d --build
 ```
 
-> `.env.example` в репозиторий не входит (он в `.gitignore`) — исходником для
-> `.env` служит блок ниже.
+Создайте `.env` в корне по сводному блоку ниже и заполните обязательные
+значения. Не добавляйте этот файл с секретами в Git.
 
 Приложение будет доступно на `http://localhost` (порт меняется через `APP_PORT`).
 
@@ -85,19 +94,19 @@ docker compose up -d --build
 
 ### Переменные окружения (.env)
 
+Ниже — сводный справочник для Docker и локального запуска компонентов.
+`savefood/.env.example` — отслеживаемый Git шаблон только для Vite; корневой
+`.env` для Compose создаётся вручную и хранится локально.
+
 ```env
 # База данных
 POSTGRES_DB=savefood
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=strong-password
 
-# Backend (обязательные)
+# Backend (обязательные в Docker Compose)
 SECRET_KEY=random-string-64-chars        # openssl rand -base64 64 | tr -d '\n'
-DB_HOST=db                               # в compose — имя сервиса Postgres
-DB_PORT=5432
-DB_USER=postgres
-DB_PASS=strong-password
-DB_NAME=savefood
+KYC_ENCRYPTION_KEY=...                   # openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 
 # Frontend (Vite, передаются при сборке)
 VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-key
@@ -122,13 +131,11 @@ PHOTO_AUTO_MODERATE=false                # авто-модерация фото 
 PHOTO_AUTO_APPROVE_SCORE=0.85            # порог скора для авто-одобрения фото
 
 # KYC (§58/§58.1)
-KYC_ENCRYPTION_KEY=...                   # обязательный Fernet-ключ шифрования документов at-rest;
-                                         # сгенерировать: openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 KYC_OK_THRESHOLD=0.7                     # score ≥ порога → likely_ok → авто-одобрение
-KYC_FRAUD_THRESHOLD=0.3                  # score ≤ порога → likely_fraud → авто-отказ
-                                         # между порогами → review → ручная модерация
-KYC_RETRY_BATCH=20                       # размер пачки для kycRetryTick
-KYC_DOC_RETENTION_HOURS=0                # 0 = документы не удаляются (подотчётность)
+KYC_FRAUD_THRESHOLD=0.3                  # score ≤ порога → likely_fraud; решение принимает модератор
+                                         # между порогами → review; обе зоны остаются pending
+KYC_RETRY_BATCH=100                      # размер пачки для kycRetryTick
+KYC_DOC_RETENTION_HOURS=0                # 0 = фоновая очистка ожидающих документов отключена
 VOLUNTEER_KYC_REQUIRED=true              # гейт: волонтёр без approved не берёт маршрут
 
 # Мониторинг (опционально)
@@ -145,6 +152,7 @@ RECEIPT_UPLOAD_DIR=
 NEEDY_UPLOAD_DIR=
 VOLUNTEER_UPLOAD_DIR=
 VOLUNTEER_KYC_UPLOAD_DIR=
+DELIVERY_PHOTO_UPLOAD_DIR=
 
 # Web Push / VAPID (опционально; без ключей кнопка подписки скрыта)
 # Генерация пары: npx web-push generate-vapid-keys
@@ -178,6 +186,17 @@ VLESS_URL=                               # опциональный прокси
 XRAY_BINARY=./vendor/xray                # бинарник xray для VLESS-прокси
 ```
 
+> `docker-compose.yml` передаёт контейнерам только используемые в нём переменные
+> и сам задаёт внутренние адреса сервисов, каталоги загрузок и порт бэкенда `8000`
+> и `BACKGROUND_TASKS_JAVA=embedded`. Остальные настройки из блока нужны при
+> локальном запуске Java-бэкенда либо требуют явного добавления в compose.
+
+Для серверного FCM в Compose проще передать `FCM_CREDENTIALS_JSON`. Значение
+`FCM_CREDENTIALS_FILE` должно указывать на файл, который вы отдельно смонтировали
+в контейнер. Android-клиент получает push только при наличии
+`android-app/app/google-services.json`; без него приложение собирается, но FCM
+не инициализируется.
+
 ---
 
 ## Локальная разработка
@@ -199,9 +218,9 @@ DB_HOST=localhost DB_USER=postgres DB_PASS=postgres DB_NAME=savefood \
 ./mvnw spring-boot:run
 ```
 
-Бэкенд слушает `127.0.0.1:8000` (`SERVER_PORT`). Flyway накатывает схему на
-старте сам; на непустой базе срабатывает baseline-on-migrate и `V1__baseline.sql`
-не выполняется.
+Бэкенд использует порт `8000` (`SERVER_PORT`); dev-прокси обращается к нему по
+`127.0.0.1:8000`. Flyway накатывает схему на старте сам; на непустой базе
+срабатывает baseline-on-migrate и `V1__baseline.sql` не выполняется.
 
 CORS не настраивается: фронт и API ходят через один origin (в dev — прокси Vite,
 в проде — nginx). Отдельного `CORS_ORIGIN` в Java-бэкенде нет.
@@ -213,9 +232,11 @@ Swagger UI отсутствует — springdoc не подключён. Спи�
 
 ```bash
 cd savefood
-npm install
+npm ci
 npm run dev        # Vite dev-сервер на http://localhost:3000
 ```
+
+Нужен Node.js `^20.19` или `>=22.12` (требование Vite 8).
 
 В dev-режиме Vite проксирует все API-пути на `http://127.0.0.1:8000` (настраивается через `VITE_API_URL` в `savefood/.env`; пустое значение = относительные пути через прокси).
 
@@ -232,9 +253,9 @@ DB_PASS=postgres DB_NAME=savefood PORT=8001 go run .
 Чтобы dev-прокси Vite направлял горячие пути в Go, добавьте в `savefood/.env`:
 `VITE_GO_URL=http://127.0.0.1:8001` (пусто → эти пути обслуживает Java-бэкенд).
 
-> **Контракт:** GET и PATCH одного эндпоинта обязаны идти в один сервис. У Go нет
-> Redis-клиента, а координаты кэшируются в процессе — расщепление чтений и записей
-> между geows и Java отдаёт устаревшие данные.
+> **Контракт:** nginx направляет GET и PATCH координат в `geows`; оба метода
+> читают и пишут общую PostgreSQL, поэтому маршрут не следует расщеплять между
+> Java и Go.
 
 ### Доступ с другого устройства (Cloudflare Tunnel)
 
@@ -244,6 +265,8 @@ cloudflared tunnel --url http://localhost:3000   # dev-сервер
 ```
 
 Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js` (`server.allowedHosts`). Quick-туннель живёт, пока работает процесс `cloudflared`; при перезапуске URL меняется.
+Скрипт `cloudflare-tunnel.sh` всегда проксирует `localhost:80`, поэтому при
+изменённом `APP_PORT` запускайте `cloudflared` вручную с фактическим портом.
 
 ### Миграции (Flyway)
 
@@ -274,7 +297,7 @@ psql -d savefood -c \
 
 ```bash
 cd android-app
-./gradlew :app:assembleDevDebug -x lint
+./gradlew :app:assembleDevDebug -x lint -PYANDEX_MAPKIT_API_KEY=your-key
 ```
 
 APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
@@ -293,6 +316,11 @@ APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
 ```
 
 **Требования:** JDK 21, Android SDK 36 (`compileSdk`/`targetSdk` = 36, `minSdk` = 26).
+Без `YANDEX_MAPKIT_API_KEY` приложение собирается, но карты отключаются. Dev URL
+`:8000` рассчитан на локальный Spring Boot; в Docker Compose наружу опубликован
+nginx на `127.0.0.1:${APP_PORT:-80}`.
+Для FCM положите `google-services.json` в `android-app/app/`; без файла сборка
+остаётся рабочей, но Firebase и push-уведомления не активируются.
 Если системного JDK нет, подойдёт тот, что идёт с Android Studio:
 `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`.
 
@@ -324,13 +352,35 @@ openssl s_client -connect api.yourdomain.com:443 -servername api.yourdomain.com 
 | Роль | Возможности |
 |---|---|
 | **Магазин** | Создание лотов вручную или сканом чека (OCR), подтверждение передачи, закрытие самовывоза по QR-коду, ESG-отчёт, тариф с квотой в сайдбаре, история, Telegram-уведомления |
+| **Частный донор** | Публикация лота в базовой модели; фотография продуктов обязательна |
 | **Волонтёр** | Карта лотов, маршруты с 2-opt-оптимизацией и навигацией, GPS-верификация, QR-сканер, статистика и достижения (бейджи) |
 | **Получатель** | Просмотр лотов на карте, заявки (доставка/самовывоз), трекинг волонтёра, оценка доставки 1–5 ★ |
 | **Администратор** | Модерация заявок с ИИ-вердиктом Auto-KYC, диспетчерская, управление пользователями и тарифами магазинов, аналитика + ESG платформы, audit log |
 
+Публичной регистрации администратора и seed-аккаунта в миграциях нет. Первого
+администратора нужно создать доверенным операционным способом, сохранив в БД
+только bcrypt-хеш пароля; дальше вход выполняется через обычную страницу логина.
+
 ---
 
-## Структура проекта
+## Регистрация получателя и модерация
+
+Регистрация получателя — единый восстанавливаемый сценарий из трёх шагов:
+
+1. Фронтенд создаёт учётную запись через `POST /needy/register`, автоматически
+   входит и загружает подтверждающий документ с JWT.
+2. Экран ожидания опрашивает `GET /needy/{id}` каждые 3 секунды. Уверенный
+   `likely_ok` Auto-KYC может одобрить автоматически; `likely_fraud`, `review`
+   и `unchecked` остаются `pending` до решения администратора.
+3. После `approved` пользователь заполняет профиль через
+   `POST /needy/{id}/profile`. Незавершённая регистрация восстанавливается после
+   перезагрузки, а повторная загрузка документа не создаёт второй аккаунт.
+
+Сценарий и защита от дублей покрыты тестами `savefood/src/Pages/Auth/AuthPage.test.jsx`.
+
+---
+
+## Архитектура и структура проекта
 
 ```
 savefood/
@@ -402,6 +452,9 @@ savefood/
 | `POST` | `/shops/register` | Регистрация магазина (атомарно с учёткой) |
 | `POST` | `/volunteers/register` | Регистрация волонтёра |
 | `POST` | `/needy/register` | Регистрация получателя |
+| `POST` | `/needy/{id}/profile/upload` | Загрузить подтверждающий документ (owner/admin) |
+| `GET` | `/needy/{id}` | Профиль и текущий статус модерации (owner/admin) |
+| `POST` | `/needy/{id}/profile` | Завершить профиль после одобрения (owner/admin) |
 | `GET` | `/lots` | Активные лоты (фильтры: категория, поиск) |
 | `POST` | `/shops/{id}/lots/upload` | Создать лот (multipart с фото) |
 | `POST` | `/shops/{id}/receipts` | OCR: фото чека → позиции + антифрод-вердикт (Профи+) |
@@ -430,7 +483,7 @@ savefood/
 | `GET` | `/metrics` | Prometheus; закрыт на приватные сети + `METRICS_TOKEN` |
 
 Swagger UI нет (springdoc не подключён) — источник правды по контракту это
-контроллеры в `backend-java/src/main/java/ru/savefood/*/` и `ARCHITECTURE.md`.
+контроллеры и DTO в `backend-java/src/main/java/ru/savefood/*/`.
 
 ---
 
@@ -474,14 +527,14 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://yourdomain.com/
 
 ## Особенности безопасности
 
-- **KYC-документы недоступны человеку вообще** (§58.1): шифруются at-rest (`KYC_ENCRYPTION_KEY`), расшифровываются только в память на время ИИ-проверки. Эндпоинтов выдачи документа и ре-проверки нет; очередь модерации отдаёт лишь флаг `has_document`, решение принимается по `kyc_verdict` / `kyc_score` / `kyc_notes`. По умолчанию документы не удаляются (`KYC_DOC_RETENTION_HOURS=0`) — хранятся зашифрованными для подотчётности
+- **KYC-документы приватны и шифруются at-rest** (`KYC_ENCRYPTION_KEY`). Публичных URL нет; владелец или администратор может получить документ через защищённый API. Текущий экран модерации намеренно не показывает файл и принимает решение по `has_document`, `kyc_verdict`, `kyc_score` и `kyc_notes`. Жизненный цикл файла зависит от пути модерации и настройки retention; значение `KYC_DOC_RETENTION_HOURS=0` отключает фоновое удаление ожидающих документов
 - Пароли хранятся только в виде bcrypt-хеша
 - JWT содержит `role` и `related_id` — каждый пользователь видит только свои данные (`ensure_owner_or_admin` на всех приватных эндпоинтах)
 - Подтверждение доставки: QR-код и GPS-радиус 100 м проверяются **на сервере**
 - Rate limiting на `/auth/login` и `/register`: 5 запросов в минуту с одного IP (за Cloudflare Tunnel клиент определяется по `CF-Connecting-IP`)
 - **Антифрод (волонтёры)**: если волонтёр взял лот и удаляется от магазина — авто-пинг «Всё в порядке?», при отсутствии реакции маршрут снимается и еда возвращается на витрину
 - **Антифрод (чеки)**: дубликаты по sha256 и fingerprint (магазин+дата+сумма), проверка свежести даты, ИИ-оценка подлинности фото; `fraud_score ≥ 0.7` блокирует создание лотов
-- **Auto-KYC**: ИИ предпроверяет документы (тип, ФИО, следы редактирования). `score ≥ KYC_OK_THRESHOLD` → авто-одобрение, `≤ KYC_FRAUD_THRESHOLD` → авто-отказ, между порогами → `review` и очередь ручной модерации. Фото чеков и документы недоступны по публичным URL
+- **Auto-KYC**: ИИ предпроверяет документы (тип, ФИО, следы редактирования). Уверенный `likely_ok` (`score ≥ KYC_OK_THRESHOLD`) может быть одобрен автоматически. `likely_fraud`, `review` и `unchecked` остаются `pending`: ИИ не отказывает уязвимому заявителю без решения человека. Фото чеков и документы недоступны по публичным URL
 - Заблокированный админом пользователь теряет доступ немедленно (проверка на каждом запросе)
 - **Транспорт (Android):** cleartext заблокирован в `main`-конфиге; исключение для `10.0.2.2`/`localhost` живёт только во флейворе `dev` и в `prod`-сборку не попадает. SSL pinning **ещё не настроен** — `<pin-set>` добавляется, когда будут известны боевой домен и сертификат (см. раздел выше)
 
@@ -507,19 +560,36 @@ cd backend-java
 Если Testcontainers не поднимается (Docker Desktop отвергает запрошенную
 API-версию, ошибка маскируется под «Could not find a valid Docker environment»),
 можно подсунуть внешнюю базу: `SAVEFOOD_IT_JDBC_URL=jdbc:postgresql://localhost:5432/savefood_it`.
+Логин и пароль задаются через `SAVEFOOD_IT_DB_USER` и `SAVEFOOD_IT_DB_PASS`.
 
-**Фронтенд** — Vitest (паритет ключей ru/en, геоутилиты):
+> **Внимание:** интеграционный набор перед каждым тестом выполняет
+> `DROP SCHEMA public CASCADE`. Указывайте только отдельную одноразовую БД —
+> никогда не dev- или production-базу с нужными данными.
+
+**Фронтенд** — Vitest: регистрация и модерация получателя, адресные сценарии,
+валидация геолокации доставки, персонализация лендинга, локализация и геоутилиты:
 
 ```bash
 cd savefood && npm test
 ```
+
+**Go-сервис**:
+
+```bash
+cd go-services/geows && go test ./...
+```
+
+В CI для `geows` сейчас выполняются `go build` и `go vet`; тесты запускайте
+локально до отправки изменений.
 
 **CI** — GitHub Actions (`.github/workflows/ci.yml`), джобы запускаются по путям
 изменений: `backend-tests`, `backend-integration`, `frontend-build` (тесты +
 production-сборка), `android-build` (`:app:assembleDevDebug`), `geows-build`
 (`go build` / `go vet`).
 
-Дополнительно — сквозной runtime-смоук против живого сервера: регистрации (включая негативные 401/403/409/422), модерация, заявки, маршрут с QR/GPS-проверками, самовывоз, рейтинг, ачивки, антифрод-цикл. Сценарий описан в `savefood.md` §21.
+Дополнительно проект предусматривает сквозной runtime-смоук против живого
+сервера: регистрации (включая негативные 401/403/409/422), модерация, заявки,
+маршрут с QR/GPS-проверками, самовывоз, рейтинг, ачивки и антифрод-цикл.
 
 ---
 
@@ -556,6 +626,23 @@ production-сборка), `android-build` (`:app:assembleDevDebug`), `geows-buil
 
 ---
 
+## Эксплуатация
+
+```bash
+docker compose ps
+docker compose logs -f backend
+curl -fsS http://localhost/healthz
+curl -fsS http://localhost/readyz
+```
+
+Резервное копирование PostgreSQL запускается через `scripts/db_backup.sh`.
+Скрипт не сохраняет Docker-тома с загруженными фото и документами — нужные тома
+архивируйте отдельно. Восстановление защищено явным подтверждением `CONFIRM=yes`;
+перед ним остановите запись данных и проверьте выбранный архив. Текущий
+deploy-процесс ручной и не обещает zero-downtime.
+
+---
+
 ## Вклад
 
 Если вы хотите помочь развитию проекта:
@@ -579,10 +666,11 @@ production-сборка), `android-build` (`:app:assembleDevDebug`), `geows-buil
 
 - **Email**: igel2020i@gmail.com
 - **Telegram**: @savefood_bot
-- **Issues**: [GitHub Issues](https://github.com/your-username/savefood/issues)
+- **Issues**: [GitHub Issues](https://github.com/z7gvt9mys9-dev/savefood/issues)
 
 ---
 
 ## Лицензия
 
-MIT
+Лицензия пока не опубликована отдельным файлом. До её добавления используйте
+код только с разрешения владельца репозитория.
