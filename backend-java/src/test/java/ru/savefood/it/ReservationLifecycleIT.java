@@ -4,11 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import ru.savefood.needy.NeedyRepository;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.PasswordService;
 import ru.savefood.volunteer.RouteRevertService;
+import ru.savefood.volunteer.VolunteerRepository;
+import ru.savefood.volunteer.VolunteerService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,11 +27,14 @@ class ReservationLifecycleIT extends PostgresIT {
 
     private NeedyService needyService;
     private RouteRevertService revert;
+    private VolunteerService volunteerService;
 
     @BeforeEach
     void wire() {
         needyService = new NeedyService(jdbc, new NeedyRepository(jdbc), new PasswordService());
         revert = new RouteRevertService(jdbc);
+        volunteerService = new VolunteerService(jdbc, new VolunteerRepository(jdbc), revert,
+            new PasswordService(), needyService, null, "Europe/Moscow");
     }
 
     // ── reservation ────────────────────────────────────────────────────────────
@@ -45,6 +51,27 @@ class ReservationLifecycleIT extends PostgresIT {
 
         assertThat(lotQuantity(lot)).isEqualTo(4.0);
         assertThat(status("tickets", ticket)).isEqualTo("open");
+    }
+
+    @Test
+    @DisplayName("карта волонтёра показывает только лоты с заявкой на доставку")
+    @SuppressWarnings("unchecked")
+    void volunteerMapExcludesLotsWithoutDeliveryRequests() {
+        int shop = insertShop("Магазин", 43.238, 76.889);
+        int unrequestedLot = insertLot(shop, 5.0, "Выпечка");
+        int requestedLot = insertLot(shop, 5.0, "Овощи/Фрукты");
+        int needy = insertNeedy("Получатель");
+        needyService.createTicket(needy, "овощи", "адрес", 43.24, 76.90, null, requestedLot,
+            null, null, null, false);
+
+        Map<String, Object> map = volunteerService.mapPoints();
+        List<Map<String, Object>> shops = (List<Map<String, Object>>) map.get("shops");
+        List<Map<String, Object>> lots = (List<Map<String, Object>>) shops.get(0).get("lots");
+
+        assertThat(lots).extracting(lot -> lot.get("lot_id"))
+            .containsExactly(requestedLot)
+            .doesNotContain(unrequestedLot);
+        assertThat(lots.get(0).get("status")).isEqualTo("reserved");
     }
 
     @Test

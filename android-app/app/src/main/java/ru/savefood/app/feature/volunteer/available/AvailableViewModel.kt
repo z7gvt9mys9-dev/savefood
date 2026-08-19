@@ -38,26 +38,21 @@ class AvailableViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            val search = _state.value.search.takeIf { it.isNotBlank() }
-            // Lots carry the rich card data; map adds the open delivery requests overlay.
-            when (val lotsRes = repo.getLots(search = search)) {
+            // The volunteer map is deliberately narrower than the public /lots
+            // catalogue: it contains only lots for which a recipient requested
+            // delivery.  Do not fetch /lots here, or unrequested lots reappear.
+            when (val mapRes = repo.getMap()) {
                 is ApiResult.Success -> {
-                    val active = lotsRes.data.filter { it.status == "active" }
-                    _state.update { it.copy(loading = false, lots = active) }
-                    when (val mapRes = repo.getMap()) {
-                        is ApiResult.Success -> {
-                            val map = mapRes.data
-                            _state.update {
-                                it.copy(
-                                    lots = mergeReservedLots(active, map),
-                                    openTickets = map.tickets,
-                                )
-                            }
-                        }
-                        is ApiResult.Error -> Unit // map overlay is best-effort; lots already shown
+                    val map = mapRes.data
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            lots = mapToDeliveryLots(map),
+                            openTickets = map.tickets,
+                        )
                     }
                 }
-                is ApiResult.Error -> _state.update { it.copy(loading = false, error = lotsRes.message) }
+                is ApiResult.Error -> _state.update { it.copy(loading = false, error = mapRes.message) }
             }
         }
     }
@@ -89,37 +84,30 @@ class AvailableViewModel @Inject constructor(
 
     fun clearStartError() = _state.update { it.copy(startError = null) }
 
-    /**
-     * Reserving the final unit sets its public quantity to zero, so /lots quite
-     * correctly omits it.  The authenticated volunteer map carries a minimal
-     * ticket/lot card for that case; merge it into the actionable list rather
-     * than leaving a passive marker that cannot start a route.
-     */
-    private fun mergeReservedLots(active: List<LotDto>, map: VolunteerMapDto): List<LotDto> {
-        val existingIds = active.mapTo(mutableSetOf()) { it.id }
+    /** Convert delivery-only map cards into the list displayed to volunteers. */
+    private fun mapToDeliveryLots(map: VolunteerMapDto): List<LotDto> {
         val query = _state.value.search.trim().lowercase()
-        val reserved = map.tickets.mapNotNull { ticket ->
-            val lotId = ticket.lotId ?: return@mapNotNull null
-            if (lotId in existingIds || ticket.routeAvailable == false) return@mapNotNull null
-            val title = ticket.lotDescription ?: ticket.items ?: return@mapNotNull null
-            val matchesSearch = query.isBlank() || title.lowercase().contains(query) ||
-                (ticket.shopName?.lowercase()?.contains(query) == true)
-            if (!matchesSearch) return@mapNotNull null
-            existingIds += lotId
-            LotDto(
-                id = lotId,
-                shopId = ticket.shopId ?: 0,
-                description = title,
-                quantity = ticket.lotQuantity ?: 0.0,
-                photo = ticket.lotPhoto,
-                address = ticket.shopName,
-                status = "reserved",
-                category = ticket.lotCategory,
-                shopName = ticket.shopName,
-                shopLat = ticket.shopLat,
-                shopLon = ticket.shopLon,
-            )
+        return map.shops.flatMap { shop ->
+            shop.lots.mapNotNull { lot ->
+                if (lot.routeAvailable == false) return@mapNotNull null
+                val title = lot.description ?: return@mapNotNull null
+                val matchesSearch = query.isBlank() || title.lowercase().contains(query) ||
+                    (shop.name?.lowercase()?.contains(query) == true)
+                if (!matchesSearch) return@mapNotNull null
+                LotDto(
+                    id = lot.lotId,
+                    shopId = shop.shopId,
+                    description = title,
+                    quantity = lot.quantity,
+                    photo = lot.photo,
+                    address = shop.name,
+                    status = lot.status ?: "reserved",
+                    category = lot.category,
+                    shopName = shop.name,
+                    shopLat = shop.lat,
+                    shopLon = shop.lon,
+                )
+            }
         }
-        return active + reserved
     }
 }

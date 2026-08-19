@@ -729,7 +729,7 @@ public class VolunteerService {
 
     // ── reads (map, history, rating, stats, thanks) ──────────────────────────────
 
-    /** Volunteer map (§: shops with active lots + open delivery requests, coarsened). */
+    /** Volunteer map: only lots reserved by a recipient for delivery, plus their open requests. */
     public Map<String, Object> mapPoints() {
         Map<Integer, Map<String, Object>> shopsMap = new LinkedHashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
@@ -741,9 +741,12 @@ public class VolunteerService {
                 + "FROM shops s JOIN lots l ON s.id = l.shop_id "
                 + "WHERE l.status = 'active' "
                 + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day') "
-                + "AND (l.quantity > 0 OR EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
+                // A volunteer can only start a route when at least one recipient has
+                // requested delivery for this lot.  Showing every active lot here
+                // made the volunteer map look like the public recipient catalogue.
+                + "AND EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
                 + "AND t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
-                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)))")) {
+                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE))")) {
             if (!Geo.isValidCoordinates(asDouble(r.get("lat")), asDouble(r.get("lon")))) {
                 continue;
             }
@@ -765,12 +768,11 @@ public class VolunteerService {
             lot.put("photo", r.get("photo"));
             lot.put("category", r.get("category"));
             int openDeliveryTickets = r.get("open_delivery_tickets") instanceof Number n ? n.intValue() : 0;
-            boolean reserved = num(r.get("quantity")) <= 0 && openDeliveryTickets > 0;
-            lot.put("status", reserved ? "reserved" : "active");
+            // This is a delivery-only view: every returned lot already has a
+            // recipient reservation, even if stock remains for more recipients.
+            lot.put("status", "reserved");
             lot.put("open_delivery_tickets", openDeliveryTickets);
-            // Lets old clients render the lot normally and gives newer clients a
-            // clear action path for the last unit already reserved by a recipient.
-            lot.put("route_available", openDeliveryTickets > 0);
+            lot.put("route_available", true);
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> lots = (List<Map<String, Object>>) shop.get("lots");
             lots.add(lot);
