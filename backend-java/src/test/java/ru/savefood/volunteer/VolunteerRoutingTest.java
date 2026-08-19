@@ -1,6 +1,5 @@
 package ru.savefood.volunteer;
 
-import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -10,7 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Port of tests/test_routing.py — route construction logic (§14): NN + 2-opt
- * ordering and the ticket time-window filter helpers.
+ * ordering.
  */
 class VolunteerRoutingTest {
 
@@ -21,10 +20,6 @@ class VolunteerRoutingTest {
     private static VolunteerService newService(String tz) {
         return new VolunteerService(null, null, null, null, null, null, tz);
     }
-
-    /** The Python tests monkeypatched datetime.now() to 12:00 local; the Java
-     * helpers take an explicit {@code now} instead. */
-    private static final LocalTime NOON = LocalTime.of(12, 0);
 
     private static Map<String, Object> t(int id, double lat, double lon) {
         Map<String, Object> m = new LinkedHashMap<>();
@@ -81,43 +76,4 @@ class VolunteerRoutingTest {
         assertThat(svc.optimizeStopOrder(tickets, new double[]{0.0, 0.0})).isEqualTo(tickets);
     }
 
-    @Test
-    void isAvailableNowWindow() {
-        var svc = newService("Europe/Moscow");
-        assertThat(svc.isAvailableNow("10:00-14:00", NOON)).isTrue();
-        assertThat(svc.isAvailableNow("13:00-14:00", NOON)).isFalse();
-        // overnight window 22:00-02:00 does not include noon
-        assertThat(svc.isAvailableNow("22:00-02:00", NOON)).isFalse();
-        // overnight window 09:00-01:00 includes noon
-        assertThat(svc.isAvailableNow("09:00-01:00", NOON)).isTrue();
-    }
-
-    @Test
-    void isAvailableNowLenientOnGarbage() {
-        var svc = newService("Europe/Moscow");
-        assertThat(svc.isAvailableNow("")).isTrue();
-        assertThat(svc.isAvailableNow(null)).isTrue();
-        assertThat(svc.isAvailableNow("not-a-window")).isTrue();
-        assertThat(svc.isAvailableNow("10:00")).isTrue();
-    }
-
-    @Test
-    void windowOpenWithinHorizon() {
-        var svc = newService("Europe/Moscow");
-        int h = 120;
-        // open right now → true regardless of horizon
-        assertThat(svc.windowOpenWithin("10:00-14:00", h, NOON)).isTrue();
-        // opens in 60 min (13:00) → within the 120-min horizon → true (§59/Q1-A:
-        // the working person whose window opens soon is no longer dropped+cancelled)
-        assertThat(svc.windowOpenWithin("13:00-14:00", h, NOON)).isTrue();
-        // opens in 180 min (15:00) → beyond the horizon → false
-        assertThat(svc.windowOpenWithin("15:00-16:00", h, NOON)).isFalse();
-        // already closed today, reopens tomorrow → false
-        assertThat(svc.windowOpenWithin("08:00-09:00", h, NOON)).isFalse();
-        // empty / unparseable → always available
-        assertThat(svc.windowOpenWithin("", h, NOON)).isTrue();
-        assertThat(svc.windowOpenWithin(null, h, NOON)).isTrue();
-        // horizon 0 collapses to isAvailableNow (not open now → false)
-        assertThat(svc.windowOpenWithin("13:00-14:00", 0, NOON)).isFalse();
-    }
 }

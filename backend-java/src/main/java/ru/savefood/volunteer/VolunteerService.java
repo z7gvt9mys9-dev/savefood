@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -59,7 +58,6 @@ public class VolunteerService {
     static final int PING_FRESH_SECONDS = 10 * 60;
     static final int PING_MISMATCH_METERS = 1000;
     static final int MAX_DELIVERY_ATTEMPTS = 3;
-    static final int DELIVERY_WINDOW_HORIZON_MIN = 120;
     static final int ROUTE_HARD_CAP = 20;
 
     static final double COARSE_GRID_DEG = 0.005;
@@ -192,15 +190,8 @@ public class VolunteerService {
         tickets = tickets.stream()
             .filter(t -> Geo.isValidCoordinates(asDouble(t.get("lat")), asDouble(t.get("lon"))))
             .collect(java.util.stream.Collectors.toList());
-        boolean hadAny = !tickets.isEmpty();
-        // §59/Q1-A: include recipients whose window is open now OR within the horizon.
-        tickets = tickets.stream()
-            .filter(t -> windowOpenWithin(str(t.get("available_time"), ""), DELIVERY_WINDOW_HORIZON_MIN))
-            .collect(java.util.stream.Collectors.toList());
         if (tickets.isEmpty()) {
-            throw new ApiException(400, hadAny
-                ? "Все получатели этого лота недоступны в ближайшее время (вне окна доступности) — попробуйте позже"
-                : "На этот лот пока нет заявок на доставку — маршрут не создан");
+            throw new ApiException(400, "На этот лот пока нет заявок на доставку — маршрут не создан");
         }
 
         String lotCategory = str(lot.get("category"), "");
@@ -1068,57 +1059,6 @@ public class VolunteerService {
             throw new ApiException(400, "Координаты подтверждения расходятся с вашей геолокацией на "
                 + (int) distM + " м — обновите положение в приложении и попробуйте снова");
         }
-    }
-
-    /** Ticket {@code available_time} ("HH:MM-HH:MM", LOCAL_TZ) — open now? */
-    boolean isAvailableNow(String availableTime) {
-        return isAvailableNow(availableTime, LocalTime.now(zone));
-    }
-
-    /** Explicit-{@code now} seam so tests don't depend on the wall clock. */
-    boolean isAvailableNow(String availableTime, LocalTime now) {
-        if (availableTime == null || availableTime.isEmpty()) {
-            return true;
-        }
-        try {
-            String[] parts = availableTime.split("-");
-            if (parts.length != 2) {
-                return true;
-            }
-            int[] s = hm(parts[0].strip());
-            int[] e = hm(parts[1].strip());
-            int nowM = now.getHour() * 60 + now.getMinute();
-            int startM = s[0] * 60 + s[1];
-            int endM = e[0] * 60 + e[1];
-            return startM <= endM ? startM <= nowM && nowM <= endM : nowM >= startM || nowM <= endM;
-        } catch (RuntimeException ex) {
-            return true;
-        }
-    }
-
-    /** §59/Q1-A: open now OR opens within {@code horizonMinutes}. */
-    boolean windowOpenWithin(String availableTime, int horizonMinutes) {
-        return windowOpenWithin(availableTime, horizonMinutes, LocalTime.now(zone));
-    }
-
-    /** Explicit-{@code now} seam so tests don't depend on the wall clock. */
-    boolean windowOpenWithin(String availableTime, int horizonMinutes, LocalTime now) {
-        if (isAvailableNow(availableTime, now)) {
-            return true;
-        }
-        if (availableTime == null || availableTime.isEmpty() || horizonMinutes <= 0) {
-            return false;
-        }
-        int startM;
-        try {
-            int[] s = hm(availableTime.split("-")[0].strip());
-            startM = s[0] * 60 + s[1];
-        } catch (RuntimeException ex) {
-            return true;
-        }
-        int nowM = now.getHour() * 60 + now.getMinute();
-        int delta = Math.floorMod(startM - nowM, 24 * 60);
-        return delta <= horizonMinutes;
     }
 
     // ── small utilities ──────────────────────────────────────────────────────────
