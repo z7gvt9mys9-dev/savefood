@@ -335,10 +335,10 @@ const NeedyDashboard = () => {
       return <p className="qr-code-text" role="status">{t('needy.qr_loading')}</p>;
     }
     return (
-      <>
-        <QRCode value={qrCode} size={128} bgColor="#1a1a2e" fgColor="#ffffff" />
+      <div className="ticket-qr-code">
+        <QRCode value={qrCode} size={208} level="Q" bgColor="#ffffff" fgColor="#000000" />
         <span className="qr-code-text">{qrCode}</span>
-      </>
+      </div>
     );
   };
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
@@ -195,6 +195,7 @@ const VolunteerDashboard = () => {
   const [filterCategory, setFilterCategory] = useState('');
   const [activeRoute, setActiveRoute] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState('');
   // Retain a scanned QR in memory only until the courier adds the proof photo.
   const [pendingDelivery, setPendingDelivery] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -224,29 +225,45 @@ const VolunteerDashboard = () => {
   // chains the stop onto the start promise instead of racing it.
   useEffect(() => {
     if (!scanning) return;
-    const scanner = new Html5Qrcode('qr-reader');
+    let disposed = false;
+    const scanner = new Html5Qrcode('qr-reader', {
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+    });
     let handled = false;
     const startPromise = scanner.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: 250 },
+      {
+        fps: 10,
+        qrbox: (width, height) => {
+          const size = Math.floor(Math.min(width, height) * 0.8);
+          return { width: size, height: size };
+        },
+      },
       async (decodedText) => {
         if (handled) return; // decode keeps firing ~10 fps until the camera stops
-        handled = true;
         const current = nextTicketRef.current;
         // SF-{id} or SF-{id}-{secret}; the full string (incl. secret) goes to
         // the server for verification, match[1] only routes it to the right stop.
         const match = decodedText.match(/^SF-(\d+)(?:-[A-Za-z0-9_-]+)?$/);
-        if (match && current && parseInt(match[1]) === current.ticket_id) {
-          setPendingDelivery({ ticketId: current.ticket_id, qrCode: decodedText });
-        } else {
-          alert(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
+        if (!match || !current || parseInt(match[1]) !== current.ticket_id) {
+          setScanError(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
+          return;
         }
+        handled = true;
+        setPendingDelivery({ ticketId: current.ticket_id, qrCode: decodedText });
         setScanning(false); // cleanup stops the camera
       },
       () => {}
     );
-    startPromise.catch(() => setScanning(false)); // no camera / permission denied
+    startPromise.catch((error) => {
+      console.error('Unable to start the delivery QR scanner', error);
+      if (!disposed) {
+        setScanError(t('volunteer.camera_error'));
+        setScanning(false);
+      }
+    });
     return () => {
+      disposed = true;
       startPromise
         .then(() => scanner.stop())
         .then(() => scanner.clear())
@@ -863,6 +880,7 @@ const VolunteerDashboard = () => {
                   <div className="scanner-container">
                     <p style={{ textAlign: 'center', color: '#aaa', marginBottom: 8 }}>{t('volunteer.scan_camera_hint')}</p>
                     <div id="qr-reader" style={{ width: '100%', borderRadius: 8, overflow: 'hidden' }}></div>
+                    {scanError && <p role="alert" style={{ color: '#e57373', margin: '8px 0 0' }}>{scanError}</p>}
                     <button className="btn-small" style={{ marginTop: 10, width: '100%' }} onClick={() => setScanning(false)}>{t('common.cancel')}</button>
                   </div>
                 ) : pendingDelivery ? (
@@ -904,7 +922,10 @@ const VolunteerDashboard = () => {
                       disabled={gpsStatus === 'checking' || gpsStatus === 'far'}
                       onClick={async () => {
                         const status = await checkGPS();
-                        if (status === 'ok') setScanning(true);
+                        if (status === 'ok') {
+                          setScanError('');
+                          setScanning(true);
+                        }
                       }}
                     >
                       {t('volunteer.scan_qr')}

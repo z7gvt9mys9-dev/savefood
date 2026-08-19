@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-qr-code';
-import { Html5Qrcode } from 'html5-qrcode';
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import AddressInput from '../Auth/AddressInput';
 import EmptyState from '../../components/EmptyState';
 import AccountLinks from '../../components/AccountLinks';
@@ -39,6 +39,7 @@ const ShopDashboard = () => {
   const [pickupCode, setPickupCode] = useState('');
   const [pickupBusy, setPickupBusy] = useState(false);
   const [pickupScanning, setPickupScanning] = useState(false);
+  const [pickupScanError, setPickupScanError] = useState('');
   const [plan, setPlan] = useState(null);
   const [forecast, setForecast] = useState(null);
   // OCR receipt flow: upload photo → review parsed lot drafts → confirm
@@ -388,10 +389,19 @@ const ShopDashboard = () => {
   // page, so the cleanup chains onto the start promise.
   useEffect(() => {
     if (!pickupScanning) return;
-    const scanner = new Html5Qrcode('pickup-qr-reader');
+    let disposed = false;
+    const scanner = new Html5Qrcode('pickup-qr-reader', {
+      formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+    });
     const startPromise = scanner.start(
       { facingMode: 'environment' },
-      { fps: 10, qrbox: 250 },
+      {
+        fps: 10,
+        qrbox: (width, height) => {
+          const size = Math.floor(Math.min(width, height) * 0.8);
+          return { width: size, height: size };
+        },
+      },
       (decodedText) => {
         if (/^SF-\d+(?:-[A-Za-z0-9_-]+)?$/.test(decodedText.trim())) {
           setPickupCode(decodedText.trim());
@@ -400,8 +410,15 @@ const ShopDashboard = () => {
       },
       () => {},
     );
-    startPromise.catch(() => setPickupScanning(false));
+    startPromise.catch((error) => {
+      console.error('Unable to start the self-pickup QR scanner', error);
+      if (!disposed) {
+        setPickupScanError(t('shop.self_pickup_camera_error'));
+        setPickupScanning(false);
+      }
+    });
     return () => {
+      disposed = true;
       startPromise
         .then(() => scanner.stop())
         .then(() => scanner.clear())
@@ -527,7 +544,10 @@ const ShopDashboard = () => {
             onChange={(e) => setPickupCode(e.target.value)}
             style={{ flex: 1, minWidth: 160 }}
           />
-          <button type="button" className="btn btn-secondary" onClick={() => setPickupScanning(s => !s)}>
+          <button type="button" className="btn btn-secondary" onClick={() => {
+            setPickupScanError('');
+            setPickupScanning(s => !s);
+          }}>
             {pickupScanning ? t('common.cancel') : <><MonoIcon name="camera" /> {t('shop.self_pickup_scan')}</>}
           </button>
           <button type="submit" className="btn btn-primary" disabled={pickupBusy || !pickupCode.trim()}>
@@ -535,6 +555,7 @@ const ShopDashboard = () => {
           </button>
         </form>
         {pickupScanning && <div id="pickup-qr-reader" style={{ width: '100%', maxWidth: 320, marginTop: 10 }} />}
+        {pickupScanError && <p role="alert" style={{ color: '#e57373', marginTop: 8 }}>{pickupScanError}</p>}
       </div>
       <AccountLinks dashboardPath="/shop" />
       <PushToggle />
