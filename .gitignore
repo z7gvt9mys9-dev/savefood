@@ -142,3 +142,7 @@ go-services/geows/geows
 
 
 ./design
+
+# agents
+AGENTS.md
+.agents/
