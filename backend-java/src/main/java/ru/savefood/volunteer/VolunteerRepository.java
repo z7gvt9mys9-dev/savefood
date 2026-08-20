@@ -24,6 +24,12 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class VolunteerRepository {
 
+    public record KycDocumentReplacement(String previousDocument) {
+    }
+
+    public record KycModerationTransition(String document, String generation) {
+    }
+
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -84,14 +90,74 @@ public class VolunteerRepository {
         return getVolunteerById(volId);
     }
 
-    public void setVolunteerDocument(int volId, String document) {
-        jdbc.update("UPDATE volunteers SET document = ? WHERE id = ?", document, volId);
+    /**
+     * Installs a new identity document and generation in one row-locked statement.
+     * The returned reference is the exact previous file that the caller may delete.
+     */
+    public KycDocumentReplacement replaceVolunteerKycDocument(int volId, String document,
+                                                               String generation) {
+        List<KycDocumentReplacement> rows = jdbc.query(
+            "WITH previous AS (SELECT id, document FROM volunteers WHERE id = ? FOR UPDATE) "
+            + "UPDATE volunteers v SET document = ?, kyc_generation = ?, status = 'pending', "
+            + "kyc_score = NULL, kyc_verdict = NULL, kyc_notes = NULL, kyc_checked_at = NULL "
+            + "FROM previous p WHERE v.id = p.id "
+            + "RETURNING p.document AS previous_document",
+            (rs, n) -> new KycDocumentReplacement(rs.getString("previous_document")),
+            volId, document, generation);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
-    public void saveVolunteerKyc(int volId, Double score, String verdict, String notes) {
-        jdbc.update(
-            "UPDATE volunteers SET kyc_score = ?, kyc_verdict = ?, kyc_notes = ?, kyc_checked_at = ? WHERE id = ?",
-            score, verdict, notes, OffsetDateTime.now(), volId);
+    /** Persist one complete analysis result only while its document generation is current. */
+    public boolean saveVolunteerKyc(int volId, String generation, Double score,
+                                    String verdict, String notes, String expectedStatus) {
+        String statusGuard = expectedStatus == null ? "" : " AND status = ?";
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(score);
+        args.add(verdict);
+        args.add(notes);
+        args.add(OffsetDateTime.now());
+        args.add(volId);
+        args.add(generation);
+        if (expectedStatus != null) {
+            args.add(expectedStatus);
+        }
+        return jdbc.update(
+            "UPDATE volunteers SET kyc_score = ?, kyc_verdict = ?, kyc_notes = ?, kyc_checked_at = ? "
+            + "WHERE id = ? AND kyc_generation = ? AND document IS NOT NULL" + statusGuard,
+            args.toArray()) == 1;
+    }
+
+    /**
+     * Auto-approve only the still-current generation and only if its current
+     * persisted verdict is the approving verdict. The status guard makes the
+     * notification side effects single-winner under concurrent analyses.
+     */
+    public boolean autoApproveVolunteerKyc(int volId, String generation) {
+        return jdbc.update(
+            "UPDATE volunteers SET status = 'approved', "
+            + "kyc_notes = LEFT('[авто-одобрено ИИ] ' || COALESCE(kyc_notes, ''), 1000) "
+            + "WHERE id = ? AND kyc_generation = ? AND document IS NOT NULL "
+            + "AND status = 'pending' AND kyc_verdict = 'likely_ok'",
+            volId, generation) == 1;
+    }
+
+    /** Atomically decide the current pending generation and return its exact identity. */
+    public KycModerationTransition moderateVolunteerKyc(int volId, String status) {
+        List<KycModerationTransition> rows = jdbc.query(
+            "UPDATE volunteers SET status = ? WHERE id = ? AND status = 'pending' "
+            + "RETURNING document, kyc_generation",
+            (rs, n) -> new KycModerationTransition(
+                rs.getString("document"), rs.getString("kyc_generation")),
+            status, volId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** Clear only the exact document generation selected by the caller. */
+    public boolean clearVolunteerKycDocument(int volId, String document, String generation) {
+        return jdbc.update(
+            "UPDATE volunteers SET document = NULL, kyc_generation = NULL "
+            + "WHERE id = ? AND document = ? AND kyc_generation = ?",
+            volId, document, generation) == 1;
     }
 
     public void updateVolunteerLocation(int volId, double lat, double lon) {

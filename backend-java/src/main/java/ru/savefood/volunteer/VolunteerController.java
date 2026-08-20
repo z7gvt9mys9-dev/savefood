@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import ru.savefood.audit.AuditService;
 import ru.savefood.kyc.KycCrypto;
@@ -126,26 +127,28 @@ public class VolunteerController {
         if (vol == null) {
             throw new ApiException(404, "Volunteer not found");
         }
-        String oldDocument = (String) vol.get("document");
         String filename = uploads.validateAndSave(file, kycUploadDir, true);
         Path path = Paths.get(kycUploadDir, filename);
+        String document = "/volunteer_kyc/" + filename;
+        String generation = UUID.randomUUID().toString();
+        VolunteerRepository.KycDocumentReplacement replacement;
         // Encrypt the identity document at rest immediately (§58): on disk only ciphertext.
         try {
             kycCrypto.encryptFile(path.toString());
-            repo.setVolunteerDocument(volunteerId, "/volunteer_kyc/" + filename);
+            replacement = repo.replaceVolunteerKycDocument(volunteerId, document, generation);
+            if (replacement == null) {
+                throw new ApiException(404, "Volunteer not found");
+            }
         } catch (RuntimeException e) {
             deleteQuietly(path);
             throw e;
         }
-        if (oldDocument != null && !oldDocument.equals("/volunteer_kyc/" + filename)) {
-            deleteQuietly(Paths.get(kycUploadDir, basename(oldDocument)));
-        }
-        // A rejected volunteer re-uploading moves back into the queue; an approved one is left alone.
-        if ("rejected".equals(vol.get("status"))) {
-            repo.setVolunteerStatus(volunteerId, "pending", null);
+        if (replacement.previousDocument() != null
+                && !replacement.previousDocument().equals(document)) {
+            deleteQuietly(Paths.get(kycUploadDir, basename(replacement.previousDocument())));
         }
         String name = vol.get("name") == null ? "" : vol.get("name").toString();
-        kycService.startVolunteerKycCheck(volunteerId, path.toString(), name);
+        kycService.startVolunteerKycCheck(volunteerId, path.toString(), name, generation);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         out.put("status", "pending");
@@ -191,10 +194,12 @@ public class VolunteerController {
         if (!"approved".equals(status) && !"rejected".equals(status)) {
             throw new ApiException(400, "status must be 'approved' or 'rejected'");
         }
-        if (repo.setVolunteerStatus(volunteerId, status, "pending") == null) {
+        VolunteerRepository.KycModerationTransition transition =
+            repo.moderateVolunteerKyc(volunteerId, status);
+        if (transition == null) {
             throw new ApiException(409, "Волонтёр уже промодерирован или не найден");
         }
-        deleteDocument(volunteerId);
+        deleteDocument(volunteerId, transition.document(), transition.generation());
         boolean approved = "approved".equals(status);
         String msg = approved
             ? "Ваш аккаунт волонтёра подтверждён модератором — можно брать маршруты."
@@ -220,14 +225,22 @@ public class VolunteerController {
         }
         Map<String, Object> vol = repo.getVolunteerById(volunteerId);
         String docUrl = vol == null ? null : (String) vol.get("document");
+        String generation = vol == null ? null : (String) vol.get("kyc_generation");
         if (docUrl == null || docUrl.isBlank()) {
             throw new ApiException(404, "Документ уже удалён — перепроверка недоступна");
         }
+        if (generation == null || generation.isBlank()) {
+            throw new ApiException(409, "Документ не имеет поколения KYC");
+        }
         String name = vol.get("name") == null ? "" : vol.get("name").toString();
-        kycService.recheckVolunteer(volunteerId, Paths.get(kycUploadDir, basename(docUrl)).toString(), name);
+        kycService.recheckVolunteer(volunteerId,
+            Paths.get(kycUploadDir, basename(docUrl)).toString(), name, generation);
         audit.log(user.sub(), "kyc_recheck", "volunteer", volunteerId,
             "Admin re-ran AI KYC for volunteer #" + volunteerId);
         Map<String, Object> updated = repo.getVolunteerById(volunteerId);
+        if (updated == null) {
+            throw new ApiException(404, "Volunteer not found");
+        }
         return Map.of(
             "kyc_verdict", updated.get("kyc_verdict") == null ? "unchecked" : updated.get("kyc_verdict"),
             "kyc_score", updated.get("kyc_score") == null ? "" : updated.get("kyc_score"),
@@ -235,17 +248,15 @@ public class VolunteerController {
     }
 
     /** Delete the volunteer's identity document from disk and clear the column (§5). */
-    private void deleteDocument(int volunteerId) {
-        Map<String, Object> vol = repo.getVolunteerById(volunteerId);
-        String docUrl = vol == null ? null : (String) vol.get("document");
-        if (docUrl != null && !docUrl.isBlank()) {
+    private void deleteDocument(int volunteerId, String docUrl, String generation) {
+        if (docUrl != null && !docUrl.isBlank() && generation != null
+                && repo.clearVolunteerKycDocument(volunteerId, docUrl, generation)) {
             try {
                 Files.deleteIfExists(Paths.get(kycUploadDir, basename(docUrl)));
             } catch (Exception ignore) {
                 // best-effort
             }
         }
-        jdbc.update("UPDATE volunteers SET document = NULL WHERE id = ?", volunteerId);
     }
 
     private static String basename(String url) {

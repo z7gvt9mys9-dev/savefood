@@ -53,9 +53,7 @@ public class KycService {
     private static final String VERDICT_REVIEW = "review";
     private static final String VERDICT_FRAUD = "likely_fraud";
     private static final String VERDICT_UNCHECKED = "unchecked";
-    private static final String STATUS_APPROVED = "approved";
     private static final String STATUS_PENDING = "pending";
-
     private static final Map<String, String> MIME_BY_EXT = Map.of(
         ".jpg", "image/jpeg", ".jpeg", "image/jpeg", ".png", "image/png",
         ".webp", "image/webp", ".pdf", "application/pdf");
@@ -116,19 +114,30 @@ public class KycService {
     }
 
     /** Synchronous re-check for the moderator's «второе мнение» (§38.2), volunteer path. */
-    public void recheckVolunteer(int volId, String documentPath, String applicantName) {
-        runVolunteerKycCheck(volId, documentPath, applicantName);
+    public void recheckVolunteer(int volId, String documentPath, String applicantName,
+                                 String generation) {
+        runVolunteerKycCheck(volId, documentPath, applicantName, generation, null);
     }
 
     // ── Volunteer identity KYC (§58) ─────────────────────────────────────────
 
     /** Fire-and-forget entry point, the analogue of {@code start_volunteer_kyc_check}. */
-    public void startVolunteerKycCheck(int volId, String documentPath, String applicantName) {
-        pool.submit(() -> runVolunteerKycCheck(volId, documentPath, applicantName));
+    public void startVolunteerKycCheck(int volId, String documentPath, String applicantName,
+                                       String generation) {
+        pool.submit(() -> runVolunteerKycCheck(volId, documentPath, applicantName, generation));
     }
 
-    void runVolunteerKycCheck(int volId, String documentPath, String applicantName) {
+    void runVolunteerKycCheck(int volId, String documentPath, String applicantName,
+                              String generation) {
+        runVolunteerKycCheck(volId, documentPath, applicantName, generation, STATUS_PENDING);
+    }
+
+    private void runVolunteerKycCheck(int volId, String documentPath, String applicantName,
+                                      String generation, String expectedStatus) {
         try {
+            if (generation == null || generation.isBlank()) {
+                return;
+            }
             if (!Files.isRegularFile(Paths.get(documentPath))) {
                 return;
             }
@@ -136,24 +145,41 @@ public class KycService {
             byte[] content = crypto.readDecrypted(documentPath);
             JsonNode parsed = analyze(content, mime, applicantName, SYSTEM_PROMPT);
             if (parsed == null) {
-                volunteerRepo.saveVolunteerKyc(volId, null, VERDICT_UNCHECKED,
-                    "ИИ-проверка недоступна, будет повторена автоматически");
+                if (!volunteerRepo.saveVolunteerKyc(volId, generation, null, VERDICT_UNCHECKED,
+                        "ИИ-проверка недоступна, будет повторена автоматически", expectedStatus)) {
+                    log.info("[kyc] discarded stale unavailable result for volunteer " + volId);
+                }
                 return;
             }
             Scored result = scoreVolunteer(parsed);
-            volunteerRepo.saveVolunteerKyc(volId, result.score, result.verdict, result.notes);
-            if (VERDICT_OK.equals(result.verdict)) {
-                if (autoApproveVolunteer(volId, result.score)) {
-                    volunteerRepo.saveVolunteerKyc(volId, result.score, result.verdict,
-                        truncate("[авто-одобрено ИИ] " + result.notes));
-                }
-            }
+            applyVolunteerKycResult(
+                volId, generation, result.score, result.verdict, result.notes, expectedStatus);
             // Hybrid: likely_fraud / review / unchecked stay 'pending' for a human
             // moderator — the AI never rejects an identity document on its own.
             log.info("[kyc] volunteer " + volId + ": " + result.verdict + " (" + result.score + ")");
         } catch (Exception e) {
             log.warning("[kyc] volunteer check for " + volId + " failed: " + e.getMessage());
         }
+    }
+
+    /** Applies a scored result through the generation guard; exposed for focused tests. */
+    boolean applyVolunteerKycResult(int volId, String generation, double score,
+                                    String verdict, String notes) {
+        return applyVolunteerKycResult(
+            volId, generation, score, verdict, notes, STATUS_PENDING);
+    }
+
+    private boolean applyVolunteerKycResult(int volId, String generation, double score,
+                                            String verdict, String notes, String expectedStatus) {
+        if (!volunteerRepo.saveVolunteerKyc(
+                volId, generation, score, verdict, notes, expectedStatus)) {
+            log.info("[kyc] discarded stale result for volunteer " + volId);
+            return false;
+        }
+        if (VERDICT_OK.equals(verdict)) {
+            autoApproveVolunteer(volId, generation, score);
+        }
+        return true;
     }
 
     /** Deterministic scoring of the AI's structured answer for an identity doc. */
@@ -185,9 +211,10 @@ public class KycService {
         return finalize(score, notes, parsed);
     }
 
-    private boolean autoApproveVolunteer(int volId, double score) {
-        if (volunteerRepo.setVolunteerStatus(volId, STATUS_APPROVED, STATUS_PENDING) == null) {
-            log.info("[kyc] volunteer " + volId + " no longer pending; skipping auto-approve");
+    private boolean autoApproveVolunteer(int volId, String generation, double score) {
+        if (!volunteerRepo.autoApproveVolunteerKyc(volId, generation)) {
+            log.info("[kyc] volunteer " + volId
+                + " generation no longer eligible; skipping auto-approve");
             return false;
         }
         audit.log("auto-kyc", "kyc_auto_approve", "volunteer", volId,

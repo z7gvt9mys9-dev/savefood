@@ -392,14 +392,16 @@ public class MaintenanceTasks {
         }
         try {
             List<Map<String, Object>> vols = jdbc.queryForList(
-                "SELECT id, name, document FROM volunteers WHERE status = 'pending' AND document IS NOT NULL "
+                "SELECT id, name, document, kyc_generation FROM volunteers "
+                + "WHERE status = 'pending' AND document IS NOT NULL AND kyc_generation IS NOT NULL "
                 + "AND (kyc_verdict IS NULL OR kyc_verdict = 'unchecked') "
                 + "ORDER BY kyc_checked_at ASC NULLS FIRST LIMIT ?", kycRetryBatch);
             for (Map<String, Object> v : vols) {
                 String path = safeDocPath(volunteerKycDir, (String) v.get("document"));
                 if (path != null) {
                     kyc.startVolunteerKycCheck(((Number) v.get("id")).intValue(), path,
-                        v.get("name") == null ? "" : v.get("name").toString());
+                        v.get("name") == null ? "" : v.get("name").toString(),
+                        (String) v.get("kyc_generation"));
                 }
             }
         } catch (RuntimeException e) {
@@ -416,25 +418,40 @@ public class MaintenanceTasks {
         }
         try {
             for (Map<String, Object> row : jdbc.queryForList(
-                    "SELECT id, document FROM volunteers WHERE document IS NOT NULL AND status = 'pending' "
+                    "SELECT id, document, kyc_generation FROM volunteers "
+                    + "WHERE document IS NOT NULL AND kyc_generation IS NOT NULL AND status = 'pending' "
                     + "AND kyc_checked_at IS NOT NULL "
                     + "AND kyc_checked_at < CURRENT_TIMESTAMP - make_interval(hours => ?)", kycRetentionHours)) {
-                int id = ((Number) row.get("id")).intValue();
-                deleteDoc(volunteerKycDir, (String) row.get("document"));
-                jdbc.update("UPDATE volunteers SET document = NULL WHERE id = ?", id);
-                String msg = "Срок хранения вашего удостоверения истёк, и оно удалено. "
-                    + "Загрузите документ заново, чтобы пройти верификацию.";
-                jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
-                    + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", id, "kyc_doc_purged", msg);
-                try {
-                    telegram.notifyVolunteer(id, "◷ " + msg);
-                } catch (Exception ignore) {
-                    // best-effort
-                }
+                purgeVolunteerKycDocument(((Number) row.get("id")).intValue(),
+                    (String) row.get("document"), (String) row.get("kyc_generation"));
             }
         } catch (RuntimeException e) {
             log.warning("[background] kyc_doc_retention tick failed: " + e.getMessage());
         }
+    }
+
+    /** Guarded winner step for one retention candidate, kept visible for focused tests. */
+    boolean purgeVolunteerKycDocument(int id, String document, String generation) {
+        int won = jdbc.update(
+            "UPDATE volunteers SET document = NULL, kyc_generation = NULL "
+            + "WHERE id = ? AND document = ? AND kyc_generation = ? AND status = 'pending' "
+            + "AND kyc_checked_at IS NOT NULL "
+            + "AND kyc_checked_at < CURRENT_TIMESTAMP - make_interval(hours => ?)",
+            id, document, generation, kycRetentionHours);
+        if (won != 1) {
+            return false;
+        }
+        deleteDoc(volunteerKycDir, document);
+        String msg = "Срок хранения вашего удостоверения истёк, и оно удалено. "
+            + "Загрузите документ заново, чтобы пройти верификацию.";
+        jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
+            + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", id, "kyc_doc_purged", msg);
+        try {
+            telegram.notifyVolunteer(id, "◷ " + msg);
+        } catch (Exception ignore) {
+            // best-effort
+        }
+        return true;
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
