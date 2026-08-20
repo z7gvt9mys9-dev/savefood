@@ -188,28 +188,25 @@ public class ShopService {
      */
     @Transactional
     public int confirmSelfPickup(int shopId, int ticketId, String providedSecret) {
-        List<Map<String, Object>> tickets = jdbc.queryForList(
-            "SELECT t.* FROM tickets t JOIN lots l ON l.id = t.lot_id "
-            + "WHERE t.id = ? AND l.shop_id = ?", ticketId, shopId);
-        if (tickets.isEmpty()) {
-            throw new ApiException(404, "Заявка не найдена или относится к другому магазину");
-        }
-        Map<String, Object> ticket = tickets.get(0);
-        String qrSecret = (String) ticket.get("qr_secret");
-        // A ticket with a secret can only be closed by presenting it; the bare
-        // SF-{id} form is accepted only for legacy secret-less tickets.
-        if (qrSecret != null && !qrSecret.isEmpty() && !qrSecret.equals(providedSecret)) {
-            throw new ApiException(400, "Код не совпадает — отсканируйте QR получателя");
-        }
-        if (!Boolean.TRUE.equals(ticket.get("self_pickup"))) {
-            throw new ApiException(400, "Эта заявка доставляется волонтёром, а не самовывозом");
-        }
-        if (!"open".equals(ticket.get("status"))) {
-            throw new ApiException(400, "Заявка уже закрыта или отменена");
-        }
         OffsetDateTime now = OffsetDateTime.now();
-        jdbc.update("UPDATE tickets SET status = 'fulfilled', fulfilled_at = ? WHERE id = ?", now, ticketId);
-        int needyId = ((Number) ticket.get("needy_id")).intValue();
+        List<Integer> winners = jdbc.query(
+            "UPDATE tickets AS t SET status = 'fulfilled', fulfilled_at = ? FROM lots AS l "
+            + "WHERE t.id = ? AND t.lot_id = l.id AND l.shop_id = ? "
+            + "AND t.status = 'open' AND t.self_pickup IS TRUE "
+            + "AND (t.expires_at IS NULL OR t.expires_at > clock_timestamp()) "
+            // A ticket with a secret can only be closed by presenting it; the bare
+            // SF-{id} form remains valid only for legacy secret-less tickets.
+            + "AND (t.qr_secret IS NULL OR t.qr_secret = '' OR t.qr_secret = ?) "
+            + "RETURNING t.needy_id",
+            (rs, rowNum) -> rs.getInt("needy_id"), now, ticketId, shopId, providedSecret);
+        if (winners.isEmpty()) {
+            throw explainSelfPickupRejection(shopId, ticketId, providedSecret);
+        }
+
+        // PostgreSQL rechecks every guard after waiting for a concurrent writer.
+        // Therefore only the request represented by this returned row may emit
+        // fulfilment side effects.
+        int needyId = winners.get(0);
         jdbc.update(
             "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
             needyId, "self_pickup_confirmed",
@@ -220,6 +217,33 @@ public class ShopService {
             // best-effort, like the Python try/except around set_profile_last_received
         }
         return ticketId;
+    }
+
+    /** Preserve the existing API errors after the atomic winner statement loses. */
+    private ApiException explainSelfPickupRejection(int shopId, int ticketId, String providedSecret) {
+        List<Map<String, Object>> tickets = jdbc.queryForList(
+            "SELECT t.status, t.self_pickup, t.qr_secret, "
+            + "(t.expires_at IS NOT NULL AND t.expires_at <= clock_timestamp()) AS expired "
+            + "FROM tickets t JOIN lots l ON l.id = t.lot_id "
+            + "WHERE t.id = ? AND l.shop_id = ?", ticketId, shopId);
+        if (tickets.isEmpty()) {
+            return new ApiException(404, "Заявка не найдена или относится к другому магазину");
+        }
+        Map<String, Object> ticket = tickets.get(0);
+        String qrSecret = (String) ticket.get("qr_secret");
+        if (qrSecret != null && !qrSecret.isEmpty() && !qrSecret.equals(providedSecret)) {
+            return new ApiException(400, "Код не совпадает — отсканируйте QR получателя");
+        }
+        if (!Boolean.TRUE.equals(ticket.get("self_pickup"))) {
+            return new ApiException(400, "Эта заявка доставляется волонтёром, а не самовывозом");
+        }
+        if (!"open".equals(ticket.get("status"))) {
+            return new ApiException(400, "Заявка уже закрыта или отменена");
+        }
+        if (Boolean.TRUE.equals(ticket.get("expired"))) {
+            return new ApiException(400, "Срок брони истёк");
+        }
+        return new ApiException(409, "Заявка уже изменилась — повторите попытку");
     }
 
     private static void requirePositiveFinite(double value, String field) {
