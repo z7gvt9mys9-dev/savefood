@@ -88,7 +88,7 @@ data class LotDto(
 @Serializable
 data class StartRouteRequestDto(
     @SerialName("lot_id") val lotId: Int,
-    @SerialName("max_stops") val maxStops: Int = 10,
+    @SerialName("max_stops") val maxStops: Int? = null,
 )
 
 /** Response of POST /volunteers/{id}/start_route. */

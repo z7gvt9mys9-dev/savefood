@@ -38,7 +38,7 @@ class VolunteerRepository @Inject constructor(
     suspend fun getLots(search: String? = null): ApiResult<List<LotDto>> =
         safeApiCall { api.getLots(search = search) }
 
-    suspend fun startRoute(volunteerId: Int, lotId: Int, maxStops: Int = 10): ApiResult<StartRouteResponseDto> =
+    suspend fun startRoute(volunteerId: Int, lotId: Int, maxStops: Int? = null): ApiResult<StartRouteResponseDto> =
         safeApiCall { api.startRoute(volunteerId, StartRouteRequestDto(lotId = lotId, maxStops = maxStops)) }
 
     // --- Active route ---
