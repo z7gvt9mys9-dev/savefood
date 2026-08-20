@@ -1,7 +1,7 @@
 package ru.savefood.app.feature.needy.profile
 
-import android.net.Uri
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,7 +27,6 @@ data class NeedyProfileUiState(
     val profile: NeedyProfileDto? = null,
     val profileExists: Boolean = false,
     val saving: Boolean = false,
-    val uploadingDoc: Boolean = false,
     val exporting: Boolean = false,
     val message: String? = null,
     val exportedJson: String? = null,
@@ -78,21 +77,6 @@ class NeedyProfileViewModel @Inject constructor(
             when (res) {
                 is ApiResult.Success -> _state.update {
                     it.copy(profile = res.data, profileExists = true, message = savedMessage)
-                }
-                is ApiResult.Error -> _state.update { it.copy(message = res.message) }
-            }
-        }
-    }
-
-    fun uploadDocument(uri: Uri, uploadedMessage: String) {
-        viewModelScope.launch {
-            val needyId = repo.currentNeedyId() ?: return@launch
-            _state.update { it.copy(uploadingDoc = true) }
-            val res = repo.uploadDocument(needyId, uri)
-            _state.update { it.copy(uploadingDoc = false) }
-            when (res) {
-                is ApiResult.Success -> _state.update {
-                    it.copy(profile = res.data, profileExists = true, message = uploadedMessage)
                 }
                 is ApiResult.Error -> _state.update { it.copy(message = res.message) }
             }

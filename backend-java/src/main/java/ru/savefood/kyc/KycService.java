@@ -21,7 +21,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 import ru.savefood.audit.AuditService;
-import ru.savefood.needy.NeedyRepository;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.volunteer.VolunteerRepository;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,14 +28,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Hybrid Auto-KYC (§58) of a recipient's eligibility document, ported from the
- * needy path of kyc_service.py. One Gemini Vision call reads the document;
- * deterministic scoring then decides: a confident {@code likely_ok} is
- * auto-approved (fast, harmless), while everything else — {@code likely_fraud},
- * {@code review} and {@code unchecked} (AI unavailable) — stays {@code pending}
- * for a human moderator. The AI never rejects a vulnerable applicant on its own;
- * refusals are a human decision (ethical requirement). Fired fire-and-forget from
- * a daemon thread after the upload.
+ * Hybrid Auto-KYC (§58) for volunteer identity documents. One Gemini Vision call
+ * reads the document; deterministic scoring auto-approves a confident
+ * {@code likely_ok}, while {@code likely_fraud}, {@code review} and
+ * {@code unchecked} stay {@code pending} for a human moderator.
  *
  * <p>The document is decrypted in memory only ({@link KycCrypto}); on disk it
  * stays encrypted at rest while pending and is deleted when a moderator decides
@@ -48,8 +43,7 @@ public class KycService {
 
     private static final Logger log = Logger.getLogger(KycService.class.getName());
 
-    // Decision bands. Above OK ⇒ auto-approve, below FRAUD ⇒ auto-reject, the
-    // middle is handed to a human moderator (PATCH /admin/{needy,volunteers}/{id}/moderation).
+    // Decision bands. Above OK ⇒ auto-approve; the rest is handed to a volunteer moderator.
     // Widening the middle band trades moderator workload for fewer wrong automatic
     // decisions; narrowing it does the opposite. Configurable so that trade-off can
     // be tuned per deployment without a rebuild.
@@ -67,29 +61,6 @@ public class KycService {
         ".webp", "image/webp", ".pdf", "application/pdf");
 
     private static final String SYSTEM_PROMPT = """
-        Ты — система предварительной проверки документов платформы SaveFood (Казахстан).
-        Нуждающийся загрузил документ, подтверждающий право на продуктовую помощь
-        (справка о соц. статусе, удостоверение многодетной семьи, справка об инвалидности,
-        справка о доходах, пенсионное удостоверение и т.п.).
-
-        Верни СТРОГО один JSON-объект:
-        {
-          "is_document": true|false,
-          "document_type": "краткое название типа документа или null",
-          "supports_need": true|false,
-          "holder_name": "ФИО владельца из документа или null",
-          "name_matches": true|false|null,
-          "legible": true|false,
-          "tampering_signs": true|false,
-          "tampering_reason": "пояснение или null",
-          "summary": "1-2 предложения для модератора на русском"
-        }
-
-        Имя заявителя в анкете будет передано отдельной строкой. Сравнивай имена мягко:
-        учитывай инициалы, порядок слов, транслитерацию (ru/kk/en).
-        """;
-
-    private static final String VOLUNTEER_SYSTEM_PROMPT = """
         Ты — система верификации личности волонтёров платформы SaveFood (Казахстан).
         Волонтёр загрузил документ, удостоверяющий личность (удостоверение личности РК,
         паспорт, водительское удостоверение и т.п.). Цель — убедиться, что это настоящий
@@ -113,7 +84,6 @@ public class KycService {
         """;
 
     private final JdbcTemplate jdbc;
-    private final NeedyRepository repo;
     private final VolunteerRepository volunteerRepo;
     private final AuditService audit;
     private final KycCrypto crypto;
@@ -128,14 +98,13 @@ public class KycService {
         return t;
     });
 
-    public KycService(JdbcTemplate jdbc, NeedyRepository repo, VolunteerRepository volunteerRepo,
+    public KycService(JdbcTemplate jdbc, VolunteerRepository volunteerRepo,
                       AuditService audit, KycCrypto crypto, TelegramService telegram,
                       @Value("${savefood.gemini-api-key:}") String apiKey,
                       @Value("${savefood.kyc-model:${savefood.ocr-model:gemini-2.5-flash}}") String model,
                       @Value("${savefood.kyc.ok-threshold:0.7}") double okThreshold,
                       @Value("${savefood.kyc.fraud-threshold:0.3}") double fraudThreshold) {
         this.jdbc = jdbc;
-        this.repo = repo;
         this.volunteerRepo = volunteerRepo;
         this.audit = audit;
         this.crypto = crypto;
@@ -146,55 +115,12 @@ public class KycService {
         this.fraudThreshold = fraudThreshold;
     }
 
-    /** Fire-and-forget entry point, the analogue of {@code start_kyc_check}. */
-    public void startKycCheck(int needyId, String documentPath, String applicantName) {
-        pool.submit(() -> runKycCheck(needyId, documentPath, applicantName));
-    }
-
-    /** Synchronous re-check for the moderator's «второе мнение» (§38.2), needy path. */
-    public void recheckNeedy(int needyId, String documentPath, String applicantName) {
-        runKycCheck(needyId, documentPath, applicantName);
-    }
-
     /** Synchronous re-check for the moderator's «второе мнение» (§38.2), volunteer path. */
     public void recheckVolunteer(int volId, String documentPath, String applicantName) {
         runVolunteerKycCheck(volId, documentPath, applicantName);
     }
 
-    void runKycCheck(int needyId, String documentPath, String applicantName) {
-        try {
-            if (!Files.isRegularFile(Paths.get(documentPath))) {
-                return;
-            }
-            String ext = extension(documentPath);
-            String mime = MIME_BY_EXT.getOrDefault(ext, "image/jpeg");
-            byte[] content = crypto.readDecrypted(documentPath);
-            JsonNode parsed = analyze(content, mime, applicantName, SYSTEM_PROMPT);
-            if (parsed == null) {
-                // AI unavailable → stay pending; the Python kyc_retry_tick re-runs it later.
-                saveResult(needyId, null, VERDICT_UNCHECKED,
-                    "ИИ-проверка недоступна, будет повторена автоматически");
-                return;
-            }
-            Scored result = score(parsed);
-            // Persist the verdict FIRST, so the row is never auto-approved with a null KYC record.
-            saveResult(needyId, result.score, result.verdict, result.notes);
-            if (VERDICT_OK.equals(result.verdict)) {
-                if (autoApprove(needyId, result.score)) {
-                    saveResult(needyId, result.score, result.verdict,
-                        truncate("[авто-одобрено ИИ] " + result.notes));
-                }
-            }
-            // Hybrid: likely_fraud / review / unchecked are NOT auto-rejected —
-            // they stay 'pending' for a human moderator (ethical: the AI never
-            // refuses a vulnerable applicant on its own).
-            log.info("[kyc] needy " + needyId + ": " + result.verdict + " (" + result.score + ")");
-        } catch (Exception e) {
-            log.warning("[kyc] needy check for " + needyId + " failed: " + e.getMessage());
-        }
-    }
-
-    // ── Volunteer identity KYC (§58) — same fully-automated pipeline, no human ──
+    // ── Volunteer identity KYC (§58) ─────────────────────────────────────────
 
     /** Fire-and-forget entry point, the analogue of {@code start_volunteer_kyc_check}. */
     public void startVolunteerKycCheck(int volId, String documentPath, String applicantName) {
@@ -208,7 +134,7 @@ public class KycService {
             }
             String mime = MIME_BY_EXT.getOrDefault(extension(documentPath), "image/jpeg");
             byte[] content = crypto.readDecrypted(documentPath);
-            JsonNode parsed = analyze(content, mime, applicantName, VOLUNTEER_SYSTEM_PROMPT);
+            JsonNode parsed = analyze(content, mime, applicantName, SYSTEM_PROMPT);
             if (parsed == null) {
                 volunteerRepo.saveVolunteerKyc(volId, null, VERDICT_UNCHECKED,
                     "ИИ-проверка недоступна, будет повторена автоматически");
@@ -328,41 +254,6 @@ public class KycService {
         }
     }
 
-    /** Deterministic scoring of the AI's structured answer (0=fraud, 1=ok). */
-    private Scored score(JsonNode parsed) {
-        if (!parsed.path("is_document").asBoolean(false)) {
-            return new Scored(0.0, VERDICT_FRAUD,
-                "На фото не распознан документ. " + parsed.path("summary").asText(""));
-        }
-        List<String> notes = new ArrayList<>();
-        double score = 0.5;
-        if (parsed.path("supports_need").asBoolean(false)) {
-            score += 0.3;
-        } else {
-            score -= 0.3;
-            notes.add("документ не подтверждает нуждаемость");
-        }
-        JsonNode nameMatches = parsed.get("name_matches");
-        if (nameMatches != null && nameMatches.isBoolean()) {
-            if (nameMatches.asBoolean()) {
-                score += 0.2;
-            } else {
-                score -= 0.3;
-                notes.add("имя в документе не совпадает с анкетой");
-            }
-        }
-        if (!parsed.path("legible").asBoolean(false)) {
-            score -= 0.2;
-            notes.add("текст плохо читаем");
-        }
-        if (parsed.path("tampering_signs").asBoolean(false)) {
-            score -= 0.4;
-            String reason = parsed.path("tampering_reason").asText("");
-            notes.add("признаки редактирования: " + (reason.isBlank() ? "без деталей" : reason));
-        }
-        return finalize(score, notes, parsed);
-    }
-
     private Scored finalize(double score, List<String> notes, JsonNode parsed) {
         score = Math.max(0.0, Math.min(1.0, Math.round(score * 100.0) / 100.0));
         String verdict = score >= okThreshold ? VERDICT_OK
@@ -373,37 +264,6 @@ public class KycService {
         String tail = String.join("; ", notes);
         String note = (prefix + summary + (tail.isBlank() ? "" : " — " + tail)).strip();
         return new Scored(score, verdict, truncate(note));
-    }
-
-    private void saveResult(int needyId, Double score, String verdict, String notes) {
-        jdbc.update(
-            "UPDATE needy SET kyc_score = ?, kyc_verdict = ?, kyc_notes = ?, kyc_checked_at = ? WHERE id = ?",
-            score, verdict, notes, OffsetDateTime.now(), needyId);
-    }
-
-    /**
-     * Approve without a human: conditional flip (still pending) + audit + in-app
-     * notification. The document is retained encrypted-at-rest. Returns true only
-     * if we approved.
-     */
-    private boolean autoApprove(int needyId, double score) {
-        if (repo.setNeedyStatus(needyId, STATUS_APPROVED, STATUS_PENDING) == null) {
-            log.info("[kyc] needy " + needyId + " no longer pending; skipping auto-approve");
-            return false;
-        }
-        audit.log("auto-kyc", "kyc_auto_approve", "needy", needyId,
-            String.format("Auto-approved by AI KYC (score %.2f)", score));
-        String msg = "Ваша анкета одобрена автоматической проверкой — можете создавать заявки на получение продуктов.";
-        jdbc.update(
-            "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            needyId, "moderation_approved", msg, OffsetDateTime.now());
-        try {
-            telegram.notifyNeedy(needyId, "✓ " + msg);
-        } catch (RuntimeException ignore) {
-            // best-effort, like the Python try/except: pass
-        }
-        log.info("[kyc] needy " + needyId + " auto-approved (score " + score + ")");
-        return true;
     }
 
     private static String extension(String path) {

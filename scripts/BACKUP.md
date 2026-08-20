@@ -13,11 +13,13 @@ a timestamped, gzip-compressed plain-SQL dump to `BACKUP_DIR`. It:
 - exits non-zero on any failure so cron/monitoring can alert.
 
 Uploaded files (delivery photos, shop logos) live in separate Docker volumes
-(`shop_uploads`, `needy_uploads`, `volunteer_uploads`). Identity/KYC documents
-are deliberately **not** backed up — they are deleted after a moderation
-decision, or purged by the `kyc_doc_retention` background sweep after
-`KYC_DOC_RETENTION_HOURS` (default 72) if never moderated (§5). Back up the
-other upload volumes separately if photo history matters.
+(`shop_uploads`, `needy_uploads`, `volunteer_uploads`). Volunteer identity/KYC
+documents are deliberately **not** backed up — they are deleted after a
+moderation decision, or purged by the `kyc_doc_retention` background sweep after
+`KYC_DOC_RETENTION_HOURS` (default 72) if never moderated (§5). Recipients no
+longer upload KYC documents; keep the legacy `needy_uploads` volume mounted only
+until every V5 cleanup tombstone is complete. Back up the other upload volumes
+separately if photo history matters.
 
 ## Schedule (cron)
 

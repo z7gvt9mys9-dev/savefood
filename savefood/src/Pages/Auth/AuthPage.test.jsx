@@ -1,6 +1,6 @@
 import React from 'react';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import AuthPage from './AuthPage';
@@ -39,8 +39,8 @@ const jsonResponse = (data, ok = true, status = ok ? 200 : 400) => ({
   json: vi.fn().mockResolvedValue(data),
 });
 
-const renderPage = (query = '') => {
-  window.history.replaceState({}, '', `/auth${query}`);
+const renderPage = (query = '', hash = '') => {
+  window.history.replaceState({}, '', `/auth${query}${hash}`);
   return render(
     <MemoryRouter>
       <AuthPage />
@@ -60,13 +60,10 @@ const fillShopRegistration = () => {
 };
 
 const fillNeedyStep1 = () => {
-  const document = new File(['document'], 'document.pdf', { type: 'application/pdf' });
   fireEvent.change(screen.getByPlaceholderText('auth.full_name'), { target: { value: 'Иван Иванов' } });
   fireEvent.change(screen.getByPlaceholderText('auth.phone_number'), { target: { value: '+79990000000' } });
   fireEvent.change(screen.getByPlaceholderText('auth.create_password'), { target: { value: 'password123' } });
-  fireEvent.change(screen.getByLabelText('auth.document_status'), { target: { files: [document] } });
   fireEvent.click(screen.getByRole('checkbox'));
-  return document;
 };
 
 describe('AuthPage registration', () => {
@@ -144,6 +141,170 @@ describe('AuthPage registration', () => {
     expect(loginMock).not.toHaveBeenCalled();
   });
 
+  it('redeems only the Telegram completion credential from the URL fragment', async () => {
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({ telegram: true }));
+      if (path.endsWith('/auth/telegram/login/complete')) {
+        return Promise.resolve(jsonResponse({
+          access_token: 'telegram-jwt',
+          role: 'needy',
+          related_id: 42,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+
+    renderPage('?from=telegram', '#telegram_completion=completion-secret');
+
+    expect(window.location.hash).toBe('');
+    expect(window.location.search).toBe('?from=telegram');
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'needy', 42));
+    const completionCall = fetchMock.mock.calls.find(
+      ([url]) => String(url).endsWith('/auth/telegram/login/complete')
+    );
+    expect(completionCall[1]).toMatchObject({
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: 'completion-secret' }),
+    });
+  });
+
+  it('briefly retries a completion link that arrived before delivery activation', async () => {
+    let completionCalls = 0;
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({ telegram: true }));
+      if (path.endsWith('/auth/telegram/login/complete')) {
+        completionCalls += 1;
+        if (completionCalls === 1) return Promise.resolve(jsonResponse({}, false, 409));
+        return Promise.resolve(jsonResponse({
+          access_token: 'telegram-jwt',
+          role: 'needy',
+          related_id: 42,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+
+    renderPage('', '#telegram_completion=completion-secret');
+
+    expect(window.location.hash).toBe('');
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'needy', 42));
+    expect(completionCalls).toBe(2);
+    expect(alertMock).not.toHaveBeenCalled();
+  });
+
+  it('treats Telegram polling as status-only even if a response contains a JWT', async () => {
+    let pollCallback;
+    let polls = 0;
+    const intervalSpy = vi.spyOn(window, 'setInterval').mockImplementation((callback) => {
+      pollCallback = callback;
+      return 77;
+    });
+    const clearIntervalSpy = vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) {
+        return Promise.resolve(jsonResponse({ telegram: true, google: false, yandex: false }));
+      }
+      if (path.endsWith('/auth/telegram/login/start')) {
+        return Promise.resolve(jsonResponse({ token: 'initial-token', link: 'https://t.me/test_bot' }));
+      }
+      if (path.endsWith('/auth/telegram/login/poll')) {
+        polls += 1;
+        return Promise.resolve(jsonResponse({
+          status: polls === 1 ? 'pending' : 'confirmed',
+          access_token: 'must-never-be-used',
+          role: 'admin',
+          related_id: 1,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Telegram' }));
+    await waitFor(() => expect(intervalSpy).toHaveBeenCalled());
+
+    await act(async () => { await pollCallback(); });
+    expect(loginMock).not.toHaveBeenCalled();
+    expect(screen.getByText('auth.tg_login_pending')).toBeTruthy();
+
+    await act(async () => { await pollCallback(); });
+    expect(loginMock).not.toHaveBeenCalled();
+    expect(screen.getByText('auth.tg_login_confirmed')).toBeTruthy();
+    expect(clearIntervalSpy).toHaveBeenCalledWith(77);
+    expect(fetchMock.mock.calls.some(
+      ([url]) => String(url).endsWith('/auth/telegram/login/complete')
+    )).toBe(false);
+  });
+
+  it('revokes the server transaction when Telegram login is cancelled', async () => {
+    vi.spyOn(window, 'setInterval').mockImplementation(() => 78);
+    vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) {
+        return Promise.resolve(jsonResponse({ telegram: true, google: false, yandex: false }));
+      }
+      if (path.endsWith('/auth/telegram/login/start')) {
+        return Promise.resolve(jsonResponse({ token: 'cancel-token', link: 'https://t.me/test_bot' }));
+      }
+      if (path.endsWith('/auth/telegram/login/cancel')) {
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Telegram' }));
+    await screen.findByText('auth.tg_login_pending');
+
+    fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+
+    await waitFor(() => {
+      const cancelCall = fetchMock.mock.calls.find(
+        ([url]) => String(url).endsWith('/auth/telegram/login/cancel')
+      );
+      expect(cancelCall).toBeTruthy();
+      expect(JSON.parse(cancelCall[1].body)).toEqual({ token: 'cancel-token' });
+    });
+    expect(screen.queryByText('auth.tg_login_pending')).toBeNull();
+  });
+
+  it('creates only one Telegram transaction when the button is clicked rapidly', async () => {
+    let resolveStart;
+    const startResponse = new Promise(resolve => { resolveStart = resolve; });
+    vi.spyOn(window, 'setInterval').mockImplementation(() => 79);
+    vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) {
+        return Promise.resolve(jsonResponse({ telegram: true, google: false, yandex: false }));
+      }
+      if (path.endsWith('/auth/telegram/login/start')) return startResponse;
+      if (path.endsWith('/auth/telegram/login/cancel')) return Promise.resolve(jsonResponse({ ok: true }));
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage();
+    const telegramButton = await screen.findByRole('button', { name: 'Telegram' });
+
+    fireEvent.click(telegramButton);
+    fireEvent.click(telegramButton);
+
+    expect(fetchMock.mock.calls.filter(
+      ([url]) => String(url).endsWith('/auth/telegram/login/start')
+    )).toHaveLength(1);
+    await act(async () => {
+      resolveStart(jsonResponse({ token: 'single-token', link: 'https://t.me/test_bot' }));
+      await startResponse;
+    });
+    await screen.findByText('auth.tg_login_pending');
+    fireEvent.click(screen.getByRole('button', { name: 'common.cancel' }));
+  });
+
   it('falls back to shop for an administrator registration deep link', () => {
     renderPage('?mode=register&role=admin');
 
@@ -152,7 +313,7 @@ describe('AuthPage registration', () => {
     expect(screen.queryByText('auth.needy_step1_title')).toBeNull();
   });
 
-  it('creates the recipient, signs in and uploads the document before showing moderation', async () => {
+  it('creates and signs in a recipient without any document or moderation request', async () => {
     fetchMock.mockImplementation((url) => {
       const path = String(url);
       if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
@@ -160,12 +321,10 @@ describe('AuthPage registration', () => {
       if (path.endsWith('/auth/login')) {
         return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
       }
-      if (path.endsWith('/needy/42/profile/upload')) return Promise.resolve(jsonResponse({ needy_id: 42 }));
-      if (path.endsWith('/needy/42')) return Promise.resolve(jsonResponse({ id: 42, status: 'pending' }));
       return Promise.resolve(jsonResponse({}, false));
     });
     renderPage('?mode=register&role=needy');
-    const document = fillNeedyStep1();
+    fillNeedyStep1();
     fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
 
     await waitFor(() => expect(screen.getByText('auth.needy_step2_title')).toBeTruthy());
@@ -180,14 +339,12 @@ describe('AuthPage registration', () => {
     expect(loginCall[1].body.get('username')).toBe('+79990000000');
     expect(loginCall[1].body.get('password')).toBe('password123');
     expect(loginCall[1].body.get('role')).toBe('needy');
-    const uploadCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/needy/42/profile/upload'));
-    expect(uploadCall[1].headers.Authorization).toBe('Bearer needy-token');
-    expect(uploadCall[1].body.get('file')).toBe(document);
     expect(loginMock).toHaveBeenCalledWith('needy-token', 'needy', 42);
-    expect(screen.queryByRole('button', { name: 'auth.simulate_approve' })).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => /profile\/upload|kyc|moderation|\/document/.test(String(url)))).toBe(false);
+    expect(screen.queryByLabelText('auth.document_status')).toBeNull();
   });
 
-  it('opens step 3 after approval and saves only the existing recipient profile', async () => {
+  it('opens the recipient profile immediately and saves it without checking KYC status', async () => {
     fetchMock.mockImplementation((url) => {
       const path = String(url);
       if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
@@ -195,16 +352,14 @@ describe('AuthPage registration', () => {
       if (path.endsWith('/auth/login')) {
         return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
       }
-      if (path.endsWith('/needy/42/profile/upload')) return Promise.resolve(jsonResponse({ needy_id: 42 }));
       if (path.endsWith('/needy/42/profile')) return Promise.resolve(jsonResponse({ needy_id: 42 }));
-      if (path.endsWith('/needy/42')) return Promise.resolve(jsonResponse({ id: 42, status: 'approved' }));
       return Promise.resolve(jsonResponse({}, false));
     });
     renderPage('?mode=register&role=needy');
     fillNeedyStep1();
     fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
 
-    await waitFor(() => expect(screen.getByText('auth.needy_step3_title')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('auth.needy_step2_title')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'test.select_address' }));
     fireEvent.change(screen.getByPlaceholderText('auth.family_members'), { target: { value: '4' } });
     fireEvent.change(screen.getByPlaceholderText('auth.dietary_prefs'), { target: { value: 'Без орехов' } });
@@ -222,37 +377,7 @@ describe('AuthPage registration', () => {
       preferences: 'Без орехов',
     });
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/needy/register'))).toHaveLength(1);
-  });
-
-  it('retries a failed document upload without creating the recipient twice', async () => {
-    let uploadAttempts = 0;
-    fetchMock.mockImplementation((url) => {
-      const path = String(url);
-      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
-      if (path.endsWith('/needy/register')) return Promise.resolve(jsonResponse({ id: 42 }));
-      if (path.endsWith('/auth/login')) {
-        return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
-      }
-      if (path.endsWith('/needy/42/profile/upload')) {
-        uploadAttempts += 1;
-        return Promise.resolve(uploadAttempts === 1
-          ? jsonResponse({ detail: 'upload failed' }, false)
-          : jsonResponse({ needy_id: 42 }));
-      }
-      if (path.endsWith('/needy/42')) return Promise.resolve(jsonResponse({ id: 42, status: 'pending' }));
-      return Promise.resolve(jsonResponse({}, false));
-    });
-    renderPage('?mode=register&role=needy');
-    fillNeedyStep1();
-    fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
-
-    await waitFor(() => expect(alertMock).toHaveBeenCalledWith('upload failed'));
-    fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
-    await waitFor(() => expect(screen.getByText('auth.needy_step2_title')).toBeTruthy());
-
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/needy/register'))).toHaveLength(1);
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/login'))).toHaveLength(1);
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/needy/42/profile/upload'))).toHaveLength(2);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/needy/42'))).toBe(false);
   });
 
   it('uses compact, stateful buttons for donor kind', () => {

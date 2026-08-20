@@ -46,16 +46,14 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Google/Yandex use the server-side authorization-code flow; the {@code state}
  * parameter is a short-lived signed JWT ({@link JwtService#signClaims}), so the
  * callback trusts the mode/user id without server-side session storage. Telegram
- * reuses the bot deep-link + polling mechanism (the bot fills the token's
- * {@code user_id} via the Python webhook, which stays authoritative during the
- * migration; this service reads the shared table).
+ * uses a bot deep-link for confirmation, a status-only browser token, and a
+ * distinct one-time completion credential delivered by the bot.
  */
 @RestController
 @RequestMapping("/auth")
 public class OAuthController {
 
     private static final int STATE_TTL_MINUTES = 10;
-    private static final int LOGIN_TOKEN_TTL_MINUTES = 10;
 
     /** Per-provider OAuth endpoints, mirroring oauth_routes.py {@code PROVIDERS}. */
     private record ProviderCfg(String authUrl, String tokenUrl, String userinfoUrl,
@@ -77,6 +75,7 @@ public class OAuthController {
     private final JdbcTemplate jdbc;
     private final JwtService jwt;
     private final RateLimiter rateLimiter;
+    private final TelegramLoginService telegramLogin;
     private final ObjectMapper mapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
     private final HttpClient http = HttpClient.newBuilder()
@@ -92,6 +91,7 @@ public class OAuthController {
     private final String publicUrl;
 
     public OAuthController(JdbcTemplate jdbc, JwtService jwt, RateLimiter rateLimiter,
+                          TelegramLoginService telegramLogin,
                           @Value("${savefood.oauth.google-client-id:}") String googleClientId,
                           @Value("${savefood.oauth.google-client-secret:}") String googleClientSecret,
                           @Value("${savefood.oauth.yandex-client-id:}") String yandexClientId,
@@ -102,6 +102,7 @@ public class OAuthController {
         this.jdbc = jdbc;
         this.jwt = jwt;
         this.rateLimiter = rateLimiter;
+        this.telegramLogin = telegramLogin;
         this.googleClientId = googleClientId;
         this.googleClientSecret = googleClientSecret;
         this.yandexClientId = yandexClientId;
@@ -151,12 +152,15 @@ public class OAuthController {
             if (principal == null) {
                 throw new ApiException(401, "Авторизуйтесь, чтобы привязать аккаунт");
             }
-            List<Integer> ids = jdbc.query("SELECT id FROM users WHERE username = ?",
-                (rs, n) -> rs.getInt("id"), principal.sub());
-            if (ids.isEmpty()) {
+            List<Boolean> active = jdbc.query("SELECT is_blocked FROM users WHERE id = ?",
+                (rs, n) -> rs.getBoolean("is_blocked"), principal.userId());
+            if (active.isEmpty()) {
                 throw new ApiException(404, "User not found");
             }
-            state.put("uid", ids.get(0));
+            if (Boolean.TRUE.equals(active.get(0))) {
+                throw new ApiException(403, "Аккаунт заблокирован администратором");
+            }
+            state.put("uid", principal.userId());
         }
 
         String clientId = provider.equals("google") ? googleClientId : yandexClientId;
@@ -215,9 +219,10 @@ public class OAuthController {
 
         // mode == login
         List<Map<String, Object>> users = jdbc.query(
-            "SELECT username, role, related_id, is_blocked FROM users WHERE " + column + " = ?",
+            "SELECT id, username, role, related_id, is_blocked FROM users WHERE " + column + " = ?",
             (rs, n) -> {
                 Map<String, Object> u = new LinkedHashMap<>();
+                u.put("id", rs.getInt("id"));
                 u.put("username", rs.getString("username"));
                 u.put("role", rs.getString("role"));
                 u.put("related_id", rs.getObject("related_id"));
@@ -234,7 +239,8 @@ public class OAuthController {
 
         String role = (String) user.get("role");
         Integer relatedId = toInteger(user.get("related_id"));
-        String accessToken = jwt.create((String) user.get("username"), role, relatedId);
+        String accessToken = jwt.create(((Number) user.get("id")).intValue(),
+            (String) user.get("username"), role, relatedId);
         // The token travels in the URL fragment: fragments are not sent to
         // servers and never appear in access logs.
         Map<String, String> frag = new LinkedHashMap<>();
@@ -249,14 +255,14 @@ public class OAuthController {
     @GetMapping("/links")
     public Map<String, Object> linkStatus(@Auth CurrentUser user) {
         List<Map<String, Object>> rows = jdbc.query(
-            "SELECT telegram_chat_id, google_id, yandex_id FROM users WHERE username = ?",
+            "SELECT telegram_chat_id, google_id, yandex_id FROM users WHERE id = ?",
             (rs, n) -> {
                 Map<String, Object> r = new LinkedHashMap<>();
                 r.put("telegram", rs.getObject("telegram_chat_id") != null);
                 r.put("google", rs.getObject("google_id") != null);
                 r.put("yandex", rs.getObject("yandex_id") != null);
                 return r;
-            }, user.sub());
+            }, user.userId());
         if (rows.isEmpty()) {
             throw new ApiException(404, "User not found");
         }
@@ -271,11 +277,11 @@ public class OAuthController {
         if (column == null) {
             throw new ApiException(404, "Unknown provider");
         }
-        jdbc.update("UPDATE users SET " + column + " = NULL WHERE username = ?", user.sub());
+        jdbc.update("UPDATE users SET " + column + " = NULL WHERE id = ?", user.userId());
         return Map.of("ok", true);
     }
 
-    // ── Telegram login (deep-link + polling, no Login Widget) ───────────────────
+    // ── Telegram login (status token + private one-time completion) ─────────────
 
     @PostMapping("/telegram/login/start")
     public Map<String, Object> telegramLoginStart(HttpServletRequest request) {
@@ -283,16 +289,11 @@ public class OAuthController {
         if (telegramBotToken.isEmpty()) {
             throw new ApiException(503, "Вход через Telegram не настроен на сервере");
         }
-        String token = randomToken();
-        jdbc.update("INSERT INTO telegram_login_tokens (token, created_at) VALUES (?, ?)",
-            token, OffsetDateTime.now(ZoneOffset.UTC));
-        // opportunistic cleanup of expired rows
-        jdbc.update("DELETE FROM telegram_login_tokens WHERE created_at < NOW() - (? * INTERVAL '1 minute')",
-            LOGIN_TOKEN_TTL_MINUTES * 6);
+        String token = telegramLogin.start();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("token", token);
         out.put("link", "https://t.me/" + botName + "?start=login_" + token);
-        out.put("expires_in", LOGIN_TOKEN_TTL_MINUTES * 60);
+        out.put("expires_in", TelegramLoginService.INITIAL_TTL_MINUTES * 60);
         return out;
     }
 
@@ -300,49 +301,37 @@ public class OAuthController {
     public Map<String, Object> telegramLoginPoll(@RequestBody TelegramPoll payload,
                                                  HttpServletRequest request) {
         rateLimiter.check("auth:tg_login_poll", ClientIp.of(request), 60);
-        List<Map<String, Object>> rows = jdbc.query(
-            "SELECT user_id FROM telegram_login_tokens "
-                + "WHERE token = ? AND created_at >= NOW() - (? * INTERVAL '1 minute')",
-            (rs, n) -> {
-                Map<String, Object> r = new LinkedHashMap<>();
-                r.put("user_id", rs.getObject("user_id"));
-                return r;
-            }, payload.token(), LOGIN_TOKEN_TTL_MINUTES);
-        if (rows.isEmpty()) {
-            throw new ApiException(404, "Ссылка устарела — начните вход заново");
-        }
-        Object userId = rows.get(0).get("user_id");
-        if (userId == null) {
-            return Map.of("status", "pending");
-        }
+        String token = payload == null ? null : payload.token();
+        return Map.of("status", telegramLogin.status(token));
+    }
 
-        List<Map<String, Object>> users = jdbc.query(
-            "SELECT username, role, related_id, is_blocked FROM users WHERE id = ?",
-            (rs, n) -> {
-                Map<String, Object> u = new LinkedHashMap<>();
-                u.put("username", rs.getString("username"));
-                u.put("role", rs.getString("role"));
-                u.put("related_id", rs.getObject("related_id"));
-                u.put("is_blocked", rs.getBoolean("is_blocked"));
-                return u;
-            }, userId);
-        jdbc.update("DELETE FROM telegram_login_tokens WHERE token = ?", payload.token());
-        if (users.isEmpty()) {
-            throw new ApiException(404, "User not found");
+    @PostMapping("/telegram/login/complete")
+    public Map<String, Object> telegramLoginComplete(@RequestBody TelegramPoll payload,
+                                                     HttpServletRequest request) {
+        rateLimiter.check("auth:tg_login_complete", ClientIp.of(request), 20);
+        String token = payload == null ? null : payload.token();
+        TelegramLoginService.LoginUser user = telegramLogin.complete(token);
+        if (user == null) {
+            if (telegramLogin.completionMayActivate(token)) {
+                throw new ApiException(409, "Ссылка для входа ещё активируется");
+            }
+            throw new ApiException(401, "Ссылка для входа недействительна или устарела");
         }
-        Map<String, Object> user = users.get(0);
-        if (Boolean.TRUE.equals(user.get("is_blocked"))) {
-            throw new ApiException(403, "Аккаунт заблокирован администратором");
-        }
-        String role = (String) user.get("role");
-        Integer relatedId = toInteger(user.get("related_id"));
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("status", "ok");
-        out.put("access_token", jwt.create((String) user.get("username"), role, relatedId));
+        out.put("access_token", jwt.create(user.userId(), user.username(), user.role(), user.relatedId()));
         out.put("token_type", "bearer");
-        out.put("role", role);
-        out.put("related_id", relatedId);
+        out.put("role", user.role());
+        out.put("related_id", user.relatedId());
         return out;
+    }
+
+    @PostMapping("/telegram/login/cancel")
+    public Map<String, Object> telegramLoginCancel(@RequestBody TelegramPoll payload,
+                                                   HttpServletRequest request) {
+        rateLimiter.check("auth:tg_login_cancel", ClientIp.of(request), 20);
+        telegramLogin.cancel(payload == null ? null : payload.token());
+        return Map.of("ok", true);
     }
 
     // ── Telegram account linking (telegram_routes.py /auth/telegram/init-link) ──
@@ -350,17 +339,14 @@ public class OAuthController {
     @GetMapping("/telegram/init-link")
     public Map<String, Object> initTelegramLink(@Auth CurrentUser user, HttpServletRequest request) {
         rateLimiter.check("auth:tg_init_link", ClientIp.of(request), 10);
-        if (user.sub() == null) {
-            throw new ApiException(401, "Invalid token");
-        }
         List<Map<String, Object>> rows = jdbc.query(
-            "SELECT id, telegram_chat_id FROM users WHERE username = ?",
+            "SELECT id, telegram_chat_id FROM users WHERE id = ?",
             (rs, n) -> {
                 Map<String, Object> r = new LinkedHashMap<>();
                 r.put("id", rs.getInt("id"));
                 r.put("already_linked", rs.getObject("telegram_chat_id") != null);
                 return r;
-            }, user.sub());
+            }, user.userId());
         if (rows.isEmpty()) {
             throw new ApiException(404, "User not found");
         }

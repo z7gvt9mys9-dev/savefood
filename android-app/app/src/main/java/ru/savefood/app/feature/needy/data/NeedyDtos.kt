@@ -78,7 +78,6 @@ data class NeedyProfileDto(
     val urgency: String? = null,
     @SerialName("available_time") val availableTime: String? = null,
     @SerialName("last_received_at") val lastReceivedAt: String? = null,
-    val document: String? = null,
     val apartment: String? = null,
     @SerialName("floor_num") val floorNum: String? = null,
     val entrance: String? = null,

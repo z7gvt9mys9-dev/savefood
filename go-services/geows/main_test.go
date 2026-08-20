@@ -9,14 +9,14 @@ import (
 
 func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 	secretKey = []byte("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-	claims := jwt.MapClaims{"sub": "alice", "role": "volunteer", "related_id": 7}
+	claims := jwt.MapClaims{"sub": "123", "username": "alice", "role": "volunteer", "related_id": 7}
 
 	hs256, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secretKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	parsed, err := parseToken(hs256)
-	if err != nil || parsed.Sub != "alice" || parsed.Role != "volunteer" || parsed.RelatedID == nil || *parsed.RelatedID != 7 {
+	if err != nil || parsed.UserID != 123 || parsed.Role != "volunteer" || parsed.RelatedID == nil || *parsed.RelatedID != 7 {
 		t.Fatalf("HS256 token was not parsed correctly: claims=%+v err=%v", parsed, err)
 	}
 
@@ -26,6 +26,15 @@ func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 	}
 	if _, err := parseToken(hs512); err == nil {
 		t.Fatal("HS512 token must be rejected")
+	}
+
+	legacy, err := jwt.NewWithClaims(jwt.SigningMethodHS256,
+		jwt.MapClaims{"sub": "alice", "role": "volunteer", "related_id": 7}).SignedString(secretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseToken(legacy); err == nil {
+		t.Fatal("reusable username subject must be rejected")
 	}
 }
 

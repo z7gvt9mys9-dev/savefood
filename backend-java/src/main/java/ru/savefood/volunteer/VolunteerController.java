@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 import ru.savefood.audit.AuditService;
 import ru.savefood.kyc.KycCrypto;
 import ru.savefood.kyc.KycService;
-import ru.savefood.needy.dto.ModerationUpdate;
+import ru.savefood.volunteer.dto.ModerationUpdate;
 import ru.savefood.photo.PhotoModerationService;
 import ru.savefood.security.Auth;
 import ru.savefood.security.Authz;

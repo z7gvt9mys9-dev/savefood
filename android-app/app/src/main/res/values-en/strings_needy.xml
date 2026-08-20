@@ -77,7 +77,6 @@
     <string name="needy_profile_title">Profile</string>
     <string name="needy_profile_section_personal">Details</string>
     <string name="needy_profile_section_address">Address</string>
-    <string name="needy_profile_section_kyc">Document (KYC)</string>
     <string name="needy_profile_section_privacy">Data &amp; privacy</string>
     <string name="needy_profile_family_size">Family size</string>
     <string name="needy_profile_preferences">Preferences</string>
@@ -90,10 +89,6 @@
     <string name="needy_profile_available_time">Preferred time</string>
     <string name="needy_profile_save">Save details</string>
     <string name="needy_profile_saved">Details saved</string>
-    <string name="needy_profile_kyc_desc">Upload a document proving eligibility. Verification is automatic; the document is not shown.</string>
-    <string name="needy_profile_kyc_upload">Upload document</string>
-    <string name="needy_profile_kyc_uploaded">Document uploaded and under review</string>
-    <string name="needy_profile_kyc_status">Verification status: %1$s</string>
     <string name="needy_profile_geo_push">Nearby food alerts</string>
     <string name="needy_profile_geo_push_desc">Push when a matching lot appears nearby.</string>
     <string name="needy_profile_export">Export my data</string>

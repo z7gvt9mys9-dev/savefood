@@ -16,7 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
@@ -63,13 +62,8 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
     }
 
     val savedMsg = stringResource(R.string.needy_profile_saved)
-    val uploadedMsg = stringResource(R.string.needy_profile_kyc_uploaded)
     val exportDoneMsg = stringResource(R.string.needy_profile_export_done)
     val exportFailedMsg = stringResource(R.string.needy_profile_export_failed)
-
-    val docPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent(),
-    ) { uri -> if (uri != null) viewModel.uploadDocument(uri, uploadedMsg) }
 
     val exportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -277,32 +271,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-
-            // --- KYC document (upload-only) ---
-            SaveFoodCard {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.needy_profile_section_kyc), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        stringResource(R.string.needy_profile_kyc_desc),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (state.profile?.document != null) {
-                        Text(
-                            stringResource(R.string.needy_profile_kyc_uploaded),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    SaveFoodOutlinedButton(
-                        text = stringResource(R.string.needy_profile_kyc_upload),
-                        leadingIcon = Icons.Filled.UploadFile,
-                        onClick = { docPicker.launch("*/*") },
-                        enabled = !state.uploadingDoc,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
 
             // --- Privacy / geo-push / export / delete ---
             SaveFoodCard {

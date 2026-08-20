@@ -2,6 +2,7 @@ package ru.savefood.security;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Map;
 import ru.savefood.web.ApiException;
 import org.springframework.core.MethodParameter;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,21 +49,19 @@ public class AuthArgumentResolver implements HandlerMethodArgumentResolver {
         if (user == null) {
             throw new ApiException(401, "Could not validate credentials");
         }
-        // An already-issued token must stop working the moment the account is
-        // blocked OR erased.  Previously an empty result was treated as allowed,
-        // so deleting a user removed the login row but not their still-valid JWT.
-        if (user.sub() == null || user.sub().isBlank()) {
+        // Resolve every request from the immutable subject and use current DB
+        // values. Legacy username-subject tokens deliberately fail closed.
+        List<Map<String, Object>> rows = jdbc.queryForList(
+            "SELECT username, role, related_id, is_blocked FROM users WHERE id = ?", user.userId());
+        if (rows.isEmpty()) {
             throw new ApiException(401, "Could not validate credentials");
         }
-        List<Boolean> blocked = jdbc.query(
-            "SELECT is_blocked FROM users WHERE username = ?",
-            (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
-        if (blocked.isEmpty()) {
-            throw new ApiException(401, "Could not validate credentials");
-        }
-        if (Boolean.TRUE.equals(blocked.get(0))) {
+        Map<String, Object> row = rows.get(0);
+        if (Boolean.TRUE.equals(row.get("is_blocked"))) {
             throw new ApiException(403, "Аккаунт заблокирован администратором");
         }
-        return user;
+        Object relatedId = row.get("related_id");
+        return new CurrentUser(user.userId(), (String) row.get("username"),
+            (String) row.get("role"), relatedId instanceof Number n ? n.intValue() : null);
     }
 }

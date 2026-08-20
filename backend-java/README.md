@@ -28,9 +28,11 @@ FastAPI backend while the rest of the API is migrated module by module.
 
 ## What was ported
 
-All 16 endpoints of `/admin`, 1:1 with `backend/admin/routes.py`:
+The `/admin` surface includes volunteer KYC moderation, delivery-photo moderation,
+operations, reporting, and user administration:
 
-- `GET /admin/needy`, `GET /admin/delivery_photos`,
+- `GET /admin/volunteers`, `PATCH /admin/volunteers/{id}/moderation`
+- `GET /admin/delivery_photos`,
   `POST /admin/delivery_photos/{id}/approve|reject`
 - `GET /admin/stats`, `GET /admin/heatmap`
 - `GET /admin/routes`, `POST /admin/routes/{id}/reset`, `POST /admin/lots/{id}/reset`
@@ -51,7 +53,7 @@ All 21 endpoints of the shop surface, 1:1 with `backend/shop/routes.py`:
   `GET /shops/{id}/esg`, `GET /shops/{id}/esg/report.csv`
 - `POST /shops/{id}/self_pickup/confirm` (rate-limited)
 
-All 19 endpoints of the needy surface, 1:1 with `backend/needy/routes.py`:
+The needy/recipient surface includes:
 
 - `POST /needy/register` (public, rate-limited)
 - Tickets: `POST /needy/{id}/ticket`, `GET /needy/{id}/tickets`,
@@ -60,7 +62,6 @@ All 19 endpoints of the needy surface, 1:1 with `backend/needy/routes.py`:
   `POST /needy/{id}/ticket/{tid}/photo` (multipart, rate-limited 3/hour)
 - Account/profile: `GET /needy/{id}`, `PATCH /needy/{id}`,
   `POST|PATCH /needy/{id}/profile`, `GET /needy/{id}/profile`,
-  `POST /needy/{id}/profile/upload` (multipart),
   `PATCH /needy/{id}/geo_push`, `GET /needy/{id}/export`,
   `DELETE /needy/{id}/account`
 - Notifications: `GET /needy/{id}/notifications`,
@@ -81,8 +82,7 @@ byte-for-byte interchangeable with the Python backend's (same HS256 `SECRET_KEY`
 same claims, 24h `exp`, no `iat`), so the two services share sessions during the
 migration.
 
-All 8 social-auth endpoints, 1:1 with `backend/oauth_routes.py` (+ the one
-`/auth/*` route from `backend/telegram_routes.py`):
+The social-auth endpoints are:
 
 - `GET /auth/oauth/providers` (which providers are configured)
 - `GET /auth/oauth/{provider}/start` (Google/Yandex auth-code flow,
@@ -92,14 +92,17 @@ All 8 social-auth endpoints, 1:1 with `backend/oauth_routes.py` (+ the one
   token rides the URL fragment on login, never the query string)
 - `GET /auth/links`, `POST /auth/links/{provider}/unlink` (profile link status)
 - `POST /auth/telegram/login/start` (10/min) + `POST /auth/telegram/login/poll`
-  (60/min) — deep-link + polling login (no Login Widget)
+  (60/min) — create and observe a status-only deep-link transaction
+- `POST /auth/telegram/login/complete` (20/min) — atomically redeem the separate
+  one-time credential sent by the bot in the linked private chat
+- `POST /auth/telegram/login/cancel` (20/min) — revoke the browser transaction
 - `GET /auth/telegram/init-link` (10/min) — link Telegram to the current account
 
 The OAuth `state` is a short-lived signed JWT (`JwtService.signClaims`), so the
-callback is stateless. The Telegram bot **webhook** (`/telegram/webhook`) that
-fills a login/link token's `user_id` stays on the Python service during the
-migration — both services share the `telegram_login_tokens` /
-`telegram_link_tokens` tables, so the flow works across the split.
+callback is stateless. The Telegram bot webhook (`/telegram/webhook`) validates
+Telegram's configured secret. Login confirmation creates a hashed, five-minute,
+one-time completion credential and sends its raw value only to the authenticated
+private chat; the initial browser token can report status but cannot mint a JWT.
 
 All 22 endpoints of the volunteer/courier surface, 1:1 with
 `backend/volunteer/routes.py`:
@@ -217,7 +220,8 @@ backend plugs into):
 | `needy/NeedyController` | `needy/routes.py` (recipient surface) |
 | `needy/NeedyRepository`, `NeedyService` | `needy/db.py` (reads + transactional flows) |
 | `kyc/KycCrypto` | `kyc_crypto.py` (Fernet encryption-at-rest, wire-compatible) |
-| `kyc/KycService` | `kyc_service.py` (needy + volunteer Auto-KYC: Gemini + auto-decide) |
+| `kyc/KycService` | `kyc_service.py` (volunteer identity KYC: Gemini + auto-decide) |
+| `kyc/NeedyKycDocumentCleanup` | durable removal of legacy recipient KYC files queued by Flyway V5 |
 | `photo/PhotoModerationService` | `photo_moderation.py` (Gemini delivery-photo gate) |
 | `cache/CacheService` | `cache.py` (read-through facade; Redis stays on Python) |
 | `util/Qr` | `utils.py` `generate_qr_secret` / `build_qr_code` |
@@ -244,21 +248,18 @@ Error bodies match FastAPI's `{"detail": ...}` (see `web/`).
   Python multiplexes one coroutine over receive/poll; here it is a scheduled
   poll per session plus the container's disconnect callback — the wire protocol
   (ready frame, notification frames, `1008` close codes) is identical.
-- **Auto-KYC.** Uploading an eligibility document encrypts it at rest
-  (`KycCrypto`, Fernet — same `KYC_ENCRYPTION_KEY` as Python) and fires the
-  fully-automated AI check (`KycService`): confident verdicts auto-approve /
-  auto-reject, anything inconclusive stays `pending`. No human in the loop
-  (§58). Without `GEMINI_API_KEY` the verdict is `unchecked` and the row stays
-  pending — the Python `kyc_retry_tick` retries it.
+- **No recipient KYC.** Recipient registration and functionality require no
+  eligibility or identity document and have no moderation state. Flyway V5 queues
+  legacy recipient files before removing KYC columns; `NeedyKycDocumentCleanup`
+  records failures and retries deletion without touching volunteer storage.
 - **Delivery photos.** Impact photos land `pending` and are gated by
   `PhotoModerationService` before the public feed shows them (§36.1).
 - **Caching / Telegram / Web-Push.** As in the shop port, the in-app DB writes
   are ported in full; the external fan-out (Telegram, Web-Push) and the Redis
   cache backend stay on the Python layer during the migration. `CacheService`
   preserves cache.py's no-`REDIS_URL` contract (always a correct cache miss).
-- **Uploads.** KYC documents default to `../backend/needy/uploads`
-  (`NEEDY_UPLOAD_DIR`, never served publicly); impact photos reuse the
-  volunteer uploads dir. The files are written here but served by nginx/Python.
+- **Uploads.** `NEEDY_UPLOAD_DIR` remains mounted only while durable V5 cleanup
+  retires legacy recipient KYC files. New recipient uploads are not accepted.
 
 ### Shop-module notes
 
@@ -294,7 +295,7 @@ standalone once a module is flipped:
 | `push/PushDispatchService` | dispatch half of `push_service.py` | Real Web Push (RFC 8291 `aes128gcm` via JDK ECDH/HKDF/AES-GCM + RFC 8292 VAPID ES256 JWT) **and** FCM HTTP v1 (service-account RS256 → OAuth2 → send). `notifyRole` fans out off-thread; dead endpoints (404/410) and stale FCM tokens (404/UNREGISTERED) are pruned. **Validate against a live push endpoint before cutting `/push` off Python.** |
 | `proxy/ProxyService` | `proxy_service.py` | VLESS→xray SOCKS5 tunnel for the Telegram API. The xray binary is supplied out of band (`XRAY_BINARY`); no `VLESS_URL` ⇒ no-op, Telegram goes out directly. |
 | `monitoring/MetricsService`, `MetricsFilter`, `MonitoringController` | `monitoring.py` + `main.py` `/metrics /healthz /readyz /stats` | Prometheus text exposition (same series, route-template labels) rendered without a new dependency; the filter records every request; `METRICS_TOKEN` gates the scrape. |
-| `background/MaintenanceTasks` | `background.py` + `worker.py` | All six ticks as `@Scheduled`: `expire`, `reassign`, `antifraud`, `reservation_ttl`, `kyc_retry`, `kyc_doc_retention`. Each route/lot runs in its own transaction = the Python per-route `SAVEPOINT`. Reuses `RouteRevertService` and `KycService`. |
+| `background/MaintenanceTasks` | `background.py` + `worker.py` | All six ticks as `@Scheduled`; KYC retry/retention are volunteer-only. Each route/lot runs in its own transaction = the Python per-route `SAVEPOINT`. |
 
 **Background tasks are OFF by default** (`BACKGROUND_TASKS_JAVA=off`): during the
 migration the Python `worker` owns the ticks, and running both would double-fire
@@ -313,9 +314,9 @@ it needs the SDK dependency and is orthogonal to the HTTP/worker surface; add
 export SECRET_KEY=<same value as the Python backend, >= 32 chars>
 export DB_HOST=localhost DB_NAME=savefood DB_USER=postgres DB_PASS=postgres DB_PORT=5432
 # optional (shop module):
-export GEMINI_API_KEY=<for receipt OCR / KYC / photo checks; absent ⇒ degraded>
+export GEMINI_API_KEY=<for receipt OCR / volunteer KYC / photo checks; absent ⇒ degraded>
 export SHOP_UPLOAD_DIR=../backend/shop/uploads RECEIPT_UPLOAD_DIR=../backend/shop/receipt_uploads
-# optional (needy module):
+# optional (needy module; NEEDY_UPLOAD_DIR is legacy cleanup only):
 export NEEDY_UPLOAD_DIR=../backend/needy/uploads VOLUNTEER_UPLOAD_DIR=../backend/volunteer/uploads
 export KYC_ENCRYPTION_KEY=<Fernet key; absent ⇒ KYC docs stored unencrypted (dev only)>
 # optional (volunteer module):

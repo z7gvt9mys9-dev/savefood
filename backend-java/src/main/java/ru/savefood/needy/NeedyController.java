@@ -5,15 +5,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
-import ru.savefood.audit.AuditService;
 import ru.savefood.cache.CacheService;
-import ru.savefood.kyc.KycCrypto;
-import ru.savefood.kyc.KycService;
 import ru.savefood.needy.dto.GeoPushUpdate;
-import ru.savefood.needy.dto.ModerationUpdate;
 import ru.savefood.needy.dto.NeedyCreate;
 import ru.savefood.needy.dto.NeedyProfileUpsert;
 import ru.savefood.needy.dto.TicketCreate;
@@ -32,9 +27,7 @@ import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -47,7 +40,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Java port of backend/needy/routes.py — the recipient surface (registration,
- * profile + eligibility document, tickets, notifications, history, ratings, impact
+ * profile, tickets, notifications, history, ratings, impact
  * photos, GDPR export/erase) plus the public {@code GET /lots} map. Authenticated
  * routes take an {@code @Auth CurrentUser} and call {@link Authz#ensureOwnerOrAdmin}
  * for per-recipient ownership; {@code POST /needy/register} and {@code GET /lots}
@@ -64,24 +57,17 @@ public class NeedyController {
     private final ShopRepository shopRepo;
     private final CacheService cache;
     private final UploadService uploads;
-    private final KycCrypto kycCrypto;
-    private final KycService kycService;
     private final PhotoModerationService photoModeration;
     private final RateLimiter rateLimiter;
     private final TelegramService telegram;
-    private final JdbcTemplate jdbc;
-    private final AuditService audit;
-    private final String needyUploadDir;
     private final String deliveryPhotoUploadDir;
     /** Only used to remove legacy photos written before private storage existed. */
     private final String legacyVolunteerUploadDir;
 
     public NeedyController(NeedyRepository repo, NeedyService service, ShopRepository shopRepo,
-                          CacheService cache, UploadService uploads, KycCrypto kycCrypto,
-                          KycService kycService, PhotoModerationService photoModeration,
+                          CacheService cache, UploadService uploads,
+                          PhotoModerationService photoModeration,
                           RateLimiter rateLimiter, TelegramService telegram,
-                          JdbcTemplate jdbc, AuditService audit,
-                          @Value("${savefood.needy-upload-dir}") String needyUploadDir,
                           @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir,
                           @Value("${savefood.volunteer-upload-dir}") String legacyVolunteerUploadDir) {
         this.repo = repo;
@@ -89,14 +75,9 @@ public class NeedyController {
         this.shopRepo = shopRepo;
         this.cache = cache;
         this.uploads = uploads;
-        this.kycCrypto = kycCrypto;
-        this.kycService = kycService;
         this.photoModeration = photoModeration;
         this.rateLimiter = rateLimiter;
         this.telegram = telegram;
-        this.jdbc = jdbc;
-        this.audit = audit;
-        this.needyUploadDir = needyUploadDir;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
         this.legacyVolunteerUploadDir = legacyVolunteerUploadDir;
     }
@@ -126,8 +107,8 @@ public class NeedyController {
         if (needy == null) {
             throw new ApiException(404, "Needy not found");
         }
-        if (!"approved".equals(needy.get("status"))) {
-            throw new ApiException(403, "Account not approved yet");
+        if (!isUsableRecipientStatus(needy.get("status"))) {
+            throw new ApiException(403, "Account is not active");
         }
 
         boolean selfPickup = Boolean.TRUE.equals(payload.selfPickup());
@@ -318,154 +299,6 @@ public class NeedyController {
         return profile;
     }
 
-    @PostMapping("/needy/{needyId}/profile/upload")
-    public Map<String, Object> uploadProfileDocument(@PathVariable int needyId,
-                                                     @RequestParam(required = false) MultipartFile file,
-                                                     @Auth CurrentUser user) {
-        Authz.ensureOwnerOrAdmin(user, "needy", needyId);
-        Map<String, Object> needy = repo.getNeedyById(needyId);
-        if (needy == null) {
-            throw new ApiException(404, "Needy not found");
-        }
-        Map<String, Object> existing = repo.getProfile(needyId);
-        String oldDocument = existing == null ? null : (String) existing.get("document");
-        String filename = uploads.validateAndSave(file, needyUploadDir, true);
-        Path path = Paths.get(needyUploadDir, filename);
-        // Encrypt the eligibility document at rest immediately (§58): on disk it is
-        // only ever ciphertext; the AI verification decrypts it in memory.
-        Map<String, Object> profile;
-        try {
-            kycCrypto.encryptFile(path.toString());
-            profile = repo.createOrUpdateProfile(needyId, null, null, null, null,
-                "/needy_uploads/" + filename, null, null, null, null, null, null, null, false);
-        } catch (RuntimeException e) {
-            deleteQuietly(path);
-            throw e;
-        }
-        if (oldDocument != null && !oldDocument.equals("/needy_uploads/" + filename)) {
-            deleteQuietly(Paths.get(needyUploadDir, basename(oldDocument)));
-        }
-        // Fully automated KYC: fire-and-forget AI check that auto-decides (no human).
-        String name = needy.get("name") == null ? "" : needy.get("name").toString();
-        kycService.startKycCheck(needyId, path.toString(), name);
-        return profile;
-    }
-
-    // ── KYC: document access (owner/admin) + moderation & recheck (admin) ──────────
-
-    /**
-     * Serve the recipient's eligibility document, decrypted in memory (§58 — on disk
-     * it's ciphertext). Owner or admin only; the file is never exposed via a public
-     * URL. Used by the recipient to review their upload and by the moderator's queue.
-     */
-    @GetMapping("/needy/{needyId}/document")
-    public ResponseEntity<byte[]> getDocument(@PathVariable int needyId, @Auth CurrentUser user) {
-        Authz.ensureOwnerOrAdmin(user, "needy", needyId);
-        Map<String, Object> profile = repo.getProfile(needyId);
-        String docUrl = profile == null ? null : (String) profile.get("document");
-        if (docUrl == null || docUrl.isBlank()) {
-            throw new ApiException(404, "Документ не найден");
-        }
-        Path path = Paths.get(needyUploadDir, basename(docUrl));
-        if (!Files.isRegularFile(path)) {
-            throw new ApiException(404, "Документ не найден");
-        }
-        byte[] content;
-        try {
-            content = kycCrypto.readDecrypted(path.toString());
-        } catch (Exception e) {
-            throw new ApiException(500, "Не удалось прочитать документ");
-        }
-        return ResponseEntity.ok().contentType(mediaTypeFor(basename(docUrl))).body(content);
-    }
-
-    /**
-     * Moderator decision on a pending recipient (hybrid KYC, §58): approve or reject.
-     * Confident {@code likely_ok} was already auto-approved; everything else waits
-     * here for a human. On a decision the eligibility document is deleted (§5 — PII).
-     */
-    @PatchMapping("/needy/{needyId}/moderation")
-    public Map<String, Object> moderateNeedy(@PathVariable int needyId,
-            @RequestBody ModerationUpdate payload, @Auth CurrentUser user) {
-        if (!user.isAdmin()) {
-            throw new ApiException(403, "Только администратор");
-        }
-        String status = payload.status();
-        if (!"approved".equals(status) && !"rejected".equals(status)) {
-            throw new ApiException(400, "status must be 'approved' or 'rejected'");
-        }
-        if (repo.setNeedyStatus(needyId, status, "pending") == null) {
-            throw new ApiException(409, "Заявка уже промодерирована или не найдена");
-        }
-        deleteDocument(needyId);
-        boolean approved = "approved".equals(status);
-        String msg = approved
-            ? "Ваша анкета одобрена модератором — можете создавать заявки на получение продуктов."
-            : "Ваша анкета отклонена. Загрузите корректный документ, подтверждающий право на помощь.";
-        jdbc.update(
-            "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-            needyId, approved ? "moderation_approved" : "moderation_rejected", msg, OffsetDateTime.now());
-        try {
-            telegram.notifyNeedy(needyId, (approved ? "✓ " : "! ") + msg);
-        } catch (RuntimeException ignore) {
-            // best-effort
-        }
-        audit.log(user.sub(), "needy_moderation", "needy", needyId,
-            "Admin set needy #" + needyId + " to " + status);
-        return Map.of("ok", true, "status", status);
-    }
-
-    /**
-     * Re-run the AI verdict on a still-present document (§38.2 «второе мнение»),
-     * synchronously, and return the fresh verdict. Only possible while the document
-     * exists (a decision deletes it, §5). Admin only.
-     */
-    @PostMapping("/needy/{needyId}/kyc_recheck")
-    public Map<String, Object> recheckNeedy(@PathVariable int needyId, @Auth CurrentUser user) {
-        if (!user.isAdmin()) {
-            throw new ApiException(403, "Только администратор");
-        }
-        Map<String, Object> profile = repo.getProfile(needyId);
-        String docUrl = profile == null ? null : (String) profile.get("document");
-        if (docUrl == null || docUrl.isBlank()) {
-            throw new ApiException(404, "Документ уже удалён — перепроверка недоступна");
-        }
-        Map<String, Object> needy = repo.getNeedyById(needyId);
-        String name = needy == null || needy.get("name") == null ? "" : needy.get("name").toString();
-        kycService.recheckNeedy(needyId, Paths.get(needyUploadDir, basename(docUrl)).toString(), name);
-        audit.log(user.sub(), "kyc_recheck", "needy", needyId, "Admin re-ran AI KYC for needy #" + needyId);
-        Map<String, Object> updated = repo.getNeedyById(needyId);
-        return Map.of(
-            "kyc_verdict", updated.get("kyc_verdict") == null ? "unchecked" : updated.get("kyc_verdict"),
-            "kyc_score", updated.get("kyc_score") == null ? "" : updated.get("kyc_score"),
-            "kyc_notes", updated.get("kyc_notes") == null ? "" : updated.get("kyc_notes"));
-    }
-
-    /** Delete the recipient's eligibility document from disk and clear the column (§5). */
-    private void deleteDocument(int needyId) {
-        Map<String, Object> profile = repo.getProfile(needyId);
-        String docUrl = profile == null ? null : (String) profile.get("document");
-        if (docUrl != null && !docUrl.isBlank()) {
-            deleteQuietly(Paths.get(needyUploadDir, basename(docUrl)));
-        }
-        jdbc.update("UPDATE needy_profile SET document = NULL WHERE needy_id = ?", needyId);
-        jdbc.update("UPDATE needy SET document = NULL WHERE id = ?", needyId);
-    }
-
-    private static MediaType mediaTypeFor(String filename) {
-        String f = filename.toLowerCase();
-        if (f.endsWith(".png")) {
-            return MediaType.IMAGE_PNG;
-        }
-        if (f.endsWith(".pdf")) {
-            return MediaType.APPLICATION_PDF;
-        }
-        if (f.endsWith(".webp")) {
-            return MediaType.parseMediaType("image/webp");
-        }
-        return MediaType.IMAGE_JPEG;
-    }
-
     @PatchMapping("/needy/{needyId}/geo_push")
     public Map<String, Object> setGeoPush(@PathVariable int needyId, @RequestBody GeoPushUpdate payload,
                                           @Auth CurrentUser user) {
@@ -497,10 +330,6 @@ public class NeedyController {
         NeedyService.EraseResult result = service.eraseAccount(needyId);
         if (result == null) {
             throw new ApiException(404, "Needy not found");
-        }
-        // Delete the encrypted ID document (this module's upload dir).
-        if (result.document() != null) {
-            deleteQuietly(Paths.get(needyUploadDir, basename(result.document())));
         }
         // Delete any delivery photos from private storage (and legacy public
         // storage for pre-migration rows).
@@ -574,7 +403,7 @@ public class NeedyController {
             }
         }
         Map<String, Object> profile = repo.createOrUpdateProfile(needyId, p.address(), p.familySize(),
-            p.preferences(), p.urgency(), null, p.availableTime(), p.apartment(), p.floorNum(),
+            p.preferences(), p.urgency(), p.availableTime(), p.apartment(), p.floorNum(),
             p.entrance(), p.city(), p.lat(), p.lon(), clearCoordinates);
         if (profile == null) {
             throw new ApiException(404, "Needy not found");
@@ -603,6 +432,11 @@ public class NeedyController {
 
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
+    }
+
+    static boolean isUsableRecipientStatus(Object status) {
+        return "active".equals(status) || "pending".equals(status)
+            || "approved".equals(status) || "rejected".equals(status);
     }
 
     private static Double asDouble(Object v) {

@@ -58,7 +58,6 @@ public class MaintenanceTasks {
     private final boolean enabled;
     private final String supportChatId;
     private final String volunteerKycDir;
-    private final String needyUploadDir;
     private final int kycRetryBatch;
     private final int kycRetentionHours;
 
@@ -67,7 +66,6 @@ public class MaintenanceTasks {
                             @Value("${savefood.background-tasks:off}") String mode,
                             @Value("${savefood.support-chat-id:}") String supportChatId,
                             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
-                            @Value("${savefood.needy-upload-dir:../backend/needy/uploads}") String needyUploadDir,
                             @Value("${savefood.kyc-retry-batch:100}") int kycRetryBatch,
                             @Value("${savefood.kyc-doc-retention-hours:0}") int kycRetentionHours) {
         this.jdbc = jdbc;
@@ -78,7 +76,6 @@ public class MaintenanceTasks {
         this.enabled = "embedded".equalsIgnoreCase(mode.strip());
         this.supportChatId = supportChatId == null ? "" : supportChatId;
         this.volunteerKycDir = volunteerKycDir;
-        this.needyUploadDir = needyUploadDir;
         this.kycRetryBatch = kycRetryBatch;
         this.kycRetentionHours = kycRetentionHours;
     }
@@ -382,18 +379,6 @@ public class MaintenanceTasks {
                         v.get("name") == null ? "" : v.get("name").toString());
                 }
             }
-            List<Map<String, Object>> needies = jdbc.queryForList(
-                "SELECT n.id AS id, n.name AS name, p.document AS document FROM needy n "
-                + "JOIN needy_profile p ON p.needy_id = n.id WHERE n.status = 'pending' "
-                + "AND p.document IS NOT NULL AND (n.kyc_verdict IS NULL OR n.kyc_verdict = 'unchecked') "
-                + "ORDER BY n.kyc_checked_at ASC NULLS FIRST LIMIT ?", kycRetryBatch);
-            for (Map<String, Object> n : needies) {
-                String path = safeDocPath(needyUploadDir, (String) n.get("document"));
-                if (path != null) {
-                    kyc.startKycCheck(((Number) n.get("id")).intValue(), path,
-                        n.get("name") == null ? "" : n.get("name").toString());
-                }
-            }
         } catch (RuntimeException e) {
             log.warning("[background] kyc_retry tick failed: " + e.getMessage());
         }
@@ -420,24 +405,6 @@ public class MaintenanceTasks {
                     + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", id, "kyc_doc_purged", msg);
                 try {
                     telegram.notifyVolunteer(id, "◷ " + msg);
-                } catch (Exception ignore) {
-                    // best-effort
-                }
-            }
-            for (Map<String, Object> row : jdbc.queryForList(
-                    "SELECT n.id AS id, p.document AS document FROM needy n "
-                    + "JOIN needy_profile p ON p.needy_id = n.id WHERE p.document IS NOT NULL "
-                    + "AND n.status = 'pending' AND n.kyc_checked_at IS NOT NULL "
-                    + "AND n.kyc_checked_at < CURRENT_TIMESTAMP - make_interval(hours => ?)", kycRetentionHours)) {
-                int id = ((Number) row.get("id")).intValue();
-                deleteDoc(needyUploadDir, (String) row.get("document"));
-                jdbc.update("UPDATE needy_profile SET document = NULL WHERE needy_id = ?", id);
-                String msg = "Срок хранения вашего документа истёк, и он удалён. "
-                    + "Загрузите документ заново, чтобы подтвердить право на помощь.";
-                jdbc.update("INSERT INTO notifications (needy_id, type, payload, created_at, read) "
-                    + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", id, "kyc_doc_purged", msg);
-                try {
-                    telegram.notifyNeedy(id, "◷ " + msg);
                 } catch (Exception ignore) {
                     // best-effort
                 }

@@ -89,8 +89,8 @@ public class MetricsService {
                 "SELECT COUNT(*) FROM tickets WHERE status = 'open'");
             gauge(sb, "savefood_routes_in_progress", "Active delivery routes",
                 "SELECT COUNT(*) FROM volunteer_routes WHERE status = 'in_progress'");
-            gauge(sb, "savefood_pending_moderation", "Needy waiting for moderation",
-                "SELECT COUNT(*) FROM needy WHERE status = 'pending'");
+            gauge(sb, "savefood_active_needy", "Recipient accounts available for assistance",
+                "SELECT COUNT(*) FROM needy WHERE status = 'active'");
         } catch (RuntimeException e) {
             // a DB hiccup must not break the scrape of the HTTP metrics
         }

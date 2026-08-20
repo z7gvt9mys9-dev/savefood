@@ -89,13 +89,6 @@ interface NeedyApi {
         @Body body: NeedyProfileUpdateDto,
     ): NeedyProfileDto
 
-    @Multipart
-    @POST("needy/{id}/profile/upload")
-    suspend fun uploadDocument(
-        @Path("id") needyId: Int,
-        @Part file: MultipartBody.Part,
-    ): NeedyProfileDto
-
     @PATCH("needy/{id}/geo_push")
     suspend fun setGeoPush(
         @Path("id") needyId: Int,

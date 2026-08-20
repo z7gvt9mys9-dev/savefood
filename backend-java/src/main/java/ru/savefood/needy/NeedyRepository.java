@@ -49,28 +49,6 @@ public class NeedyRepository {
         return getNeedyById(needyId);
     }
 
-    /**
-     * Set the moderation status (db.py {@code set_needy_status}). When
-     * {@code expectedStatus} is given the flip is conditional and returns null if
-     * the row was no longer in that state — the TOCTOU guard the auto-KYC thread
-     * relies on so it cannot clobber a status changed during the AI call.
-     */
-    public Map<String, Object> setNeedyStatus(int needyId, String status, String expectedStatus) {
-        if (getNeedyById(needyId) == null) {
-            return null;
-        }
-        if (expectedStatus == null) {
-            jdbc.update("UPDATE needy SET status = ? WHERE id = ?", status, needyId);
-        } else {
-            int rows = jdbc.update("UPDATE needy SET status = ? WHERE id = ? AND status = ?",
-                status, needyId, expectedStatus);
-            if (rows == 0) {
-                return null;
-            }
-        }
-        return getNeedyById(needyId);
-    }
-
     // ── Tickets ──────────────────────────────────────────────────────────────────
 
     public Map<String, Object> getTicketById(int ticketId) {
@@ -121,12 +99,12 @@ public class NeedyRepository {
 
     /**
      * Upsert the profile (db.py {@code create_or_update_profile}): every column is
-     * coalesced (a null argument keeps the stored value), so PATCH and the
-     * single-field document/geo writes share one path. Returns the {@code
+     * coalesced (a null argument keeps the stored value), so PATCH and geo writes
+     * share one path. Returns the {@code
      * NeedyProfileOut} shape, or null if the needy row is missing.
      */
     public Map<String, Object> createOrUpdateProfile(int needyId, String address, Integer familySize,
-            String preferences, String urgency, String document, String availableTime, String apartment,
+            String preferences, String urgency, String availableTime, String apartment,
             String floorNum, String entrance, String city, Double lat, Double lon,
             boolean clearCoordinates) {
         if (getNeedyById(needyId) == null) {
@@ -138,13 +116,12 @@ public class NeedyRepository {
             Map<String, Object> p = existing.get(0);
             jdbc.update(
                 "UPDATE needy_profile SET address = ?, family_size = ?, preferences = ?, urgency = ?, "
-                + "document = ?, available_time = ?, apartment = ?, floor_num = ?, entrance = ?, "
+                + "available_time = ?, apartment = ?, floor_num = ?, entrance = ?, "
                 + "city = ?, lat = ?, lon = ? WHERE needy_id = ?",
                 coalesce(address, p.get("address")),
                 familySize != null ? familySize : p.get("family_size"),
                 coalesce(preferences, p.get("preferences")),
                 coalesce(urgency, p.get("urgency")),
-                coalesce(document, p.get("document")),
                 coalesce(availableTime, p.get("available_time")),
                 coalesce(apartment, p.get("apartment")),
                 coalesce(floorNum, p.get("floor_num")),
@@ -156,9 +133,9 @@ public class NeedyRepository {
         } else {
             jdbc.update(
                 "INSERT INTO needy_profile (needy_id, address, family_size, preferences, urgency, "
-                + "available_time, last_received_at, document, apartment, floor_num, entrance, city, lat, lon) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                needyId, address, familySize, preferences, urgency, availableTime, null, document,
+                + "available_time, last_received_at, apartment, floor_num, entrance, city, lat, lon) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                needyId, address, familySize, preferences, urgency, availableTime, null,
                 apartment, floorNum, entrance, city, clearCoordinates ? null : lat,
                 clearCoordinates ? null : lon);
         }
@@ -265,7 +242,6 @@ public class NeedyRepository {
         m.put("urgency", rs.getString("urgency"));
         m.put("available_time", rs.getString("available_time"));
         m.put("last_received_at", rs.getObject("last_received_at", OffsetDateTime.class));
-        m.put("document", rs.getString("document"));
         m.put("apartment", rs.getString("apartment"));
         m.put("floor_num", rs.getString("floor_num"));
         m.put("entrance", rs.getString("entrance"));

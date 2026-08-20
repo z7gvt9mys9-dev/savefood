@@ -18,7 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Encryption-at-rest for KYC eligibility/identity documents (§58), ported from
+ * Encryption-at-rest for volunteer KYC identity documents (§58), ported from
  * kyc_crypto.py. Wire-compatible with Python's {@code cryptography.fernet}: the
  * same {@code KYC_ENCRYPTION_KEY} (a base64url-encoded 32-byte Fernet key, first
  * 16 bytes HMAC-SHA256 signing, last 16 bytes AES-128-CBC) decrypts documents

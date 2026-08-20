@@ -8,8 +8,8 @@
 //     every active volunteer — the chattiest endpoint on the platform).
 //  3. GET  /volunteers/{id}/location  — live location for delivery tracking.
 //
-// Auth is interoperable with the FastAPI backend: same HS256 SECRET_KEY, same
-// claims (sub / role / related_id), same WebSocket handshake protocol
+// Auth is interoperable with the Java backend: same HS256 SECRET_KEY, same
+// claims (immutable users.id subject / role / related_id), same WebSocket handshake protocol
 // ({"type":"auth","token":...,"since_id":...}), so the frontend needs zero
 // changes — only the reverse proxy routes these paths here.
 package main
@@ -59,7 +59,7 @@ const (
 // ── auth ────────────────────────────────────────────────────────────────────
 
 type claims struct {
-	Sub       string
+	UserID    int
 	Role      string
 	RelatedID *int
 }
@@ -82,7 +82,11 @@ func parseToken(token string) (*claims, error) {
 		return nil, errors.New("bad claims")
 	}
 	c := &claims{}
-	c.Sub, _ = mc["sub"].(string)
+	sub, _ := mc["sub"].(string)
+	c.UserID, err = strconv.Atoi(sub)
+	if err != nil || c.UserID <= 0 {
+		return nil, errors.New("bad subject")
+	}
 	c.Role, _ = mc["role"].(string)
 	if rid, ok := mc["related_id"].(float64); ok {
 		i := int(rid)
@@ -99,26 +103,32 @@ func bearerClaims(r *http.Request) (*claims, error) {
 	return parseToken(strings.TrimSpace(h[7:]))
 }
 
-// accountState distinguishes a blocked account from a deleted one.  The latter
-// used to look identical to an unblocked account, leaving an erased user's
-// unexpired JWT usable through the Go hot paths.
-func accountState(ctx context.Context, username string) (exists bool, blocked bool) {
+// currentAccount resolves the immutable subject and returns current authorization
+// fields rather than trusting role/ownership copies from an older token.
+func currentAccount(ctx context.Context, tokenClaims *claims) (current *claims, exists bool, blocked bool) {
+	var role string
+	var relatedID *int
 	var isBlocked bool
-	err := pool.QueryRow(ctx, "SELECT is_blocked FROM users WHERE username = $1", username).Scan(&isBlocked)
-	return err == nil, isBlocked
+	err := pool.QueryRow(ctx,
+		"SELECT role, related_id, is_blocked FROM users WHERE id = $1", tokenClaims.UserID).
+		Scan(&role, &relatedID, &isBlocked)
+	if err != nil {
+		return nil, false, false
+	}
+	return &claims{UserID: tokenClaims.UserID, Role: role, RelatedID: relatedID}, true, isBlocked
 }
 
-func rejectInactiveAccount(ctx context.Context, w http.ResponseWriter, username string) bool {
-	exists, blocked := accountState(ctx, username)
+func activeClaims(ctx context.Context, w http.ResponseWriter, tokenClaims *claims) (*claims, bool) {
+	current, exists, blocked := currentAccount(ctx, tokenClaims)
 	if !exists {
 		httpError(w, http.StatusUnauthorized, "Could not validate credentials")
-		return true
+		return nil, false
 	}
 	if blocked {
 		httpError(w, http.StatusForbidden, "Аккаунт заблокирован администратором")
-		return true
+		return nil, false
 	}
-	return false
+	return current, true
 }
 
 func validCoordinates(lat, lon float64) bool {
@@ -151,7 +161,8 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		httpError(w, http.StatusUnauthorized, "Could not validate credentials")
 		return
 	}
-	if rejectInactiveAccount(ctx, w, c.Sub) {
+	c, ok := activeClaims(ctx, w, c)
+	if !ok {
 		return
 	}
 
@@ -377,18 +388,18 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 			closeWith(websocket.ClosePolicyViolation)
 			return
 		}
+		ctx := r.Context()
+		current, exists, blocked := currentAccount(ctx, c)
+		if !exists || blocked {
+			closeWith(websocket.ClosePolicyViolation)
+			return
+		}
+		c = current
 		owner := c.Role == "needy" && c.RelatedID != nil && *c.RelatedID == needyID
 		if c.Role != "admin" && !owner {
 			closeWith(websocket.ClosePolicyViolation)
 			return
 		}
-		ctx := r.Context()
-		exists, blocked := accountState(ctx, c.Sub)
-		if !exists || blocked {
-			closeWith(websocket.ClosePolicyViolation)
-			return
-		}
-
 		cl := &client{conn: conn, needyID: needyID}
 		if !h.add(cl) {
 			closeWith(websocket.ClosePolicyViolation) // connection cap reached

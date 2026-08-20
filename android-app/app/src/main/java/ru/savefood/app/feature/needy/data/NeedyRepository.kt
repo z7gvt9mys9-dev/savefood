@@ -68,12 +68,6 @@ class NeedyRepository @Inject constructor(
     suspend fun saveProfile(needyId: Int, body: NeedyProfileUpdateDto, exists: Boolean): ApiResult<NeedyProfileDto> =
         safeApiCall { if (exists) api.patchProfile(needyId, body) else api.createProfile(needyId, body) }
 
-    suspend fun uploadDocument(needyId: Int, uri: Uri): ApiResult<NeedyProfileDto> =
-        safeApiCall {
-            val part = uri.toImagePart("file")
-            api.uploadDocument(needyId, part)
-        }
-
     suspend fun setGeoPush(needyId: Int, enabled: Boolean): ApiResult<Unit> =
         safeApiCall { api.setGeoPush(needyId, GeoPushUpdateDto(enabled)); Unit }
 
@@ -90,8 +84,7 @@ class NeedyRepository @Inject constructor(
         val ext = when (mime) {
             "image/jpeg", "image/jpg" -> "jpg"
             "image/png" -> "png"
-            "application/pdf" -> "pdf"
-            else -> error("Поддерживаются только файлы JPG, PNG или PDF")
+            else -> error("Поддерживаются только файлы JPG или PNG")
         }
         val tmp = File.createTempFile("needy_upload_", ".$ext", context.cacheDir)
         resolver.openInputStream(this@toImagePart)?.use { input ->

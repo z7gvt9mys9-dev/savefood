@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -51,23 +50,20 @@ public class AdminAuthFilter extends OncePerRequestFilter {
             deny(response, 401, "Could not validate credentials");
             return;
         }
-        // Reject blocked and deleted users on every request — an already-issued
-        // token must not remain a usable session after account erasure.
-        if (user.sub() == null || user.sub().isBlank()) {
+        var rows = jdbc.queryForList(
+            "SELECT username, role, related_id, is_blocked FROM users WHERE id = ?", user.userId());
+        if (rows.isEmpty()) {
             deny(response, 401, "Could not validate credentials");
             return;
         }
-        List<Boolean> blocked = jdbc.query(
-            "SELECT is_blocked FROM users WHERE username = ?",
-            (rs, n) -> rs.getBoolean("is_blocked"), user.sub());
-        if (blocked.isEmpty()) {
-            deny(response, 401, "Could not validate credentials");
-            return;
-        }
-        if (Boolean.TRUE.equals(blocked.get(0))) {
+        Map<String, Object> row = rows.get(0);
+        if (Boolean.TRUE.equals(row.get("is_blocked"))) {
             deny(response, 403, "Аккаунт заблокирован администратором");
             return;
         }
+        Object relatedId = row.get("related_id");
+        user = new CurrentUser(user.userId(), (String) row.get("username"),
+            (String) row.get("role"), relatedId instanceof Number n ? n.intValue() : null);
         if (!user.isAdmin()) {
             deny(response, 403, "Admin access required");
             return;

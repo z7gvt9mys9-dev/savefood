@@ -1,10 +1,12 @@
 package ru.savefood.telegram;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 import ru.savefood.ai.AiService;
+import ru.savefood.auth.TelegramLoginService;
 import ru.savefood.chat.ChatService;
 import ru.savefood.push.PushDispatchService;
 import ru.savefood.util.Html;
@@ -28,7 +30,8 @@ import org.springframework.stereotype.Service;
  *   <li>{@code /start link_<token>} — redeem an account-link token: write the
  *       sender's chat id onto the user and drop the token;</li>
  *   <li>{@code /start login_<token>} — bind an already-linked account to a
- *       pending login attempt, which is what the SPA is polling for;</li>
+ *       pending login attempt and privately deliver its one-time completion
+ *       credential; the SPA poller sees status only;</li>
  *   <li>{@code /start}, {@code /help}, {@code /status}, {@code /chat},
  *       {@code /unlink};</li>
  *   <li>any other text — relayed to the counterpart of the sender's active
@@ -49,23 +52,27 @@ public class TelegramBotService {
 
     private final JdbcTemplate jdbc;
     private final TelegramService telegram;
+    private final TelegramLoginService telegramLogin;
     private final ChatService chat;
     private final AiService ai;
     private final PushDispatchService push;
     private final String supportChatId;
     private final String siteUrl;
 
-    public TelegramBotService(JdbcTemplate jdbc, TelegramService telegram, ChatService chat,
+    public TelegramBotService(JdbcTemplate jdbc, TelegramService telegram,
+                              TelegramLoginService telegramLogin, ChatService chat,
                               AiService ai, PushDispatchService push,
                               @Value("${savefood.support-chat-id:}") String supportChatId,
-                              @Value("${savefood.oauth.public-url:}") String siteUrl) {
+                              @Value("${savefood.oauth.public-url:}") String siteUrl,
+                              @Value("${SITE_URL:}") String fallbackSiteUrl) {
         this.jdbc = jdbc;
         this.telegram = telegram;
+        this.telegramLogin = telegramLogin;
         this.chat = chat;
         this.ai = ai;
         this.push = push;
         this.supportChatId = supportChatId == null ? "" : supportChatId;
-        this.siteUrl = siteUrl == null ? "" : siteUrl;
+        this.siteUrl = normalizeSiteUrl(siteUrl, fallbackSiteUrl);
     }
 
     /** Entry point for one Telegram update. Never throws. */
@@ -76,23 +83,31 @@ public class TelegramBotService {
                 return;  // edited messages, callbacks, channel posts — not used
             }
             String chatId = message.path("chat").path("id").asText("");
+            String chatType = message.path("chat").path("type").asText("");
+            String senderId = message.path("from").path("id").asText("");
             String text = message.path("text").asText("").strip();
             if (chatId.isEmpty() || text.isEmpty()) {
                 return;
             }
-            dispatch(chatId, text);
+            boolean authenticatedPrivateChat = "private".equals(chatType) && chatId.equals(senderId);
+            dispatch(chatId, text, authenticatedPrivateChat);
         } catch (RuntimeException e) {
             log.warning("[telegram] update handling failed: " + e.getMessage());
         }
     }
 
-    private void dispatch(String chatId, String text) {
+    private void dispatch(String chatId, String text, boolean authenticatedPrivateChat) {
         if (text.startsWith("/start")) {
             String arg = text.length() > "/start".length() ? text.substring("/start".length()).strip() : "";
             if (arg.startsWith("link_")) {
                 handleLink(chatId, arg.substring("link_".length()));
             } else if (arg.startsWith("login_")) {
-                handleLogin(chatId, arg.substring("login_".length()));
+                if (authenticatedPrivateChat) {
+                    handleLogin(chatId, arg.substring("login_".length()));
+                } else {
+                    telegram.sendMessage(chatId,
+                        "Для безопасного входа откройте эту ссылку в личном чате с ботом.");
+                }
             } else {
                 telegram.sendMessage(chatId, greeting());
             }
@@ -147,26 +162,28 @@ public class TelegramBotService {
     // ── /start login_<token> ───────────────────────────────────────────────────
 
     private void handleLogin(String chatId, String token) {
-        Integer userId = jdbc.query(
-            "SELECT id FROM users WHERE telegram_chat_id = ?",
-            rs -> rs.next() ? rs.getInt("id") : null, chatId);
-        if (userId == null) {
+        String completionToken = telegramLogin.confirm(token, chatId);
+        if (completionToken == null) {
             telegram.sendMessage(chatId,
-                "↗ Этот Telegram ещё не привязан ни к одному аккаунту, поэтому войти по нему нельзя.\n\n"
-                + "Войдите на сайте логином и паролем, откройте профиль и нажмите "
-                + "«Подключить Telegram» — после этого вход одной кнопкой заработает.");
+                "◷ Вход недоступен: ссылка устарела, уже использована или аккаунт не привязан. "
+                + "Начните вход на сайте заново.");
             return;
         }
-        int updated = jdbc.update(
-            "UPDATE telegram_login_tokens SET user_id = ? "
-            + "WHERE token = ? AND user_id IS NULL "
-            + "AND created_at >= NOW() - (? * INTERVAL '1 minute')",
-            userId, token, TOKEN_TTL_MINUTES);
-        if (updated == 0) {
-            telegram.sendMessage(chatId, "◷ Ссылка для входа устарела — начните вход на сайте заново.");
+        String completionUrl = completionUrl(completionToken);
+        if (completionUrl == null) {
+            telegramLogin.revokeConfirmation(token, completionToken);
+            telegram.sendMessage(chatId,
+                "Вход через Telegram временно недоступен из-за настройки адреса сайта.");
             return;
         }
-        telegram.sendMessage(chatId, "✓ Вход подтверждён — возвращайтесь на сайт, страница уже открылась.");
+        boolean delivered = telegram.sendMessage(chatId,
+            "✓ Telegram подтвердил аккаунт.\n\n"
+                + "<a href=\"" + Html.escape(completionUrl) + "\">Завершить вход в SaveFood</a>\n\n"
+                + "Ссылка одноразовая и действует "
+                + TelegramLoginService.COMPLETION_TTL_MINUTES + " минут.");
+        if (!delivered || !telegramLogin.markDelivered(token, completionToken)) {
+            telegramLogin.revokeConfirmation(token, completionToken);
+        }
     }
 
     // ── /status ────────────────────────────────────────────────────────────────
@@ -211,9 +228,6 @@ public class TelegramBotService {
     }
 
     private void appendNeedyStatus(StringBuilder sb, int needyId) {
-        String status = jdbc.query("SELECT status FROM needy WHERE id = ?",
-            rs -> rs.next() ? rs.getString("status") : null, needyId);
-        sb.append("Анкета: ").append(verificationLabel(status)).append('\n');
         Map<String, Object> ticket = firstRow(
             "SELECT id, status FROM tickets WHERE needy_id = ? AND status IN ('open','assigned') "
             + "ORDER BY id DESC LIMIT 1", needyId);
@@ -346,6 +360,27 @@ public class TelegramBotService {
         return "◇ Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
             + "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
             + site + "\n\n" + helpText();
+    }
+
+    private String completionUrl(String completionToken) {
+        return siteUrl.isBlank() ? null : siteUrl + "/auth#telegram_completion=" + completionToken;
+    }
+
+    private static String normalizeSiteUrl(String primary, String fallback) {
+        for (String candidate : new String[]{primary, fallback}) {
+            if (candidate == null || candidate.isBlank()) continue;
+            String normalized = candidate.strip().replaceAll("/+$", "");
+            try {
+                URI uri = URI.create(normalized);
+                if (("https".equalsIgnoreCase(uri.getScheme())
+                    || "http".equalsIgnoreCase(uri.getScheme())) && uri.getHost() != null) {
+                    return normalized;
+                }
+            } catch (IllegalArgumentException ignored) {
+                // Try the fallback; if neither is a valid absolute web URL, fail closed.
+            }
+        }
+        return "";
     }
 
     private String helpText() {

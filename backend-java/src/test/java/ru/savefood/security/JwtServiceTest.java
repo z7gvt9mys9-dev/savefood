@@ -17,9 +17,10 @@ class JwtServiceTest {
 
     @Test
     void tokenRoundtrip() {
-        String token = service.create("alice", "volunteer", 7);
+        String token = service.create(11, "alice", "volunteer", 7);
         CurrentUser user = service.decode(token);
         assertThat(user).isNotNull();
+        assertThat(user.userId()).isEqualTo(11);
         assertThat(user.sub()).isEqualTo("alice");
         assertThat(user.role()).isEqualTo("volunteer");
         assertThat(user.relatedId()).isEqualTo(7);
@@ -27,7 +28,7 @@ class JwtServiceTest {
 
     @Test
     void tokensAreAlwaysHs256EvenWithALongSecret() {
-        String token = service.create("alice", "volunteer", 7);
+        String token = service.create(11, "alice", "volunteer", 7);
         String header = new String(java.util.Base64.getUrlDecoder().decode(token.split("\\.")[0]),
             StandardCharsets.UTF_8);
         assertThat(header).contains("\"HS256\"");
@@ -43,7 +44,7 @@ class JwtServiceTest {
 
     @Test
     void payloadMatchesClaims() {
-        String token = service.create("bob", "shop", 42);
+        String token = service.create(12, "bob", "shop", 42);
         Map<String, Object> payload = service.payload(token);
         assertThat(payload.get("sub")).isEqualTo("bob");
         assertThat(payload.get("role")).isEqualTo("shop");
@@ -56,6 +57,13 @@ class JwtServiceTest {
         String token = service.signClaims(Map.of("sub", "carol"), -1);
         assertThat(service.decode(token)).isNull();
         assertThat(service.readClaims(token)).isNull();
+    }
+
+    @Test
+    void legacyUsernameSubjectIsRejected() {
+        String token = service.signClaims(
+            Map.of("sub", "alice", "role", "volunteer", "related_id", 7), 5);
+        assertThat(service.decode(token)).isNull();
     }
 
     @Test

@@ -97,7 +97,7 @@ public class PushController {
 
     private Map<String, Object> userIdentity(CurrentUser user) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT id, role, related_id FROM users WHERE username = ?", user.sub());
+            "SELECT id, role, related_id FROM users WHERE id = ?", user.userId());
         if (rows.isEmpty()) {
             throw new ApiException(404, "User not found");
         }

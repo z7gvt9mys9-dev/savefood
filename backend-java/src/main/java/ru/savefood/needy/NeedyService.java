@@ -78,7 +78,7 @@ public class NeedyService {
         Integer needyId;
         try {
             needyId = jdbc.queryForObject(
-                "INSERT INTO needy (name, contact, created_at) VALUES (?, ?, ?) RETURNING id",
+                "INSERT INTO needy (name, contact, status, created_at) VALUES (?, ?, 'active', ?) RETURNING id",
                 Integer.class, name, contact, OffsetDateTime.now());
             jdbc.update(
                 "INSERT INTO users (username, hashed_password, role, related_id) "
@@ -345,16 +345,16 @@ public class NeedyService {
 
     // ── Account erase (§49 «право на забвение») ──────────────────────────────────
 
-    /** On-disk file paths the controller must delete after a successful erase. */
-    public record EraseResult(String document, List<String> photos) {
+    /** On-disk delivery-photo paths the controller must delete after a successful erase. */
+    public record EraseResult(List<String> photos) {
     }
 
     /**
      * Erase a recipient's personal data (db.py {@code erase_account}): scrub PII from
      * tickets (keeping status/timestamps for aggregates), return live reservations,
      * close live tickets and notify assigned volunteers, delete messages/profile/
-     * notifications and the login, and anonymise the needy row. Returns the file
-     * paths to remove from disk, or null if the needy row is missing.
+     * notifications and the login, and anonymise the needy row. Returns delivery
+     * photo paths to remove from disk, or null if the needy row is missing.
      */
     @Transactional
     public EraseResult eraseAccount(int needyId) {
@@ -362,10 +362,6 @@ public class NeedyService {
             return null;
         }
 
-        List<String> docRows = jdbc.query(
-            "SELECT document FROM needy_profile WHERE needy_id = ?",
-            (rs, n) -> rs.getString("document"), needyId);
-        String document = docRows.isEmpty() ? null : docRows.get(0);
         List<String> photos = jdbc.query(
             "SELECT delivery_photo FROM tickets WHERE needy_id = ? AND delivery_photo IS NOT NULL",
             (rs, n) -> rs.getString("delivery_photo"), needyId);
@@ -423,13 +419,10 @@ public class NeedyService {
         jdbc.update("DELETE FROM notifications WHERE needy_id = ?", needyId);
         jdbc.update("DELETE FROM needy_profile WHERE needy_id = ?", needyId);
         jdbc.update("DELETE FROM users WHERE role = 'needy' AND related_id = ?", needyId);
-        // The AI's judgement about a person must not outlive the person's account:
-        // score, verdict and check timestamp go with the notes.
         jdbc.update(
-            "UPDATE needy SET name = 'Удалённый аккаунт', contact = NULL, status = 'deleted', "
-            + "document = NULL, kyc_notes = NULL, kyc_score = NULL, kyc_verdict = NULL, "
-            + "kyc_checked_at = NULL WHERE id = ?", needyId);
-        return new EraseResult(document, photos);
+            "UPDATE needy SET name = 'Удалённый аккаунт', contact = NULL, status = 'deleted' "
+            + "WHERE id = ?", needyId);
+        return new EraseResult(photos);
     }
 
     // ── Cross-module helpers (kept from the original NeedyService) ─────────────────
@@ -447,32 +440,6 @@ public class NeedyService {
             jdbc.update("INSERT INTO needy_profile (needy_id, last_received_at) VALUES (?, ?)",
                 needyId, ts);
         }
-    }
-
-    /**
-     * Moderation queue feed. Exposes only whether a document was uploaded, never
-     * its path: a moderator decides from the AI's extraction ({@code kyc_verdict},
-     * {@code kyc_score}, {@code kyc_notes}), and §58.1 deliberately leaves no human
-     * route to the file itself.
-     */
-    public List<Map<String, Object>> getAllNeedy(String status) {
-        String select = "SELECT n.*, (np.document IS NOT NULL) AS has_document, "
-            + "np.family_size, np.city FROM needy n "
-            + "LEFT JOIN needy_profile np ON n.id = np.needy_id ";
-        if (status != null && !status.isBlank()) {
-            return jdbc.queryForList(select + "WHERE n.status = ? ORDER BY n.created_at DESC", status);
-        }
-        return jdbc.queryForList(select + "ORDER BY n.created_at DESC");
-    }
-
-    /**
-     * Unconditional status write for the admin moderation endpoint. Unlike the
-     * Auto-KYC path (which guards on {@code pending} so it can never overwrite a
-     * human decision) a moderator is allowed to overturn anything — including a
-     * wrong automatic approve or reject.
-     */
-    public Map<String, Object> setNeedyStatusManually(int needyId, String status) {
-        return repo.setNeedyStatus(needyId, status, null);
     }
 
     private static Integer asInt(Object v) {

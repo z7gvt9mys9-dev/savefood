@@ -17,10 +17,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * Decodes the HS256 JWTs minted by backend/auth.py. The secret is used as raw
- * UTF-8 bytes for HMAC on both sides (python-jose ⇄ jjwt), so tokens issued by
- * the Python service validate here unchanged. Signature + expiry are verified;
- * an invalid/expired token yields {@code null} (caller maps that to 401).
+ * Issues and decodes SaveFood HS256 access tokens. Signature, algorithm and
+ * expiry are verified; an invalid/expired token yields {@code null} (caller
+ * maps that to 401).
  */
 @Service
 public class JwtService {
@@ -46,18 +45,19 @@ public class JwtService {
 
     /**
      * Mints an HS256 access token, the Java analogue of auth.py
-     * {@code create_access_token}: the same {@code sub}/{@code role}/{@code related_id}
-     * claims, a 24h {@code exp}, and no {@code iat} — so tokens issued here are
-     * byte-for-byte interchangeable with the Python backend's.
+     * {@code create_access_token}. The JWT subject is the immutable users.id;
+     * username remains a separate display/API claim so deleting an account and
+     * reusing its username cannot transfer an old token to the new account.
      */
-    public String create(String sub, String role, Integer relatedId) {
+    public String create(int userId, String username, String role, Integer relatedId) {
         Map<String, Object> claims = new HashMap<>();
+        claims.put("username", username);
         claims.put("role", role);
         claims.put("related_id", relatedId);
         Instant exp = Instant.now().plusSeconds(ACCESS_TOKEN_EXPIRE_MINUTES * 60);
         return Jwts.builder()
                 .claims(claims)
-                .subject(sub)
+                .subject(Integer.toString(userId))
                 .expiration(Date.from(exp))
                 // JJWT otherwise picks HS384/HS512 from a long enough secret.
                 // geows and the legacy services intentionally accept HS256 only.
@@ -66,15 +66,14 @@ public class JwtService {
     }
 
     /**
-     * The decoded payload as auth.py {@code /me} returns it ({@code sub},
-     * {@code role}, {@code related_id}, {@code exp}). The token is assumed already
-     * validated by {@link AuthArgumentResolver}; {@code exp} is epoch seconds to
-     * match python-jose's numeric claim.
+     * The API-compatible {@code /me} payload ({@code sub}, {@code role},
+     * {@code related_id}, {@code exp}). Its public {@code sub} remains the username
+     * claim even though the signed JWT subject is the immutable user id.
      */
     public Map<String, Object> payload(String token) {
         Claims claims = parseHs256(token).getPayload();
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("sub", claims.getSubject());
+        out.put("sub", claims.get("username", String.class));
         out.put("role", claims.get("role", String.class));
         Object rid = claims.get("related_id");
         out.put("related_id", rid instanceof Number n ? n.intValue() : rid);
@@ -114,14 +113,18 @@ public class JwtService {
     public CurrentUser decode(String token) {
         try {
             Claims claims = parseHs256(token).getPayload();
-            String sub = claims.getSubject();
+            int userId = Integer.parseInt(claims.getSubject());
+            if (userId <= 0) {
+                return null;
+            }
+            String username = claims.get("username", String.class);
             String role = claims.get("role", String.class);
             Integer relatedId = null;
             Object rid = claims.get("related_id");
             if (rid instanceof Number n) {
                 relatedId = n.intValue();
             }
-            return new CurrentUser(sub, role, relatedId);
+            return new CurrentUser(userId, username, role, relatedId);
         } catch (JwtException | IllegalArgumentException e) {
             return null;
         }

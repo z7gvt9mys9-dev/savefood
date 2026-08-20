@@ -7,7 +7,8 @@ import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
 
-const MODERATION_POLL_MS = 3000;
+const TELEGRAM_COMPLETION_RETRY_MS = 250;
+const TELEGRAM_COMPLETION_MAX_ATTEMPTS = 5;
 const NEEDY_REGISTRATION_KEY = 'savefood_needy_registration_id';
 
 const AuthIcon = ({ name }) => {
@@ -40,8 +41,6 @@ const AuthPage = () => {
   const [regSession, setRegSession] = useState(null);
   const [regNeedyId, setRegNeedyId] = useState(null);
   const [needySubmitting, setNeedySubmitting] = useState(false);
-  const [moderationStatus, setModerationStatus] = useState('pending');
-  const [moderationError, setModerationError] = useState('');
   // C2C: 'business' (магазин/кафе) | 'private' (частное лицо отдаёт излишки)
   const [donorKind, setDonorKind] = useState('business');
 
@@ -58,7 +57,6 @@ const AuthPage = () => {
     familySize: 1,
     preferences: '',
     urgency: 'normal',
-    document: null,
     apartment: '',
     floor_num: '',
     entrance: '',
@@ -88,8 +86,11 @@ const AuthPage = () => {
 
   const [agreed, setAgreed] = useState(false);
   const [providers, setProviders] = useState(null);
-  const [tgLogin, setTgLogin] = useState(null); // {token, link} while waiting for bot confirm
+  const [tgLogin, setTgLogin] = useState(null); // status-only browser transaction
+  const [tgStarting, setTgStarting] = useState(false);
   const tgPollRef = useRef(null);
+  const tgActiveTokenRef = useRef(null);
+  const tgStartingRef = useRef(false);
 
   // Which social providers are configured on the server (hide the rest)
   useEffect(() => {
@@ -97,11 +98,15 @@ const AuthPage = () => {
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setProviders(data); })
       .catch(() => {});
-    return () => clearInterval(tgPollRef.current);
+    return () => {
+      tgActiveTokenRef.current = null;
+      tgStartingRef.current = false;
+      clearInterval(tgPollRef.current);
+    };
   }, []);
 
   // Keep a submitted registration resumable across reloads without storing the
-  // password or document. The auth context already restores the owner's token.
+  // password. The auth context already restores the owner's token.
   useEffect(() => {
     if (!startsInRegisterMode || initialRole !== 'needy' || regNeedyId) return;
     if (user?.role !== 'needy' || !user.token || !user.relatedId) return;
@@ -113,63 +118,57 @@ const AuthPage = () => {
     setStep(2);
   }, [startsInRegisterMode, initialRole, regNeedyId, user]);
 
-  // Registration creates the account and uploads the document before this step.
-  // Poll the owner-protected record until Auto-KYC or a moderator makes a decision.
-  useEffect(() => {
-    if (role !== 'needy' || step !== 2 || !regNeedyId || !regToken) return undefined;
-
-    let cancelled = false;
-    let timeoutId;
-
-    const checkModeration = async () => {
-      try {
-        const res = await fetch(`${API_URL}/needy/${regNeedyId}`, {
-          headers: { Authorization: `Bearer ${regToken}` },
-        });
-        if (!res.ok) {
-          if ([401, 403, 404].includes(res.status)) {
-            if (!cancelled) setModerationError(t('auth.moderation_check_error'));
-            return;
-          }
-          throw new Error('Transient moderation status error');
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        setModerationError('');
-        setModerationStatus(data.status || 'pending');
-        if (data.status === 'approved') {
-          setStep(3);
-          return;
-        }
-        if (data.status === 'rejected') return;
-      } catch {
-        if (!cancelled) setModerationError(t('auth.moderation_retrying'));
-      }
-      if (!cancelled) timeoutId = window.setTimeout(checkModeration, MODERATION_POLL_MS);
-    };
-
-    checkModeration();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-    };
-  }, [role, step, regNeedyId, regToken]);
-
-  // OAuth callback returns here with the JWT in the URL fragment
-  // (#oauth_token=...&role=...) — fragments never reach servers or logs.
+  // OAuth callbacks return a JWT in the fragment. Telegram instead returns a
+  // one-time completion credential sent only in the private bot conversation.
+  // Strip either fragment synchronously so it is not retained or replayed by a
+  // second React StrictMode effect pass.
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
+    const telegramCompletion = hash.get('telegram_completion');
     const oauthError = hash.get('oauth_error');
     const oauthToken = hash.get('oauth_token');
+    const cleanLocation = `${window.location.pathname}${window.location.search}`;
+    if (telegramCompletion) {
+      window.history.replaceState(null, '', cleanLocation);
+      const completeTelegramLogin = async () => {
+        try {
+          let res;
+          for (let attempt = 0; attempt < TELEGRAM_COMPLETION_MAX_ATTEMPTS; attempt += 1) {
+            res = await fetch(`${API_URL}/auth/telegram/login/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: telegramCompletion }),
+            });
+            if (res.status !== 409 || attempt === TELEGRAM_COMPLETION_MAX_ATTEMPTS - 1) break;
+            await new Promise(resolve => window.setTimeout(resolve, TELEGRAM_COMPLETION_RETRY_MS));
+          }
+          if (!res.ok) {
+            alert(t('auth.tg_login_completion_error'));
+            return;
+          }
+          const data = await res.json();
+          if (!data.access_token || !data.role) {
+            alert(t('auth.tg_login_completion_error'));
+            return;
+          }
+          login(data.access_token, data.role, data.related_id);
+          navigate(`/${data.role}`);
+        } catch {
+          alert(t('common.connection_error'));
+        }
+      };
+      completeTelegramLogin();
+      return;
+    }
     if (oauthError) {
-      window.history.replaceState(null, '', window.location.pathname);
+      window.history.replaceState(null, '', cleanLocation);
       alert(decodeURIComponent(oauthError));
       return;
     }
     if (oauthToken) {
       const role = hash.get('role');
       const relatedId = hash.get('related_id');
-      window.history.replaceState(null, '', window.location.pathname);
+      window.history.replaceState(null, '', cleanLocation);
       login(oauthToken, role, relatedId ? Number(relatedId) : null);
       navigate(`/${role}`);
     }
@@ -191,6 +190,9 @@ const AuthPage = () => {
   };
 
   const handleTelegramLogin = async () => {
+    if (tgStartingRef.current || tgActiveTokenRef.current) return;
+    tgStartingRef.current = true;
+    setTgStarting(true);
     try {
       const res = await fetch(`${API_URL}/auth/telegram/login/start`, { method: 'POST' });
       if (!res.ok) {
@@ -199,9 +201,11 @@ const AuthPage = () => {
         return;
       }
       const data = await res.json();
-      setTgLogin(data);
+      tgActiveTokenRef.current = data.token;
+      setTgLogin({ ...data, status: 'pending' });
       window.open(data.link, '_blank', 'noopener');
-      // poll until the bot confirms the session (or the token expires)
+      // This token observes status only. The JWT can be obtained solely by
+      // opening the separate completion link delivered in private Telegram.
       clearInterval(tgPollRef.current);
       tgPollRef.current = setInterval(async () => {
         try {
@@ -210,29 +214,49 @@ const AuthPage = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: data.token }),
           });
+          if (tgActiveTokenRef.current !== data.token) return;
           if (poll.status === 404) {
             clearInterval(tgPollRef.current);
-            setTgLogin(null);
+            setTgLogin(prev => prev?.token === data.token ? { ...prev, status: 'expired' } : prev);
             return;
           }
           if (!poll.ok) return;
           const result = await poll.json();
-          if (result.status === 'ok') {
+          if (tgActiveTokenRef.current !== data.token) return;
+          if (result.status === 'confirmed' || result.status === 'expired') {
             clearInterval(tgPollRef.current);
-            setTgLogin(null);
-            login(result.access_token, result.role, result.related_id);
-            navigate(`/${result.role}`);
+          }
+          if (['pending', 'confirmed', 'expired'].includes(result.status)) {
+            setTgLogin(prev => {
+              if (prev?.token !== data.token) return prev;
+              if (prev.status === 'confirmed' || prev.status === 'expired') return prev;
+              return { ...prev, status: result.status };
+            });
           }
         } catch {}
       }, 2500);
     } catch {
       alert(t('common.connection_error'));
+    } finally {
+      tgStartingRef.current = false;
+      setTgStarting(false);
     }
   };
 
-  const cancelTelegramLogin = () => {
+  const cancelTelegramLogin = async () => {
+    const token = tgActiveTokenRef.current;
+    tgActiveTokenRef.current = null;
     clearInterval(tgPollRef.current);
+    tgPollRef.current = null;
     setTgLogin(null);
+    if (!token) return;
+    try {
+      await fetch(`${API_URL}/auth/telegram/login/cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      });
+    } catch {}
   };
 
   const showRequestError = (error, fallbackKey) => {
@@ -276,17 +300,26 @@ const AuthPage = () => {
             </button>
           )}
           {providers.telegram && (
-            <button type="button" className="btn btn-secondary" onClick={handleTelegramLogin}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={handleTelegramLogin}
+              disabled={tgStarting || Boolean(tgLogin)}
+            >
               <AuthIcon name="telegram" />Telegram
             </button>
           )}
         </div>
         {tgLogin && (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
-            <p style={{ color: '#aaa', fontSize: '0.85em' }}>{t('auth.tg_login_waiting')}</p>
-            <a href={tgLogin.link} target="_blank" rel="noreferrer" style={{ color: '#5dade2' }}>
-              {t('auth.tg_login_open_again')}
-            </a>
+            <p style={{ color: '#aaa', fontSize: '0.85em' }}>
+              {t(`auth.tg_login_${tgLogin.status}`)}
+            </p>
+            {tgLogin.status === 'pending' && (
+              <a href={tgLogin.link} target="_blank" rel="noreferrer" style={{ color: '#5dade2' }}>
+                {t('auth.tg_login_open_again')}
+              </a>
+            )}
             <button type="button" className="btn-small" style={{ marginLeft: 10 }} onClick={cancelTelegramLogin}>
               {t('common.cancel')}
             </button>
@@ -303,10 +336,6 @@ const AuthPage = () => {
     }
     if (formData.password.length < 8) {
       alert(t('auth.password_min'));
-      return false;
-    }
-    if (!formData.document) {
-      alert(t('auth.document_required'));
       return false;
     }
     if (!agreed) {
@@ -360,20 +389,6 @@ const AuthPage = () => {
         login(token, sessionRole, relatedId);
       }
 
-      const documentBody = new FormData();
-      documentBody.append('file', formData.document);
-      const uploadRes = await fetch(`${API_URL}/needy/${needyId}/profile/upload`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: documentBody,
-      });
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json().catch(() => null);
-        throw new Error(err?.detail || t('auth.document_upload_error'));
-      }
-
-      setModerationStatus('pending');
-      setModerationError('');
       window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
       setStep(2);
     } catch (err) {
@@ -466,7 +481,7 @@ const AuthPage = () => {
         }
         const data = await res.json();
 
-        // Auto-login first so profile/document uploads carry a valid token
+        // Auto-login first so owner-protected profile writes carry a valid token
         // (those endpoints are owner-protected).
         let token = null;
         try {
@@ -638,15 +653,10 @@ const AuthPage = () => {
           <input type="tel" name="phone" placeholder={t('auth.phone_number')} onChange={handleInputChange} required />
           <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} minLength={8} required />
 
-          <div className="file-upload">
-            <label htmlFor="needy-document">{t('auth.document_status')}</label>
-            <input id="needy-document" type="file" onChange={(e) => setFormData({...formData, document: e.target.files[0]})} required />
-          </div>
-
           <div className="consent-box">
             <label className="checkbox-label">
               <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
-              <span>{t('auth.consent_docs')}</span>
+              <span>{t('auth.agree')}</span>
             </label>
           </div>
 
@@ -657,24 +667,9 @@ const AuthPage = () => {
         </div>
       );
     }
-    if (step === 2) {
-      return (
-        <div className="auth-form">
-          <h2>{t('auth.needy_step2_title')}</h2>
-          <div className="moderation-box">
-            {moderationStatus !== 'rejected' && <div className="spinner"></div>}
-            <p>{moderationStatus === 'rejected' ? t('auth.moderation_rejected') : t('auth.docs_sent')}</p>
-            <p className="hint">
-              {moderationStatus === 'rejected' ? t('auth.moderation_rejected_hint') : t('auth.docs_time')}
-            </p>
-            {moderationError && <p className="auth-error" role="alert">{moderationError}</p>}
-          </div>
-        </div>
-      );
-    }
     return (
       <form onSubmit={submitNeedyProfile} className="auth-form">
-        <h2>{t('auth.needy_step3_title')}</h2>
+        <h2>{t('auth.needy_step2_title')}</h2>
         <AddressInput
           label={t('auth.home_address')}
           onChange={handleAddressChange}

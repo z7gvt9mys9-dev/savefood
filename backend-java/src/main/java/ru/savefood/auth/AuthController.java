@@ -23,8 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * Java port of backend/auth_routes.py — token issuance for the whole platform.
  * Wire-compatible with the Python endpoints: {@code POST /auth/login}
  * (OAuth2 password flow, form-encoded, rate-limited 5/min/IP),
- * {@code POST /auth/refresh} and {@code GET /auth/me}. Tokens minted here are
- * interchangeable with the FastAPI backend's ({@link JwtService}).
+ * {@code POST /auth/refresh} and {@code GET /auth/me}.
  */
 @RestController
 @RequestMapping("/auth")
@@ -66,10 +65,12 @@ public class AuthController {
 
         List<Map<String, Object>> rows = jdbc.query(
             expectedRole == null
-                ? "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ?"
-                : "SELECT hashed_password, role, related_id, is_blocked FROM users WHERE username = ? AND role = ?",
+                ? "SELECT id, username, hashed_password, role, related_id, is_blocked FROM users WHERE username = ?"
+                : "SELECT id, username, hashed_password, role, related_id, is_blocked FROM users WHERE username = ? AND role = ?",
             (rs, n) -> {
                 Map<String, Object> u = new LinkedHashMap<>();
+                u.put("id", rs.getInt("id"));
+                u.put("username", rs.getString("username"));
                 u.put("hashed_password", rs.getString("hashed_password"));
                 u.put("role", rs.getString("role"));
                 u.put("related_id", rs.getObject("related_id"));
@@ -87,7 +88,8 @@ public class AuthController {
 
         String role = (String) user.get("role");
         Integer relatedId = toInteger(user.get("related_id"));
-        String accessToken = jwt.create(username, role, relatedId);
+        String accessToken = jwt.create(((Number) user.get("id")).intValue(),
+            (String) user.get("username"), role, relatedId);
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", accessToken);
@@ -99,7 +101,7 @@ public class AuthController {
 
     @PostMapping("/refresh")
     public Map<String, Object> refresh(@Auth CurrentUser user) {
-        String accessToken = jwt.create(user.sub(), user.role(), user.relatedId());
+        String accessToken = jwt.create(user.userId(), user.sub(), user.role(), user.relatedId());
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", accessToken);
         out.put("token_type", "bearer");
@@ -108,8 +110,8 @@ public class AuthController {
 
     @GetMapping("/me")
     public Map<String, Object> me(@Auth CurrentUser user, HttpServletRequest request) {
-        // @Auth has already validated the token; re-read it to return the full
-        // payload (incl. exp) verbatim, as auth.py read_users_me does.
+        // @Auth has already validated the token; preserve the existing /me shape
+        // while exposing the username as sub and retaining the token expiry.
         String header = request.getHeader("Authorization");
         return jwt.payload(header.substring(7));
     }

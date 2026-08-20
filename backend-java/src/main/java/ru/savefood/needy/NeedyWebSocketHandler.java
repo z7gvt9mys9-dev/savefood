@@ -111,6 +111,7 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
 
         String token = first.path("token").asText(null);
         CurrentUser user = token == null ? null : jwtService.decode(token);
+        user = currentUser(user);
         String role = user == null ? null : user.role();
         boolean ok = user != null && ("admin".equals(role)
             || ("needy".equals(role) && Integer.valueOf(state.needyId).equals(user.relatedId())));
@@ -118,13 +119,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
-        // An already-issued token must stop working when the account is blocked
-        // or erased.  A missing users row used to be treated as allowed here.
-        if (user.sub() != null && isDisabledOrDeleted(user.sub())) {
-            closeQuietly(session, CloseStatus.POLICY_VIOLATION);
-            return;
-        }
-
         // Optional resume cursor; otherwise start from MAX(id).
         long lastId;
         JsonNode since = first.get("since_id");
@@ -206,10 +200,16 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
         }
     }
 
-    private boolean isDisabledOrDeleted(String username) {
-        List<Boolean> rows = jdbc.query("SELECT is_blocked FROM users WHERE username = ?",
-            (rs, n) -> rs.getBoolean("is_blocked"), username);
-        return rows.isEmpty() || Boolean.TRUE.equals(rows.get(0));
+    private CurrentUser currentUser(CurrentUser tokenUser) {
+        if (tokenUser == null) {
+            return null;
+        }
+        List<CurrentUser> rows = jdbc.query(
+            "SELECT username, role, related_id FROM users WHERE id = ? AND NOT is_blocked",
+            (rs, n) -> new CurrentUser(tokenUser.userId(), rs.getString("username"),
+                rs.getString("role"), rs.getObject("related_id") instanceof Number id ? id.intValue() : null),
+            tokenUser.userId());
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private long currentMaxId(int needyId) {

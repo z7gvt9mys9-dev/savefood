@@ -1,5 +1,5 @@
 package ru.savefood.auth;
 
-/** Body of {@code POST /auth/telegram/login/poll} — oauth_routes.py {@code TelegramPoll}. */
+/** Token body shared by the Telegram login status, completion, and cancellation endpoints. */
 public record TelegramPoll(String token) {
 }

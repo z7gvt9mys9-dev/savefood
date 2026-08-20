@@ -125,7 +125,7 @@ public abstract class PostgresIT {
 
     protected int insertNeedy(String name) {
         Integer id = jdbc.queryForObject(
-            "INSERT INTO needy (name, status, created_at) VALUES (?, 'approved', NOW()) RETURNING id",
+            "INSERT INTO needy (name, status, created_at) VALUES (?, 'active', NOW()) RETURNING id",
             Integer.class, name);
         jdbc.update("INSERT INTO needy_profile (needy_id, family_size, lat, lon) VALUES (?, 2, 43.24, 76.90)", id);
         return id;

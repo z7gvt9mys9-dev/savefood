@@ -23,7 +23,7 @@ spring:
   servlet:
     multipart:
       # Spring-дефолт 1MB рвал любую загрузку фото с телефона (фото лота,
-      # KYC-документ). Пофайловый лимит держим выше UploadService (5MB),
+      # удостоверение волонтёра). Пофайловый лимит держим выше UploadService (5MB),
       # чтобы пользователь получал внятное 413 из него, а не обрыв соединения.
       max-file-size: 15MB
       # До 5 фотографий лота + текстовые поля формы.
@@ -123,9 +123,8 @@ savefood:
   gemini-api-key: ${GEMINI_API_KEY:${GOOGLE_API_KEY:}}
   ocr-model: ${OCR_MODEL:${AI_MODEL:gemini-2.5-flash}}
   receipt-max-age-hours: ${RECEIPT_MAX_AGE_HOURS:48}
-  # Needy KYC eligibility documents (intentionally NOT served publicly). Defaults
-  # at the Python backend's needy uploads dir so files stay reachable during the
-  # migration; they are encrypted at rest with KYC_ENCRYPTION_KEY (§58).
+  # Legacy recipient KYC storage. New uploads are disabled; Flyway V5 queues old
+  # references and NeedyKycDocumentCleanup retries file deletion until it succeeds.
   needy-upload-dir: ${NEEDY_UPLOAD_DIR:../backend/needy/uploads}
   # Fernet key for KYC document encryption-at-rest (kyc_crypto.py). Unset ⇒
   # documents stored UNENCRYPTED (dev/CI only) with a startup warning, exactly
@@ -134,7 +133,7 @@ savefood:
   kyc-model: ${KYC_MODEL:${AI_MODEL:gemini-2.5-flash}}
   kyc:
     # Auto-KYC decision bands: score ≥ ok ⇒ approve, ≤ fraud ⇒ reject, and the
-    # middle goes to a human via PATCH /admin/{needy,volunteers}/{id}/moderation.
+    # middle goes to a human via PATCH /admin/volunteers/{id}/moderation.
     # Widening the middle means fewer wrong automatic calls but more moderator
     # work; narrowing it does the reverse.
     ok-threshold: ${KYC_OK_THRESHOLD:0.7}

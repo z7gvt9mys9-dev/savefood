@@ -153,23 +153,6 @@
   border-color: #f1c40f;
 }
 
-.file-upload {
-  margin-bottom: 20px;
-}
-
-.file-upload label {
-  display: block;
-  margin-bottom: 10px;
-  font-weight: bold;
-  font-size: 0.9rem;
-  color: #ffffff;
-}
-
-.moderation-box {
-  text-align: center;
-  padding: 40px 20px;
-}
-
 .auth-error {
   margin-top: 16px;
   color: #f1c40f;

@@ -224,7 +224,7 @@ class ReservationLifecycleIT extends PostgresIT {
     void fulfilmentInsertsAProfileWhenMissing() {
         Integer needy = jdbc.queryForObject(
             "INSERT INTO needy (name, status, created_at) "
-            + "VALUES ('Без анкеты', 'approved', NOW()) RETURNING id",
+            + "VALUES ('Без анкеты', 'active', NOW()) RETURNING id",
             Integer.class);
 
         needyService.setProfileLastReceived(needy, OffsetDateTime.now());

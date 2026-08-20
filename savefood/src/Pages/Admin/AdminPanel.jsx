@@ -57,8 +57,8 @@ const AdminPanel = () => {
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
   const [heatmap, setHeatmap] = useState(null);
-  // KYC moderation queue (§5): everything Auto-KYC was not confident about.
-  const [kycQueue, setKycQueue] = useState({ needy: [], volunteers: [] });
+  // Volunteer identity KYC only; recipients do not participate in moderation.
+  const [kycQueue, setKycQueue] = useState([]);
   const [kycBusy, setKycBusy] = useState({});
 
   const authHeader = { Authorization: `Bearer ${user?.token}` };
@@ -108,14 +108,8 @@ const AdminPanel = () => {
 
   const fetchKycQueue = async () => {
     try {
-      const [needyRes, volRes] = await Promise.all([
-        fetch(`${API_URL}/admin/needy?status=pending`, { headers: authHeader }),
-        fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader }),
-      ]);
-      setKycQueue({
-        needy: needyRes.ok ? await needyRes.json() : [],
-        volunteers: volRes.ok ? await volRes.json() : [],
-      });
+      const res = await fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
+      setKycQueue(res.ok ? await res.json() : []);
     } catch {}
   };
 
@@ -221,11 +215,11 @@ const AdminPanel = () => {
   // escape hatch for everything it flagged `review`, plus overturning a wrong
   // automatic verdict. The document itself is never shown — by design (§58.1),
   // the moderator judges from what the AI extracted.
-  const handleModerateKyc = async (kind, id, status) => {
-    const key = `${kind}:${id}`;
+  const handleModerateKyc = async (id, status) => {
+    const key = `volunteer:${id}`;
     setKycBusy(prev => ({ ...prev, [key]: true }));
     try {
-      const res = await fetch(`${API_URL}/admin/${kind}/${id}/moderation`, {
+      const res = await fetch(`${API_URL}/admin/volunteers/${id}/moderation`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ status }),
@@ -253,15 +247,15 @@ const AdminPanel = () => {
     );
   };
 
-  const renderKycGroup = (kind, rows) => (
+  const renderKycGroup = (rows) => (
     <>
-      <h3>{kind === 'needy' ? t('admin.kyc_needy') : t('admin.kyc_volunteers')} ({rows.length})</h3>
+      <h3>{t('admin.kyc_volunteers')} ({rows.length})</h3>
       {rows.length === 0 ? (
         <p style={{ opacity: 0.6 }}>{t('admin.kyc_empty_group')}</p>
       ) : (
         <div className="photo-mod-grid">
           {rows.map(item => {
-            const key = `${kind}:${item.id}`;
+            const key = `volunteer:${item.id}`;
             return (
               <div key={key} className="photo-mod-card">
                 <div className="photo-mod-meta">
@@ -271,8 +265,7 @@ const AdminPanel = () => {
                     <div style={{ fontSize: '0.78rem', opacity: 0.75 }}>{item.kyc_notes}</div>
                   )}
                   <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>
-                    {[item.city, item.family_size && `${t('admin.kyc_family')}: ${item.family_size}`]
-                      .filter(Boolean).join(' · ') || '—'}
+                    {item.city || '—'}
                   </div>
                   <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>
                     <MonoIcon name={item.has_document ? 'paperclip' : 'warning'} />{' '}
@@ -281,9 +274,9 @@ const AdminPanel = () => {
                 </div>
                 <div className="photo-mod-actions">
                   <button className="btn-small btn-success" disabled={!!kycBusy[key] || !item.has_document}
-                    onClick={() => handleModerateKyc(kind, item.id, 'approved')}>{t('admin.approve')}</button>
+                    onClick={() => handleModerateKyc(item.id, 'approved')}>{t('admin.approve')}</button>
                   <button className="btn-small btn-danger" disabled={!!kycBusy[key]}
-                    onClick={() => handleModerateKyc(kind, item.id, 'rejected')}>{t('admin.reject')}</button>
+                    onClick={() => handleModerateKyc(item.id, 'rejected')}>{t('admin.reject')}</button>
                 </div>
               </div>
             );
@@ -294,7 +287,7 @@ const AdminPanel = () => {
   );
 
   const renderKyc = () => {
-    const total = kycQueue.needy.length + kycQueue.volunteers.length;
+    const total = kycQueue.length;
     return (
       <div className="admin-tab">
         <h2>{t('admin.moderation_queue')}</h2>
@@ -303,8 +296,7 @@ const AdminPanel = () => {
           <EmptyState icon={<MonoIcon name="folder" />} title={t('empty.moderation_title')} description={t('empty.moderation_desc')} />
         ) : (
           <>
-            {renderKycGroup('needy', kycQueue.needy)}
-            {renderKycGroup('volunteers', kycQueue.volunteers)}
+            {renderKycGroup(kycQueue)}
           </>
         )}
       </div>
@@ -511,7 +503,7 @@ const AdminPanel = () => {
                     <td>{r.city}</td>
                     <td>{r.active_lots}</td>
                     <td>{r.open_tickets}</td>
-                    <td>{r.approved_needy}</td>
+                    <td>{r.active_needy}</td>
                     <td>{r.volunteers}</td>
                     <td>{r.volunteers_available}</td>
                     <td style={{ fontWeight: 700, color: r.gap > 0 ? '#f44336' : (r.gap < 0 ? '#4CAF50' : '#aaa') }}>

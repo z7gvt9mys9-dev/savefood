@@ -17,7 +17,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * «Карта потребностей», ported from needs_match.py: when a shop publishes a lot,
- * notify the approved recipients in the same city whose stated preferences match
+ * notify active recipients in the same city whose stated preferences match
  * the lot's category, and the volunteers who marked the current time as
  * available. Runs fire-and-forget (a daemon executor here, a daemon thread in
  * Python) so lot creation never waits on the fan-out.
@@ -95,7 +95,7 @@ public class NeedsMatchService {
             "SELECT n.id AS needy_id, np.preferences, "
             + "COALESCE(np.geo_push_enabled, TRUE) AS geo_push_enabled "
             + "FROM needy n JOIN needy_profile np ON np.needy_id = n.id "
-            + "WHERE n.status = 'approved' "
+            + "WHERE n.status IN ('active', 'pending', 'approved', 'rejected') "
             + "AND np.preferences IS NOT NULL AND TRIM(np.preferences) <> '' "
             + "AND np.city IS NOT NULL AND np.city = ?", lot.get("city"));
 

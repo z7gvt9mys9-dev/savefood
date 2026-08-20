@@ -54,7 +54,7 @@ services:
       VLESS_URL: ${VLESS_URL:-}
       # Telegram support chat for route-timeout / anti-fraud alerts (§22.3/§27).
       SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
-      # Gemini (support AI / OCR / KYC / photo moderation); empty ⇒ degraded.
+      # Gemini (support AI / OCR / volunteer KYC / photo moderation); empty ⇒ degraded.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
       # Timezone used to interpret recipients' available_time windows.
@@ -81,12 +81,13 @@ services:
       VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
       KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:?KYC_ENCRYPTION_KEY must be set}
       # Upload dirs on mounted volumes. Only lot photos are public; receipts,
-      # identity documents and delivery proof photos stay private and are served
+      # volunteer identity documents and delivery proof photos stay private and are served
       # only by authorization/moderation-checked application endpoints.
       SHOP_UPLOAD_DIR: /data/shop_uploads
       RECEIPT_UPLOAD_DIR: /data/receipt_uploads
       VOLUNTEER_UPLOAD_DIR: /data/volunteer_uploads
       VOLUNTEER_KYC_UPLOAD_DIR: /data/volunteer_kyc_uploads
+      # Retained only until the durable V5 cleanup queue has deleted legacy recipient KYC files.
       NEEDY_UPLOAD_DIR: /data/needy_uploads
       DELIVERY_PHOTO_UPLOAD_DIR: /data/delivery_photos
     healthcheck:
@@ -143,7 +144,7 @@ services:
         condition: service_healthy
       geows:
         condition: service_started
-    # Only public lot images are mounted into nginx. Delivery proofs and KYC
+    # Only public lot images are mounted into nginx. Delivery proofs and volunteer KYC
     # files stay backend-private and must go through authorization checks.
     volumes:
       - shop_uploads:/srv/uploads:ro

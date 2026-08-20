@@ -16,7 +16,6 @@ import java.util.Set;
 import ru.savefood.audit.AuditService;
 import ru.savefood.billing.Plans;
 import ru.savefood.esg.EsgService;
-import ru.savefood.needy.NeedyService;
 import ru.savefood.security.Admin;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.telegram.TelegramService;
@@ -52,7 +51,6 @@ import org.springframework.web.bind.annotation.RestController;
 public class AdminController {
 
     private final JdbcTemplate jdbc;
-    private final NeedyService needyService;
     private final VolunteerRepository volunteerRepo;
     private final EsgService esgService;
     private final AuditService audit;
@@ -63,14 +61,12 @@ public class AdminController {
     private final String volunteerUploadDir;
     private final String deliveryPhotoUploadDir;
 
-    public AdminController(JdbcTemplate jdbc, NeedyService needyService,
-                           VolunteerRepository volunteerRepo, EsgService esgService,
+    public AdminController(JdbcTemplate jdbc, VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
                            AvailabilityService availability, TelegramService telegram,
                            @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir,
                            @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir) {
         this.jdbc = jdbc;
-        this.needyService = needyService;
         this.volunteerRepo = volunteerRepo;
         this.esgService = esgService;
         this.audit = audit;
@@ -83,40 +79,7 @@ public class AdminController {
 
     // ── Moderation ───────────────────────────────────────────────────────────
 
-    /**
-     * Manual KYC moderation (§5) restored on top of Auto-KYC.
-     *
-     * <p>Auto-KYC keeps deciding the confident cases on its own; everything it is
-     * unsure about (verdict {@code review}) used to sit in {@code pending} forever
-     * because no human endpoint existed. These two handlers are that missing
-     * escape hatch — and they also let an admin overturn a wrong automatic
-     * decision, so the status is set unconditionally rather than guarded on
-     * {@code pending}.
-     *
-     * <p><b>The moderator never sees the document itself.</b> That is deliberate
-     * (§58.1: no human access to the file, to remove the leak path). The decision
-     * is made from what the AI extracted — {@code kyc_verdict}, {@code kyc_score}
-     * and {@code kyc_notes} (document type + summary + the reasons that moved the
-     * score) — which the queue endpoints below return.
-     */
-    @PatchMapping("/needy/{needyId}/moderation")
-    public Map<String, Object> moderateNeedy(@PathVariable int needyId,
-                                             @RequestBody ModerationDecision payload,
-                                             @Admin CurrentUser user) {
-        String status = requireDecision(payload);
-        Map<String, Object> updated = needyService.setNeedyStatusManually(needyId, status);
-        if (updated == null) {
-            throw new ApiException(404, "Needy not found");
-        }
-        audit.log(user.sub(), "kyc_manual_" + status, "needy", needyId,
-            "Ручное решение модератора: " + status + reasonSuffix(payload));
-        notifyModerationOutcome("needy", needyId, status,
-            "Ваша анкета одобрена модератором — можете создавать заявки на получение продуктов.",
-            "Документ не принят модератором. Загрузите корректный документ, подтверждающий "
-            + "право на помощь.");
-        return updated;
-    }
-
+    /** Manual identity-document moderation for volunteers only. */
     @PatchMapping("/volunteers/{volunteerId}/moderation")
     public Map<String, Object> moderateVolunteer(@PathVariable int volunteerId,
                                                  @RequestBody ModerationDecision payload,
@@ -128,21 +91,14 @@ public class AdminController {
         }
         audit.log(user.sub(), "kyc_manual_" + status, "volunteer", volunteerId,
             "Ручное решение модератора: " + status + reasonSuffix(payload));
-        notifyModerationOutcome("volunteer", volunteerId, status,
+        notifyVolunteerModerationOutcome(volunteerId, status,
             "Ваш аккаунт волонтёра подтверждён модератором — можно брать маршруты.",
             "Удостоверение не принято модератором. Загрузите корректный документ, "
             + "удостоверяющий личность, чтобы брать маршруты.");
         return updated;
     }
 
-    /** Moderation queue: recipients, newest first. {@code status=pending} for the backlog. */
-    @GetMapping("/needy")
-    public List<Map<String, Object>> listNeedy(@RequestParam(required = false) String status,
-                                               @Admin CurrentUser user) {
-        return needyService.getAllNeedy(status);
-    }
-
-    /** Moderation queue: volunteers (§58). Mirrors {@link #listNeedy}. */
+    /** Identity-document moderation queue for volunteers (§58). */
     @GetMapping("/volunteers")
     public List<Map<String, Object>> listVolunteers(@RequestParam(required = false) String status,
                                                     @Admin CurrentUser user) {
@@ -173,24 +129,18 @@ public class AdminController {
      * In-app row + best-effort external ping, mirroring the Auto-KYC wording so a
      * manual decision is indistinguishable from an automatic one to the applicant.
      *
-     * @param role {@code "needy"} or {@code "volunteer"} — picks both the
-     *             notifications column and the Telegram fan-out target
      */
-    private void notifyModerationOutcome(String role, int recipientId, String status,
-                                         String approvedMsg, String rejectedMsg) {
+    private void notifyVolunteerModerationOutcome(int volunteerId, String status,
+                                                  String approvedMsg, String rejectedMsg) {
         boolean approved = "approved".equals(status);
         String message = approved ? approvedMsg : rejectedMsg;
         jdbc.update(
-            "INSERT INTO notifications (" + ("needy".equals(role) ? "needy_id" : "volunteer_id")
-            + ", type, payload, created_at, read) VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
-            recipientId, approved ? "moderation_approved" : "moderation_rejected", message);
+            "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
+            + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
+            volunteerId, approved ? "moderation_approved" : "moderation_rejected", message);
         try {
             String prefixed = (approved ? "✓ " : "! ") + message;
-            if ("needy".equals(role)) {
-                telegram.notifyNeedy(recipientId, prefixed);
-            } else {
-                telegram.notifyVolunteer(recipientId, prefixed);
-            }
+            telegram.notifyVolunteer(volunteerId, prefixed);
         } catch (RuntimeException ignore) {
             // best-effort, like the Auto-KYC path
         }
@@ -347,12 +297,12 @@ public class AdminController {
             demandTickets.put((String) r.get("city"), toInt(r.get("open_tickets")));
         }
 
-        Map<String, Integer> approved = new HashMap<>();
+        Map<String, Integer> activeNeedy = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT " + npCity + " AS city, COUNT(*) AS approved_needy "
-                + "FROM needy_profile np JOIN needy n ON n.id = np.needy_id AND n.status = 'approved' "
+                "SELECT " + npCity + " AS city, COUNT(*) AS active_needy "
+                + "FROM needy_profile np JOIN needy n ON n.id = np.needy_id AND n.status = 'active' "
                 + "GROUP BY 1")) {
-            approved.put((String) r.get("city"), toInt(r.get("approved_needy")));
+            activeNeedy.put((String) r.get("city"), toInt(r.get("active_needy")));
         }
 
         Map<String, Integer> volunteers = new HashMap<>();
@@ -374,7 +324,7 @@ public class AdminController {
         Set<String> cities = new HashSet<>();
         cities.addAll(supply.keySet());
         cities.addAll(demandTickets.keySet());
-        cities.addAll(approved.keySet());
+        cities.addAll(activeNeedy.keySet());
         cities.addAll(volunteers.keySet());
 
         List<Map<String, Object>> rows = new ArrayList<>();
@@ -387,7 +337,7 @@ public class AdminController {
             row.put("active_lots", activeLots);
             row.put("active_kg", s == null ? 0.0 : toDouble(s.get("active_kg")));
             row.put("open_tickets", openTickets);
-            row.put("approved_needy", approved.getOrDefault(c, 0));
+            row.put("active_needy", activeNeedy.getOrDefault(c, 0));
             row.put("volunteers", volunteers.getOrDefault(c, 0));
             row.put("volunteers_available", availableNow.getOrDefault(c, 0));
             row.put("gap", openTickets - activeLots); // >0 = unmet demand

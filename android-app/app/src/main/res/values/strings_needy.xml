@@ -77,7 +77,6 @@
     <string name="needy_profile_title">Профиль</string>
     <string name="needy_profile_section_personal">Анкета</string>
     <string name="needy_profile_section_address">Адрес</string>
-    <string name="needy_profile_section_kyc">Документ (KYC)</string>
     <string name="needy_profile_section_privacy">Данные и приватность</string>
     <string name="needy_profile_family_size">Размер семьи</string>
     <string name="needy_profile_preferences">Предпочтения</string>
@@ -90,10 +89,6 @@
     <string name="needy_profile_available_time">Удобное время</string>
     <string name="needy_profile_save">Сохранить анкету</string>
     <string name="needy_profile_saved">Анкета сохранена</string>
-    <string name="needy_profile_kyc_desc">Загрузите документ, подтверждающий право на помощь. Проверка автоматическая, документ не отображается.</string>
-    <string name="needy_profile_kyc_upload">Загрузить документ</string>
-    <string name="needy_profile_kyc_uploaded">Документ загружен и проверяется</string>
-    <string name="needy_profile_kyc_status">Статус проверки: %1$s</string>
     <string name="needy_profile_geo_push">Уведомления о еде рядом</string>
     <string name="needy_profile_geo_push_desc">Пуш, когда поблизости появляется подходящий лот.</string>
     <string name="needy_profile_export">Экспорт моих данных</string>
