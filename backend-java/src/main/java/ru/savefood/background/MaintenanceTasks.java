@@ -332,9 +332,24 @@ public class MaintenanceTasks {
         }
         try {
             tx.executeWithoutResult(s -> {
+                // startRoute locks the lot before assigning its tickets. Take the
+                // same locks in the same order so assignment and expiry cannot
+                // deadlock while TTL returns a reservation to the lot.
+                jdbc.queryForList(
+                    "SELECT l.id FROM lots l WHERE EXISTS (SELECT 1 FROM tickets t "
+                    + "WHERE t.lot_id = l.id AND t.status = 'open' "
+                    + "AND t.expires_at IS NOT NULL AND t.expires_at < CURRENT_TIMESTAMP "
+                    + "AND t.assigned_volunteer_id IS NULL AND t.assigned_volunteer IS NULL) "
+                    + "ORDER BY l.id FOR UPDATE");
+
+                // UPDATE ... RETURNING is the winner election. PostgreSQL
+                // rechecks the predicate after a conflicting writer commits, so
+                // an assignment or another TTL worker can make this a no-op.
                 List<Map<String, Object>> expired = jdbc.queryForList(
-                    "SELECT id, needy_id, lot_id, quantity, self_pickup FROM tickets WHERE status = 'open' "
-                    + "AND expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP");
+                    "UPDATE tickets SET status = 'cancelled' WHERE status = 'open' "
+                    + "AND expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP "
+                    + "AND assigned_volunteer_id IS NULL AND assigned_volunteer IS NULL "
+                    + "RETURNING id, needy_id, lot_id, quantity, self_pickup");
                 for (Map<String, Object> t : expired) {
                     int id = ((Number) t.get("id")).intValue();
                     Integer needyId = t.get("needy_id") == null ? null : ((Number) t.get("needy_id")).intValue();
@@ -342,7 +357,6 @@ public class MaintenanceTasks {
                     Number quantity = (Number) t.get("quantity");
                     boolean selfPickup = Boolean.TRUE.equals(t.get("self_pickup"));
 
-                    jdbc.update("UPDATE tickets SET status = 'cancelled' WHERE id = ?", id);
                     if (lotId != null) {
                         jdbc.update("UPDATE lots SET quantity = quantity + ? WHERE id = ? AND status = 'active'",
                             quantity, lotId);
