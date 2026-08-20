@@ -186,13 +186,18 @@ public class ShopController {
         if ("private".equals(shop.get("kind")) && incoming.isEmpty()) {
             throw new ApiException(400, "Для частных доноров фотография лота обязательна");
         }
-        List<String> photoUrls = new java.util.ArrayList<>();
+        // Validation/re-encoding is deliberately disk-free.  Saving is owned by
+        // the transactional service so quota rejection and an insert failure
+        // cannot leave a partially-written request in the public upload directory.
+        List<ru.savefood.upload.UploadService.PreparedUpload> preparedPhotos = new java.util.ArrayList<>();
         for (MultipartFile f : incoming) {
-            photoUrls.add("/uploads/" + uploads.validateAndSave(f, uploadDir));
+            preparedPhotos.add(uploads.prepare(f));
         }
-        int lotId = service.createLotWithPhotos(shopId, description, quantity, parseDate(expiryDate),
-            photoUrls, address, timeSlot, requireKnownCategory(category), comment, requiresCold, unit,
-            weight);
+        // Keep this validation after safe in-memory staging: a malformed lot must
+        // still leave the directory untouched even after its image parts were read.
+        String knownCategory = requireKnownCategory(category);
+        int lotId = service.createLotWithPreparedPhotos(shopId, description, quantity, parseDate(expiryDate),
+            preparedPhotos, uploadDir, address, timeSlot, knownCategory, comment, requiresCold, unit, weight);
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }

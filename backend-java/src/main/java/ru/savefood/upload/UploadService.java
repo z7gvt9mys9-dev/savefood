@@ -37,6 +37,24 @@ public class UploadService {
     static final int MAX_IMAGE_DIMENSION = 8_192;
     static final long MAX_IMAGE_PIXELS = 25_000_000L;
 
+    /** A fully validated, metadata-stripped upload which has not touched disk yet. */
+    public record PreparedUpload(byte[] content, String extension) {
+    }
+
+    /** Carries the generated name when a filesystem write may have left bytes behind. */
+    public static final class UploadWriteException extends ApiException {
+        private final String filename;
+
+        private UploadWriteException(String filename) {
+            super(500, "Could not store upload");
+            this.filename = filename;
+        }
+
+        public String filename() {
+            return filename;
+        }
+    }
+
     public String validateAndSave(MultipartFile file, String destDir) {
         return validateAndSave(file, destDir, false);
     }
@@ -47,6 +65,19 @@ public class UploadService {
      * ({@code %PDF}) and stored verbatim — only images are re-encoded to strip EXIF.
      */
     public String validateAndSave(MultipartFile file, String destDir, boolean allowPdf) {
+        return savePrepared(prepare(file, allowPdf), destDir);
+    }
+
+    /**
+     * Performs all upload validation and image re-encoding without writing a file.
+     * Callers that combine uploads with a database mutation can therefore validate
+     * every part before entering their filesystem/persistence operation.
+     */
+    public PreparedUpload prepare(MultipartFile file) {
+        return prepare(file, false);
+    }
+
+    public PreparedUpload prepare(MultipartFile file, boolean allowPdf) {
         if (file == null || file.isEmpty() || file.getOriginalFilename() == null
                 || file.getOriginalFilename().isEmpty()) {
             throw new ApiException(400, "No file uploaded");
@@ -95,14 +126,31 @@ public class UploadService {
         // and let arbitrary bytes masquerade as an image. PDFs are stored verbatim.
         byte[] toWrite = isPdf ? content : reencode(content, ext);
 
+        return new PreparedUpload(toWrite, ext);
+    }
+
+    /** Writes a previously validated upload under a new random filename. */
+    public String savePrepared(PreparedUpload prepared, String destDir) {
+        if (prepared == null || prepared.content() == null || prepared.extension() == null) {
+            throw new IllegalArgumentException("prepared upload is required");
+        }
+        String safeName = UUID.randomUUID().toString().replace("-", "") + prepared.extension();
+        Path target = null;
         try {
             Path dir = Paths.get(destDir);
             Files.createDirectories(dir);
-            String safeName = UUID.randomUUID().toString().replace("-", "") + ext;
-            Files.write(dir.resolve(safeName), toWrite);
+            target = dir.resolve(safeName);
+            Files.write(target, prepared.content());
             return safeName;
         } catch (IOException e) {
-            throw new ApiException(500, "Could not store upload");
+            if (target != null) {
+                try {
+                    Files.deleteIfExists(target);
+                } catch (IOException ignored) {
+                    // ShopService receives the filename below and records a durable retry.
+                }
+            }
+            throw new UploadWriteException(safeName);
         }
     }
 

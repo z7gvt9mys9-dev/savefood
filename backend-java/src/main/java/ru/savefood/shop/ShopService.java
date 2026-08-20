@@ -9,6 +9,7 @@ import ru.savefood.billing.BillingService;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.PasswordService;
 import ru.savefood.shop.dto.ReceiptLotDraft;
+import ru.savefood.upload.UploadService;
 import ru.savefood.web.ApiException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,14 +32,19 @@ public class ShopService {
     private final BillingService billing;
     private final NeedyService needyService;
     private final PasswordService passwords;
+    private final UploadService uploads;
+    private final LotUploadCleanup lotUploadCleanup;
 
     public ShopService(JdbcTemplate jdbc, ShopRepository repo, BillingService billing,
-                       NeedyService needyService, PasswordService passwords) {
+                       NeedyService needyService, PasswordService passwords, UploadService uploads,
+                       LotUploadCleanup lotUploadCleanup) {
         this.jdbc = jdbc;
         this.repo = repo;
         this.billing = billing;
         this.needyService = needyService;
         this.passwords = passwords;
+        this.uploads = uploads;
+        this.lotUploadCleanup = lotUploadCleanup;
     }
 
     /**
@@ -86,6 +92,45 @@ public class ShopService {
         billing.acquireLotQuota(shopId);
         return repo.createLotMultiPhoto(shopId, description, quantity, expiryDate, photos, address,
             timeSlot, category, comment, requiresCold, unit, unitWeightKg);
+    }
+
+    /**
+     * Creates a multipart lot under the same transaction as its quota guard.
+     * Prepared uploads have already passed all size, decoder and image-bomb
+     * checks, but are not written until quota is available.  Every generated
+     * filename is request-local and is removed (or durably queued for removal)
+     * if a later write or database operation fails.
+     */
+    @Transactional
+    public int createLotWithPreparedPhotos(int shopId, String description, double quantity,
+                                           LocalDate expiryDate,
+                                           List<UploadService.PreparedUpload> preparedPhotos,
+                                           String uploadDir, String address, String timeSlot,
+                                           String category, String comment, boolean requiresCold,
+                                           String unit, double unitWeightKg) {
+        requirePositiveFinite(quantity, "quantity");
+        requirePositiveFinite(unitWeightKg, "unit_weight_kg");
+        billing.acquireLotQuota(shopId);
+
+        List<String> created = new ArrayList<>();
+        try {
+            List<String> photoUrls = new ArrayList<>();
+            if (preparedPhotos != null) {
+                for (UploadService.PreparedUpload prepared : preparedPhotos) {
+                    String filename = uploads.savePrepared(prepared, uploadDir);
+                    created.add(filename);
+                    photoUrls.add("/uploads/" + filename);
+                }
+            }
+            return repo.createLotMultiPhoto(shopId, description, quantity, expiryDate, photoUrls, address,
+                timeSlot, category, comment, requiresCold, unit, unitWeightKg);
+        } catch (RuntimeException e) {
+            if (e instanceof UploadService.UploadWriteException writeFailure) {
+                created.add(writeFailure.filename());
+            }
+            lotUploadCleanup.removeOrQueue(created);
+            throw e;
+        }
     }
 
     /** Create the confirmed receipt's lots under one quota lock (routes.py {@code confirm_receipt}). */
