@@ -89,23 +89,32 @@ public class MaintenanceTasks {
         }
         try {
             List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT id, shop_id FROM lots WHERE status = 'active' AND expiry_date IS NOT NULL "
+                "SELECT id FROM lots WHERE status = 'active' AND expiry_date IS NOT NULL "
                 + "AND expiry_date <= CURRENT_DATE + INTERVAL '1 day'");
             int n = 0;
             for (Map<String, Object> r : rows) {
                 int lotId = ((Number) r.get("id")).intValue();
-                Integer shopId = r.get("shop_id") == null ? null : ((Number) r.get("shop_id")).intValue();
                 try {
-                    tx.executeWithoutResult(s -> {
-                        jdbc.update("UPDATE lots SET status = 'expired' WHERE id = ?", lotId);
+                    Boolean expired = tx.execute(s -> {
+                        List<Integer> shopIds = jdbc.query(
+                            "UPDATE lots SET status = 'expired' WHERE id = ? AND status = 'active' "
+                            + "AND expiry_date IS NOT NULL "
+                            + "AND expiry_date <= CURRENT_DATE + INTERVAL '1 day' RETURNING shop_id",
+                            (rs, rowNum) -> rs.getInt("shop_id"), lotId);
+                        if (shopIds.isEmpty()) {
+                            return false;
+                        }
                         jdbc.update(
                             "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) "
                             + "VALUES (?, ?, ?, ?, ?, 0)",
-                            shopId, lotId, "lot_expired_soon",
+                            shopIds.get(0), lotId, "lot_expired_soon",
                             "Лот #" + lotId + " снят: до истечения срока годности менее 24 часов", now());
                         cancelLotOpenTickets(lotId, "лоту осталось менее 24 часов до истечения срока");
+                        return true;
                     });
-                    n++;
+                    if (Boolean.TRUE.equals(expired)) {
+                        n++;
+                    }
                 } catch (RuntimeException ignore) {
                     // mirror the per-lot try/except in expire_soon_lots
                 }

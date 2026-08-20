@@ -170,27 +170,24 @@ public class ShopRepository {
     }
 
     public boolean confirmLotTransfer(int lotId) {
-        Map<String, Object> lot = getLotById(lotId);
-        if (lot == null || !"taken".equals(lot.get("status"))) {
-            return false;
-        }
-        jdbc.update("UPDATE lots SET status = 'confirmed' WHERE id = ?", lotId);
-        return true;
+        return jdbc.update(
+            "UPDATE lots SET status = 'confirmed' WHERE id = ? AND status = 'taken'", lotId) == 1;
     }
 
     public boolean deleteLot(int lotId) {
-        Map<String, Object> lot = getLotById(lotId);
-        if (lot == null || !"active".equals(lot.get("status"))) {
+        List<Integer> shopIds = jdbc.query(
+            "UPDATE lots SET status = 'removed' WHERE id = ? AND status = 'active' RETURNING shop_id",
+            (rs, n) -> rs.getInt("shop_id"), lotId);
+        if (shopIds.isEmpty()) {
             return false;
         }
-        jdbc.update("UPDATE lots SET status = 'removed' WHERE id = ?", lotId);
         // Free recipients who reserved a unit on this lot — it can never be served now.
         cancelOpenTickets(lotId, "лот удалён магазином");
         try {
             jdbc.update(
                 "INSERT INTO notifications (shop_id, lot_id, type, payload, created_at, read) "
                 + "VALUES (?, ?, ?, ?, ?, 0)",
-                lot.get("shop_id"), lotId, "lot_removed", "Лот #" + lotId + " удалён магазином",
+                shopIds.get(0), lotId, "lot_removed", "Лот #" + lotId + " удалён магазином",
                 OffsetDateTime.now());
         } catch (RuntimeException ignored) {
             // best-effort notification, like the Python except: pass
