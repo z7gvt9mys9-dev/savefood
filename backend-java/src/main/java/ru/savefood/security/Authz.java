@@ -17,6 +17,15 @@ public final class Authz {
         if (user.isAdmin()) {
             return;
         }
+        ensureOwner(user, role, ownerId);
+    }
+
+    /**
+     * Allow the request only for a user of {@code role} whose token is bound
+     * (via {@code related_id}) to {@code ownerId}. This deliberately does not
+     * grant the generic admin role access to sensitive owner-only resources.
+     */
+    public static void ensureOwner(CurrentUser user, String role, int ownerId) {
         if (role.equals(user.role()) && Objects.equals(user.relatedId(), ownerId)) {
             return;
         }

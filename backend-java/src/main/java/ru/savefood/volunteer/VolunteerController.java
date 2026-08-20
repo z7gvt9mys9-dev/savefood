@@ -38,6 +38,7 @@ import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -156,12 +157,12 @@ public class VolunteerController {
     }
 
     /**
-     * Serve the volunteer's identity document, decrypted in memory (§58). Owner or
-     * admin only; never exposed via a public URL. Used by the moderator's queue.
+     * Serve the volunteer's identity document, decrypted in memory (§58). The
+     * volunteer owner only; moderators use the AI verdict, score, and notes.
      */
     @GetMapping("/volunteers/{volunteerId}/document")
     public ResponseEntity<byte[]> getDocument(@PathVariable int volunteerId, @Auth CurrentUser user) {
-        Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
+        Authz.ensureOwner(user, "volunteer", volunteerId);
         Map<String, Object> vol = repo.getVolunteerById(volunteerId);
         String docUrl = vol == null ? null : (String) vol.get("document");
         if (docUrl == null || docUrl.isBlank()) {
@@ -177,7 +178,10 @@ public class VolunteerController {
         } catch (Exception e) {
             throw new ApiException(500, "Не удалось прочитать документ");
         }
-        return ResponseEntity.ok().contentType(mediaTypeFor(basename(docUrl))).body(content);
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.noStore())
+            .contentType(mediaTypeFor(basename(docUrl)))
+            .body(content);
     }
 
     /**
