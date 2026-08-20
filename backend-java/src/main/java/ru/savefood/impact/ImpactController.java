@@ -157,7 +157,7 @@ public class ImpactController {
         int lim = Clamp.clamp(limit, 1, 50);
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT t.id AS ticket_id, t.delivery_photo, t.fulfilled_at, t.items, l.category, l.city "
+                "SELECT t.id AS ticket_id, t.delivery_photo, t.fulfilled_at, l.category, l.city "
                 + "FROM tickets t LEFT JOIN lots l ON l.id = t.lot_id "
                 + "WHERE t.status = 'fulfilled' AND t.delivery_photo IS NOT NULL "
                 + "AND t.delivery_photo_status = 'approved' "
@@ -165,8 +165,8 @@ public class ImpactController {
             Map<String, Object> e = new LinkedHashMap<>();
             e.put("photo", "/impact/delivery_photos/" + r.get("ticket_id") + "/image");
             e.put("date", r.get("fulfilled_at"));
-            String items = r.get("items") == null ? "" : r.get("items").toString();
-            e.put("items", items.length() > 120 ? items.substring(0, 120) : items);
+            // A photo decision moderates the image only. Recipient-provided ticket
+            // text is never a public-feed caption, including for legacy tickets.
             e.put("category", r.get("category"));
             e.put("city", r.get("city"));
             out.add(e);
