@@ -236,9 +236,15 @@ public class ShopController {
             newWeight = 1.0;
         }
         requirePositiveFinite(newWeight, "unit_weight_kg");
+        // Preserve true PATCH semantics: when neither coupled unit field was
+        // supplied, do not send a value reconstructed from the ownership read.
+        // That read may be stale by the time the guarded UPDATE runs.
+        Double weightUpdate = payload.unit() == null && payload.unitWeightKg() == null
+            ? null : newWeight;
         Map<String, Object> updated = repo.updateLot(lotId, payload.description(), payload.quantity(),
             payload.expiryDate(), payload.address(), requireKnownCategory(payload.category()), payload.comment(),
-            payload.requiresCold(), payload.unit(), newWeight);
+            payload.requiresCold(), payload.unit(), weightUpdate,
+            asDouble(lot.get("quantity")), asDouble(lot.get("initial_quantity")));
         if (updated == null) {
             throw new ApiException(404, "Lot not found or cannot be updated");
         }

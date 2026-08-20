@@ -122,31 +122,51 @@ public class ShopRepository {
             LOT_OUT, shopId, limit, offset);
     }
 
-    /** Returns the updated {@code LotOut} map, or {@code null} if missing/not active. */
+    /**
+     * Applies a PATCH atomically to an active lot.
+     *
+     * <p>Every nullable argument is a genuinely omitted field and therefore leaves
+     * that column untouched. A quantity PATCH keeps its historic meaning: the
+     * requested value is the unreserved remainder observed by the caller. Its delta
+     * from that snapshot is applied to both the current remainder and
+     * {@code initial_quantity}, preserving a reservation that committed after the
+     * snapshot. The initial-quantity comparison also rejects two competing quantity
+     * edits instead of combining them. The active-status predicate prevents a claim
+     * that wins the same row-lock race from being mutated. Returns {@code null} if
+     * the lot is missing, no longer active, concurrently quantity-edited, or the
+     * requested reduction would make live or initial quantity negative.
+     */
     public Map<String, Object> updateLot(int lotId, String description, Double quantity,
                                          LocalDate expiryDate, String address, String category,
                                          String comment, Boolean requiresCold, String unit,
-                                         Double unitWeightKg) {
-        Map<String, Object> lot = getLotById(lotId);
-        if (lot == null || !"active".equals(lot.get("status"))) {
-            return null;
-        }
-        String newDescription = description != null ? description : (String) lot.get("description");
-        double newQuantity = quantity != null ? quantity : num(lot.get("quantity"));
-        LocalDate newExpiry = expiryDate != null ? expiryDate : (LocalDate) lot.get("expiry_date");
-        String newAddress = address != null ? address : (String) lot.get("address");
-        String newCategory = category != null ? category : (String) lot.get("category");
-        String newComment = comment != null ? comment : (String) lot.get("comment");
-        boolean newCold = requiresCold != null ? requiresCold : Boolean.TRUE.equals(lot.get("requires_cold"));
-        String newUnit = unit != null ? unit : (String) lot.getOrDefault("unit", "кг");
-        double newWeight = unitWeightKg != null ? unitWeightKg : num(lot.getOrDefault("unit_weight_kg", 1.0));
-
-        jdbc.update(
-            "UPDATE lots SET description = ?, quantity = ?, expiry_date = ?, address = ?, "
-            + "category = ?, comment = ?, requires_cold = ?, unit = ?, unit_weight_kg = ? WHERE id = ?",
-            newDescription, newQuantity, newExpiry, newAddress, newCategory, newComment,
-            newCold, newUnit, newWeight, lotId);
-        return jdbc.query("SELECT * FROM lots WHERE id = ?", LOT_OUT, lotId).stream().findFirst().orElse(null);
+                                         Double unitWeightKg, Double expectedQuantity,
+                                         Double expectedInitialQuantity) {
+        boolean changesQuantity = quantity != null;
+        List<Map<String, Object>> rows = jdbc.query(
+            "UPDATE lots SET "
+            + "description = COALESCE(?, description), "
+            + "quantity = CASE WHEN ? THEN quantity + (? - ?) "
+            + "ELSE quantity END, "
+            + "initial_quantity = CASE WHEN ? THEN COALESCE(initial_quantity, ?) + (? - ?) "
+            + "ELSE initial_quantity END, "
+            + "expiry_date = COALESCE(?, expiry_date), address = COALESCE(?, address), "
+            + "category = COALESCE(?, category), comment = COALESCE(?, comment), "
+            + "requires_cold = COALESCE(?, requires_cold), unit = COALESCE(?, unit), "
+            + "unit_weight_kg = COALESCE(?, unit_weight_kg) "
+            + "WHERE id = ? AND status = 'active' "
+            + "AND (NOT ? OR initial_quantity IS NOT DISTINCT FROM ?) "
+            + "AND (NOT ? OR quantity + (? - ?) >= 0) "
+            + "AND (NOT ? OR COALESCE(initial_quantity, ?) + (? - ?) >= 0) "
+            + "RETURNING *",
+            LOT_OUT,
+            description, changesQuantity, quantity, expectedQuantity,
+            changesQuantity, expectedQuantity, quantity, expectedQuantity,
+            expiryDate, address, category, comment, requiresCold, unit, unitWeightKg,
+            lotId,
+            changesQuantity, expectedInitialQuantity,
+            changesQuantity, quantity, expectedQuantity,
+            changesQuantity, expectedQuantity, quantity, expectedQuantity);
+        return rows.stream().findFirst().orElse(null);
     }
 
     public boolean confirmLotTransfer(int lotId) {
