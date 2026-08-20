@@ -31,6 +31,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -154,6 +155,61 @@ type locationUpdate struct {
 	Lon *float64 `json:"lon"`
 }
 
+// locationRouteTx is deliberately small so the location/route write can be
+// regression-tested without a live database while still using a pgx transaction
+// in production.
+type locationRouteTx interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Commit(context.Context) error
+	Rollback(context.Context) error
+}
+
+type locationRouteStore interface {
+	BeginRouteActivityTx(context.Context) (locationRouteTx, error)
+}
+
+type pgLocationRouteStore struct {
+	pool *pgxpool.Pool
+}
+
+func (s pgLocationRouteStore) BeginRouteActivityTx(ctx context.Context) (locationRouteTx, error) {
+	return s.pool.Begin(ctx)
+}
+
+func shouldRefreshRouteActivity(c *claims, volunteerID int) bool {
+	return c.Role == "volunteer" && c.RelatedID != nil && *c.RelatedID == volunteerID
+}
+
+// writeLocationAndRouteActivity commits the location and its route heartbeat as
+// one database transaction. An administrator may correct a volunteer location,
+// but only that volunteer's authenticated heartbeat counts as route activity.
+func writeLocationAndRouteActivity(ctx context.Context, store locationRouteStore,
+	volunteerID int, lat, lon float64, refreshRouteActivity bool) error {
+	tx, err := store.BeginRouteActivityTx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err = tx.Exec(ctx,
+		"UPDATE volunteers SET lat = $1, lon = $2, updated_at = NOW() WHERE id = $3",
+		lat, lon, volunteerID); err != nil {
+		return err
+	}
+	if refreshRouteActivity {
+		// NOW() is evaluated by Postgres. Only the authenticated volunteer's
+		// currently active route can be touched; completed/cancelled/timed-out
+		// routes are excluded by the status predicate.
+		if _, err = tx.Exec(ctx,
+			"UPDATE volunteer_routes SET last_activity_at = NOW() "+
+				"WHERE volunteer_id = $1 AND status = 'in_progress'",
+			volunteerID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 	ctx := r.Context()
 	c, err := bearerClaims(r)
@@ -166,7 +222,7 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		return
 	}
 
-	isSelf := c.Role == "volunteer" && c.RelatedID != nil && *c.RelatedID == volunteerID
+	isSelf := shouldRefreshRouteActivity(c, volunteerID)
 
 	switch r.Method {
 	case http.MethodPatch:
@@ -193,9 +249,8 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		// (writes→geows, reads→FastAPI) would serve location up to 60s stale
 		// from the Python cache. If geows ever needs to own writes while
 		// FastAPI owns reads, add a Redis DEL of vol:loc:{id} here.
-		_, err := pool.Exec(ctx,
-			"UPDATE volunteers SET lat = $1, lon = $2, updated_at = NOW() WHERE id = $3",
-			*body.Lat, *body.Lon, volunteerID)
+		err := writeLocationAndRouteActivity(ctx, pgLocationRouteStore{pool}, volunteerID,
+			*body.Lat, *body.Lon, isSelf)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, "db error")
 			return
