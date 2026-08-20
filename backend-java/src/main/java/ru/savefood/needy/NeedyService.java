@@ -10,6 +10,7 @@ import java.util.Map;
 import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.security.PasswordService;
 import ru.savefood.util.Qr;
+import ru.savefood.volunteer.RoutePointPrivacy;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
@@ -114,6 +115,7 @@ public class NeedyService {
             floorNum = null;
             entrance = null;
         }
+        lockWritableRecipient(needyId);
         // §3.2: one assistance per 7 days (counted from the previous fulfilment).
         List<OffsetDateTime> last = jdbc.query(
             "SELECT last_received_at FROM needy_profile WHERE needy_id = ?",
@@ -183,6 +185,7 @@ public class NeedyService {
      */
     @Transactional
     public Integer cancelTicket(int needyId, int ticketId) {
+        lockWritableRecipient(needyId);
         // Interactive route mutations lock route → ticket. Take a non-locking
         // snapshot only to find that route, lock it first, then lock/recheck the
         // ticket. This prevents a cancel-vs-complete deadlock and a stale points
@@ -273,6 +276,7 @@ public class NeedyService {
                     && asInt(p.get("ticket_id")) == ticketId && !Boolean.TRUE.equals(p.get("done"))) {
                 p.put("done", true);
                 p.put("cancelled", true);
+                RoutePointPrivacy.redactTicketPoint(p);
                 changed = true;
             }
         }
@@ -295,6 +299,7 @@ public class NeedyService {
      */
     @Transactional
     public void rateDelivery(int needyId, int ticketId, int rating, String comment) {
+        lockWritableRecipient(needyId);
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
         if (rows.isEmpty()) {
@@ -326,6 +331,7 @@ public class NeedyService {
      */
     @Transactional
     public String setDeliveryPhotoPending(int needyId, int ticketId, String photoUrl) {
+        lockWritableRecipient(needyId);
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
         if (rows.isEmpty()) {
@@ -345,6 +351,43 @@ public class NeedyService {
 
     // ── Account erase (§49 «право на забвение») ──────────────────────────────────
 
+    /** Update recipient account PII while serialized with account erasure. */
+    @Transactional
+    public Map<String, Object> updateNeedy(int needyId, String name, String contact) {
+        lockWritableRecipient(needyId);
+        return repo.updateNeedy(needyId, name, contact);
+    }
+
+    /** Upsert recipient profile/address PII while serialized with account erasure. */
+    @Transactional
+    public Map<String, Object> createOrUpdateProfile(int needyId, String address, Integer familySize,
+            String preferences, String urgency, String availableTime, String apartment,
+            String floorNum, String entrance, String city, Double lat, Double lon,
+            boolean clearCoordinates) {
+        lockWritableRecipient(needyId);
+        return repo.createOrUpdateProfile(needyId, address, familySize, preferences, urgency,
+            availableTime, apartment, floorNum, entrance, city, lat, lon, clearCoordinates);
+    }
+
+    /** Update the recipient's geo subscription while serialized with account erasure. */
+    @Transactional
+    public boolean setGeoPushEnabled(int needyId, boolean enabled) {
+        lockWritableRecipient(needyId);
+        return repo.setGeoPushEnabled(needyId, enabled);
+    }
+
+    /** Mark recipient-owned notification state while serialized with erasure. */
+    @Transactional
+    public void markNotificationRead(int needyId, int notificationId) {
+        lockWritableRecipient(needyId);
+        int updated = jdbc.update(
+            "UPDATE notifications SET read = 1 WHERE id = ? AND needy_id = ?",
+            notificationId, needyId);
+        if (updated == 0) {
+            throw new ApiException(404, "Notification not found");
+        }
+    }
+
     /** On-disk delivery-photo paths the controller must delete after a successful erase. */
     public record EraseResult(List<String> photos) {
     }
@@ -358,13 +401,19 @@ public class NeedyService {
      */
     @Transactional
     public EraseResult eraseAccount(int needyId) {
-        if (repo.getNeedyById(needyId) == null) {
+        List<Map<String, Object>> recipients = jdbc.queryForList(
+            "SELECT id FROM needy WHERE id = ? FOR UPDATE", needyId);
+        if (recipients.isEmpty()) {
             return null;
         }
 
         List<String> photos = jdbc.query(
             "SELECT delivery_photo FROM tickets WHERE needy_id = ? AND delivery_photo IS NOT NULL",
             (rs, n) -> rs.getString("delivery_photo"), needyId);
+
+        List<Integer> ticketIds = jdbc.query(
+            "SELECT id FROM tickets WHERE needy_id = ? ORDER BY id",
+            (rs, n) -> rs.getInt("id"), needyId);
 
         // Return reservations for live tickets to still-active lots.
         List<Map<String, Object>> liveLots = jdbc.queryForList(
@@ -408,6 +457,11 @@ public class NeedyService {
             + "assigned_volunteer = NULL, delivery_photo = NULL, delivery_photo_status = NULL, "
             + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_notes = NULL WHERE needy_id = ?",
             needyId);
+        java.util.Set<Integer> cancelledTicketIds = live.stream()
+            .map(row -> asInt(row.get("id")))
+            .filter(java.util.Objects::nonNull)
+            .collect(java.util.stream.Collectors.toSet());
+        scrubRouteCopies(ticketIds, cancelledTicketIds);
         // Chat threads and thank-you notes are the recipient's words — erase them too;
         // the numeric rating survives so volunteer averages don't shift retroactively.
         jdbc.update(
@@ -423,6 +477,65 @@ public class NeedyService {
             "UPDATE needy SET name = 'Удалённый аккаунт', contact = NULL, status = 'deleted' "
             + "WHERE id = ?", needyId);
         return new EraseResult(photos);
+    }
+
+    /**
+     * Serialize every recipient-owned mutation with erasure on the durable account
+     * row. A request authenticated before deletion may wait here, but cannot write
+     * after the deleting transaction commits and exposes {@code status = deleted}.
+     */
+    private void lockWritableRecipient(int needyId) {
+        List<String> statuses = jdbc.query(
+            "SELECT status FROM needy WHERE id = ? FOR UPDATE",
+            (rs, n) -> rs.getString("status"), needyId);
+        if (statuses.isEmpty()) {
+            throw new ApiException(404, "Needy not found");
+        }
+        if ("deleted".equals(statuses.get(0))) {
+            throw new ApiException(403, "Account is not active");
+        }
+    }
+
+    /** Scrub denormalized copies for active and historical routes during erasure. */
+    private void scrubRouteCopies(List<Integer> ticketIds, java.util.Set<Integer> cancelledTicketIds) {
+        if (ticketIds.isEmpty()) {
+            return;
+        }
+        String alternatives = ticketIds.stream().map(String::valueOf)
+            .collect(java.util.stream.Collectors.joining("|"));
+        String ticketPattern = "\\\"ticket_id\\\"\\s*:\\s*(" + alternatives + ")([^0-9]|$)";
+        List<Map<String, Object>> routes = jdbc.queryForList(
+            "SELECT id, points FROM volunteer_routes WHERE points IS NOT NULL AND points ~ ? "
+                + "ORDER BY id FOR UPDATE", ticketPattern);
+        for (Map<String, Object> route : routes) {
+            List<Map<String, Object>> points;
+            try {
+                points = mapper.readValue(route.get("points").toString(),
+                    new com.fasterxml.jackson.core.type.TypeReference<>() { });
+            } catch (Exception ignored) {
+                jdbc.update("UPDATE volunteer_routes SET points = '[]' WHERE id = ?", route.get("id"));
+                continue;
+            }
+            boolean changed = false;
+            for (Map<String, Object> point : points) {
+                Integer ticketId = asInt(point.get("ticket_id"));
+                if (ticketId != null && ticketIds.contains(ticketId)) {
+                    if (cancelledTicketIds.contains(ticketId)) {
+                        point.put("done", true);
+                        point.put("cancelled", true);
+                    }
+                    changed |= RoutePointPrivacy.redactTicketPoint(point);
+                }
+            }
+            if (changed) {
+                try {
+                    jdbc.update("UPDATE volunteer_routes SET points = ? WHERE id = ?",
+                        mapper.writeValueAsString(points), route.get("id"));
+                } catch (Exception e) {
+                    throw new IllegalStateException("Could not scrub recipient route data", e);
+                }
+            }
+        }
     }
 
     // ── Cross-module helpers (kept from the original NeedyService) ─────────────────

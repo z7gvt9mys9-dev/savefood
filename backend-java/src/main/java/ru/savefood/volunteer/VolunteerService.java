@@ -488,6 +488,9 @@ public class VolunteerService {
         }
 
         point.put("done", true);
+        if ("ticket".equals(point.get("kind"))) {
+            RoutePointPrivacy.redactTicketPoint(point);
+        }
         repo.updateRoutePoints(((Number) route.get("id")).intValue(), writeJson(points));
     }
 
@@ -567,6 +570,7 @@ public class VolunteerService {
                 }
                 target.put("done", true);
                 target.put("released", true);
+                RoutePointPrivacy.redactTicketPoint(target);
                 released = true;
                 msg = "Волонтёр приходил " + attemptCount + " раза, доставка не состоялась. "
                     + "Тикет возвращён в очередь — свяжитесь со службой поддержки.";
@@ -660,8 +664,9 @@ public class VolunteerService {
         route = lockActiveRoute(route, volunteerId);
         Integer lotId = route.get("lot_id") == null ? null : ((Number) route.get("lot_id")).intValue();
         routeRevert.revertRouteLot(lotId, route.get("points") == null ? null : route.get("points").toString());
-        jdbc.update("UPDATE volunteer_routes SET status = 'finished', finished_at = ? WHERE id = ?",
-            OffsetDateTime.now(), ((Number) route.get("id")).intValue());
+        jdbc.update("UPDATE volunteer_routes SET points = ?, status = 'finished', finished_at = ? WHERE id = ?",
+            RoutePointPrivacy.redactAllTicketPointsJson(route.get("points")), OffsetDateTime.now(),
+            ((Number) route.get("id")).intValue());
     }
 
     // ── Teams ──────────────────────────────────────────────────────────────────
@@ -830,17 +835,36 @@ public class VolunteerService {
     public List<Map<String, Object>> historyRoutes(int volId, int limit, int offset) {
         List<Map<String, Object>> routes = repo.getRoutesByVolunteer(volId, limit, offset);
         for (Map<String, Object> r : routes) {
-            r.put("points", readPoints(r.get("points")));
+            List<Map<String, Object>> points = readPoints(r.get("points"));
+            // History is not an operational delivery surface. Always redact its
+            // ticket points, including active/legacy rows, as defense in depth.
+            RoutePointPrivacy.redactAllTicketPoints(points);
+            r.put("points", points);
         }
         return routes;
     }
 
-    public Map<String, Object> activeRoute(int volId) {
+    public Map<String, Object> activeRoute(int volId, boolean exposeAssignedRecipientData) {
         Map<String, Object> route = repo.getActiveRoute(volId);
         if (route == null) {
             return new LinkedHashMap<>();
         }
-        route.put("points", readPoints(route.get("points")));
+        List<Map<String, Object>> points = readPoints(route.get("points"));
+        if (!exposeAssignedRecipientData) {
+            RoutePointPrivacy.redactAllTicketPoints(points);
+        } else {
+            List<Integer> assignedTicketIds = jdbc.query(
+                "SELECT id FROM tickets WHERE assigned_volunteer_id = ? AND status = 'assigned'",
+                (rs, rowNum) -> rs.getInt("id"), volId);
+            for (Map<String, Object> point : points) {
+                Object ticketId = point.get("ticket_id");
+                if ("ticket".equals(point.get("kind"))
+                        && (!(ticketId instanceof Number id) || !assignedTicketIds.contains(id.intValue()))) {
+                    RoutePointPrivacy.redactTicketPoint(point);
+                }
+            }
+        }
+        route.put("points", points);
         return route;
     }
 

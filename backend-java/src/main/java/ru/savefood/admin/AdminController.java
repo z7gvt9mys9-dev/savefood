@@ -22,6 +22,7 @@ import ru.savefood.telegram.TelegramService;
 import ru.savefood.util.Clamp;
 import ru.savefood.volunteer.AvailabilityService;
 import ru.savefood.volunteer.RouteRevertService;
+import ru.savefood.volunteer.RoutePointPrivacy;
 import ru.savefood.volunteer.VolunteerRepository;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Value;
@@ -377,8 +378,8 @@ public class AdminController {
         Object pointsObj = route.get("points");
         routeRevert.revertRouteLot(lotId, pointsObj == null ? null : pointsObj.toString());
         jdbc.update(
-            "UPDATE volunteer_routes SET status = 'timed_out', finished_at = NOW() WHERE id = ?",
-            routeId);
+            "UPDATE volunteer_routes SET points = ?, status = 'timed_out', finished_at = NOW() WHERE id = ?",
+            RoutePointPrivacy.redactAllTicketPointsJson(pointsObj), routeId);
         audit.log(user.sub(), "route_reset", "route", routeId, "Admin reset route #" + routeId);
         return Map.of("ok", true);
     }

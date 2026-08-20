@@ -405,7 +405,12 @@ public class VolunteerController {
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("route_id", result.routeId());
-        out.put("points", result.points());
+        List<Map<String, Object>> responsePoints = result.points().stream()
+            .map(LinkedHashMap::new).toList();
+        if (!("volunteer".equals(user.role()) && Objects.equals(user.relatedId(), volunteerId))) {
+            RoutePointPrivacy.redactAllTicketPoints(responsePoints);
+        }
+        out.put("points", responsePoints);
         return out;
     }
 
@@ -478,7 +483,9 @@ public class VolunteerController {
     @GetMapping("/volunteers/{volunteerId}/active_route")
     public Map<String, Object> activeRoute(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
-        return service.activeRoute(volunteerId);
+        boolean assignedVolunteer = "volunteer".equals(user.role())
+            && Objects.equals(user.relatedId(), volunteerId);
+        return service.activeRoute(volunteerId, assignedVolunteer);
     }
 
     // ── Notifications / rating / stats / thanks ──────────────────────────────────

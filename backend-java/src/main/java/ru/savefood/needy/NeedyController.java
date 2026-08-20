@@ -268,7 +268,7 @@ public class NeedyController {
     public Map<String, Object> updateNeedy(@PathVariable int needyId, @RequestBody NeedyCreate payload,
                                            @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
-        Map<String, Object> updated = repo.updateNeedy(needyId, payload.name(), payload.contact());
+        Map<String, Object> updated = service.updateNeedy(needyId, payload.name(), payload.contact());
         if (updated == null) {
             throw new ApiException(404, "Needy not found");
         }
@@ -304,7 +304,7 @@ public class NeedyController {
                                           @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "needy", needyId);
         boolean enabled = Boolean.TRUE.equals(payload.enabled());
-        if (!repo.setGeoPushEnabled(needyId, enabled)) {
+        if (!service.setGeoPushEnabled(needyId, enabled)) {
             throw new ApiException(404, "Needy not found");
         }
         return Map.of("geo_push_enabled", enabled);
@@ -358,8 +358,9 @@ public class NeedyController {
             throw new ApiException(404, "Notification not found");
         }
         Object needyId = note.get("needy_id");
-        Authz.ensureOwnerOrAdmin(user, "needy", needyId == null ? -1 : ((Number) needyId).intValue());
-        repo.markNotificationRead(notificationId);
+        int ownerId = needyId == null ? -1 : ((Number) needyId).intValue();
+        Authz.ensureOwnerOrAdmin(user, "needy", ownerId);
+        service.markNotificationRead(ownerId, notificationId);
         return Map.of("ok", true);
     }
 
@@ -402,7 +403,7 @@ public class NeedyController {
                     "lat/lon: укажите обе координаты в диапазонах -90..90 и -180..180");
             }
         }
-        Map<String, Object> profile = repo.createOrUpdateProfile(needyId, p.address(), p.familySize(),
+        Map<String, Object> profile = service.createOrUpdateProfile(needyId, p.address(), p.familySize(),
             p.preferences(), p.urgency(), p.availableTime(), p.apartment(), p.floorNum(),
             p.entrance(), p.city(), p.lat(), p.lon(), clearCoordinates);
         if (profile == null) {

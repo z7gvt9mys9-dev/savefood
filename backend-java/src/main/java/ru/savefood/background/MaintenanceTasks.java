@@ -13,6 +13,7 @@ import java.util.logging.Logger;
 import ru.savefood.kyc.KycService;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.volunteer.RouteRevertService;
+import ru.savefood.volunteer.RoutePointPrivacy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -166,8 +167,9 @@ public class MaintenanceTasks {
                             : ((Number) current.get("lot_id")).intValue();
                         String points = (String) current.get("points");
                         revert.revertRouteLot(lotId, points);
-                        int updated = jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', "
-                            + "finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'in_progress'", routeId);
+                        int updated = jdbc.update("UPDATE volunteer_routes SET points = ?, status = 'timed_out', "
+                            + "finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'in_progress'",
+                            RoutePointPrivacy.redactAllTicketPointsJson(points), routeId);
                         return updated == 1 ? current : null;
                     });
                 } catch (RuntimeException e) {
@@ -290,8 +292,9 @@ public class MaintenanceTasks {
             }
             // No reaction: release tickets, revive the lot, close the route — atomically.
             revert.revertRouteLot(lotId, pointsJson);
-            int updated = jdbc.update("UPDATE volunteer_routes SET status = 'timed_out', finished_at = CURRENT_TIMESTAMP "
-                + "WHERE id = ? AND status = 'in_progress'", routeId);
+            int updated = jdbc.update("UPDATE volunteer_routes SET points = ?, status = 'timed_out', "
+                + "finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'in_progress'",
+                RoutePointPrivacy.redactAllTicketPointsJson(pointsJson), routeId);
             if (updated == 0) {
                 return null;
             }
