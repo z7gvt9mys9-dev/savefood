@@ -541,6 +541,7 @@ public class VolunteerService {
         int attemptCount = (target.get("attempt_count") instanceof Number n ? n.intValue() : 0) + 1;
         target.put("attempt_count", attemptCount);
         boolean released = false;
+        String notificationType = "delivery_attempted";
 
         Integer needyId = ticket.get("needy_id") instanceof Number n ? n.intValue() : null;
         if (needyId != null) {
@@ -556,7 +557,9 @@ public class VolunteerService {
                         "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
                 }
                 String proof = locked.get(0).get("delivery_photo") instanceof String s ? s : null;
-                int releasedRows = jdbc.update("UPDATE tickets SET status = 'open', assigned_volunteer = NULL, "
+                // Pickup was verified above: the food is no longer at the shop,
+                // so terminal failure cancels this reservation without restoring stock.
+                int releasedRows = jdbc.update("UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, "
                     + "assigned_volunteer_id = NULL, delivery_photo = NULL, delivery_photo_status = NULL, "
                     + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
                     + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL "
@@ -569,18 +572,19 @@ public class VolunteerService {
                     deliveryPhotos.deleteAfterCommit(proof);
                 }
                 target.put("done", true);
-                target.put("released", true);
+                target.put("cancelled", true);
                 RoutePointPrivacy.redactTicketPoint(target);
                 released = true;
+                notificationType = "ticket_cancelled";
                 msg = "Волонтёр приходил " + attemptCount + " раза, доставка не состоялась. "
-                    + "Тикет возвращён в очередь — свяжитесь со службой поддержки.";
+                    + "Заявка отменена — выберите другой лот, недельный лимит не потрачен.";
             } else {
                 msg = "Волонтёр приходил, но вы не открыли дверь. Попытка #" + attemptCount
                     + ". Ожидаем звонка в течение 10 минут.";
             }
             jdbc.update(
                 "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
-                needyId, "delivery_attempted", msg, OffsetDateTime.now());
+                needyId, notificationType, msg, OffsetDateTime.now());
             try {
                 telegram.notifyNeedy(needyId, msg);
             } catch (RuntimeException ignore) {

@@ -81,14 +81,73 @@ class RouteRecipientPrivacyIT extends PostgresIT {
         RouteFixture failed = startRoute();
         volunteerService.completePoint(volunteerRepo.getRouteById(failed.routeId()), failed.volunteerId(),
             null, 43.238, 76.889, null);
-        for (int attempt = 0; attempt < 3; attempt++) {
-            volunteerService.attemptDelivery(volunteerRepo.getRouteById(failed.routeId()), failed.volunteerId(),
-                failed.ticketId(), 43.24, 76.90);
-        }
+        Map<String, Object> first = volunteerService.attemptDelivery(
+            volunteerRepo.getRouteById(failed.routeId()), failed.volunteerId(), failed.ticketId(), 43.24, 76.90);
+        Map<String, Object> second = volunteerService.attemptDelivery(
+            volunteerRepo.getRouteById(failed.routeId()), failed.volunteerId(), failed.ticketId(), 43.24, 76.90);
+        assertThat(first).containsEntry("attempt_count", 1).containsEntry("released", false);
+        assertThat(second).containsEntry("attempt_count", 2).containsEntry("released", false);
+        assertThat(status("tickets", failed.ticketId())).isEqualTo("assigned");
+
+        Map<String, Object> third = volunteerService.attemptDelivery(
+            volunteerRepo.getRouteById(failed.routeId()), failed.volunteerId(), failed.ticketId(), 43.24, 76.90);
+        assertThat(third).containsEntry("attempt_count", 3).containsEntry("released", true);
+        assertThat(status("tickets", failed.ticketId())).isEqualTo("cancelled");
+        assertThat(status("lots", failed.lotId())).isEqualTo("taken");
+        assertThat(lotQuantity(failed.lotId())).isEqualTo(1.0);
         Map<String, Object> failedPoint = ticketPoint(persistedPoints(failed.routeId()));
-        assertThat(failedPoint).containsEntry("done", true).containsEntry("released", true)
+        assertThat(failedPoint).containsEntry("done", true).containsEntry("cancelled", true)
             .containsEntry("attempt_count", 3);
         assertTerminalPointRedacted(failedPoint);
+
+        Map<String, Object> map = volunteerService.mapPoints();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> unavailable = (List<Map<String, Object>>) map.get("tickets");
+        assertThat(unavailable).extracting(point -> point.get("ticket_id")).doesNotContain(failed.ticketId());
+        assertThat((List<?>) map.get("shops")).isEmpty();
+
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM notifications WHERE needy_id = ? AND type = 'ticket_cancelled'",
+            Integer.class, failed.needyId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM notifications WHERE needy_id = ? AND type = 'delivery_attempted'",
+            Integer.class, failed.needyId())).isEqualTo(2);
+        assertThatThrownBy(() -> volunteerService.attemptDelivery(volunteerRepo.getRouteById(failed.routeId()),
+            failed.volunteerId(), failed.ticketId(), 43.24, 76.90))
+            .isInstanceOf(ApiException.class).extracting("status").isEqualTo(400);
+        volunteerService.finishRoute(volunteerRepo.getRouteById(failed.routeId()));
+        assertThat(lotQuantity(failed.lotId())).isEqualTo(1.0);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM notifications WHERE needy_id = ? AND type = 'ticket_cancelled'",
+            Integer.class, failed.needyId())).isEqualTo(1);
+        assertThatThrownBy(() -> volunteerService.finishRoute(volunteerRepo.getRouteById(failed.routeId())))
+            .isInstanceOf(ApiException.class).extracting("status").isEqualTo(409);
+        assertThat(lotQuantity(failed.lotId())).isEqualTo(1.0);
+
+        int replacementLot = insertLot(insertShop("Replacement store", 43.238, 76.889), 2.0, "Bakery");
+        int replacement = needyService.createTicket(failed.needyId(), "replacement", "Private street 7",
+            43.24, 76.90, null, replacementLot, null, null, null, false);
+        assertThat(status("tickets", replacement)).isEqualTo("open");
+    }
+
+    @Test
+    void successfulDeliveryAfterEarlierAttemptsStillFulfilsTheTicket() {
+        RouteFixture fixture = startRoute();
+        volunteerService.completePoint(volunteerRepo.getRouteById(fixture.routeId()), fixture.volunteerId(),
+            null, 43.238, 76.889, null);
+        volunteerService.attemptDelivery(volunteerRepo.getRouteById(fixture.routeId()), fixture.volunteerId(),
+            fixture.ticketId(), 43.24, 76.90);
+        volunteerService.attemptDelivery(volunteerRepo.getRouteById(fixture.routeId()), fixture.volunteerId(),
+            fixture.ticketId(), 43.24, 76.90);
+        jdbc.update("UPDATE tickets SET delivery_photo = '/delivery_photos/proof.jpg', "
+            + "delivery_photo_status = 'pending' WHERE id = ?", fixture.ticketId());
+        String secret = jdbc.queryForObject("SELECT qr_secret FROM tickets WHERE id = ?", String.class,
+            fixture.ticketId());
+
+        volunteerService.completePoint(volunteerRepo.getRouteById(fixture.routeId()), fixture.volunteerId(),
+            fixture.ticketId(), 43.24, 76.90, Qr.buildCode(fixture.ticketId(), secret));
+
+        assertThat(status("tickets", fixture.ticketId())).isEqualTo("fulfilled");
     }
 
     @Test
@@ -210,7 +269,7 @@ class RouteRecipientPrivacyIT extends PostgresIT {
         VolunteerService.StartRouteResult route = volunteerService.startRoute(
             volunteerId, Map.of("name", "Courier", "lat", 43.238, "lon", 76.889,
                 "has_thermal_bag", true), lotId, 1);
-        return new RouteFixture(route.routeId(), volunteerId, needyId, ticketId);
+        return new RouteFixture(route.routeId(), volunteerId, needyId, ticketId, lotId);
     }
 
     private VolunteerController controller() {
@@ -289,6 +348,6 @@ class RouteRecipientPrivacyIT extends PostgresIT {
         assertThat(point).containsKeys("kind", "ticket_id");
     }
 
-    private record RouteFixture(int routeId, int volunteerId, int needyId, int ticketId) {
+    private record RouteFixture(int routeId, int volunteerId, int needyId, int ticketId, int lotId) {
     }
 }
