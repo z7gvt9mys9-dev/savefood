@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
-import { API_URL } from '../../api';
+import { API_URL, authFetch } from '../../api';
 import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
@@ -37,7 +37,7 @@ const AuthPage = () => {
   const [role, setRole] = useState(initialRole); // shop, volunteer, needy, admin
   const [step, setStep] = useState(1); // For multi-step registration (Needy)
   const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
-  const [regToken, setRegToken] = useState(null); // token after registration
+  const [regAuthenticated, setRegAuthenticated] = useState(false);
   const [regSession, setRegSession] = useState(null);
   const [regNeedyId, setRegNeedyId] = useState(null);
   const [needySubmitting, setNeedySubmitting] = useState(false);
@@ -109,11 +109,11 @@ const AuthPage = () => {
   // password. The auth context already restores the owner's token.
   useEffect(() => {
     if (!startsInRegisterMode || initialRole !== 'needy' || regNeedyId) return;
-    if (user?.role !== 'needy' || !user.token || !user.relatedId) return;
+    if (user?.role !== 'needy' || !user.relatedId) return;
     const savedId = Number(window.localStorage.getItem(NEEDY_REGISTRATION_KEY));
     if (savedId !== Number(user.relatedId)) return;
     setRegNeedyId(savedId);
-    setRegToken(user.token);
+    setRegAuthenticated(true);
     setRegSession({ role: 'needy', relatedId: savedId });
     setStep(2);
   }, [startsInRegisterMode, initialRole, regNeedyId, user]);
@@ -126,7 +126,7 @@ const AuthPage = () => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const telegramCompletion = hash.get('telegram_completion');
     const oauthError = hash.get('oauth_error');
-    const oauthToken = hash.get('oauth_token');
+    const oauthCompletion = hash.get('oauth_completion');
     const cleanLocation = `${window.location.pathname}${window.location.search}`;
     if (telegramCompletion) {
       window.history.replaceState(null, '', cleanLocation);
@@ -147,11 +147,11 @@ const AuthPage = () => {
             return;
           }
           const data = await res.json();
-          if (!data.access_token || !data.role) {
+          if (!data.access_token || !data.refresh_token || !data.role) {
             alert(t('auth.tg_login_completion_error'));
             return;
           }
-          login(data.access_token, data.role, data.related_id);
+          login(data.access_token, data.refresh_token, data.role, data.related_id);
           navigate(`/${data.role}`);
         } catch {
           alert(t('common.connection_error'));
@@ -165,12 +165,31 @@ const AuthPage = () => {
       alert(decodeURIComponent(oauthError));
       return;
     }
-    if (oauthToken) {
-      const role = hash.get('role');
-      const relatedId = hash.get('related_id');
+    if (oauthCompletion) {
       window.history.replaceState(null, '', cleanLocation);
-      login(oauthToken, role, relatedId ? Number(relatedId) : null);
-      navigate(`/${role}`);
+      const completeOAuthLogin = async () => {
+        try {
+          const res = await fetch(`${API_URL}/auth/oauth/login/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: oauthCompletion }),
+          });
+          if (!res.ok) {
+            alert(t('auth.invalid_credentials'));
+            return;
+          }
+          const data = await res.json();
+          if (!data.access_token || !data.refresh_token || !data.role) {
+            alert(t('auth.invalid_credentials'));
+            return;
+          }
+          login(data.access_token, data.refresh_token, data.role, data.related_id);
+          navigate(`/${data.role}`);
+        } catch {
+          alert(t('common.connection_error'));
+        }
+      };
+      completeOAuthLogin();
     }
   }, []);
 
@@ -269,10 +288,10 @@ const AuthPage = () => {
   // one the person selected: otherwise an account with a matching identifier
   // could open the wrong dashboard.
   const acceptLogin = (data, expectedRole) => {
-    if (!data.access_token || data.role !== expectedRole) {
+    if (!data.access_token || !data.refresh_token || data.role !== expectedRole) {
       throw new Error(t('auth.invalid_credentials'));
     }
-    login(data.access_token, data.role, data.related_id);
+    login(data.access_token, data.refresh_token, data.role, data.related_id);
     navigate(`/${data.role}`);
   };
 
@@ -371,8 +390,7 @@ const AuthPage = () => {
         setRegNeedyId(needyId);
       }
 
-      let token = regToken;
-      if (!token) {
+      if (!regAuthenticated) {
         const fd = new FormData();
         fd.append('username', formData.phone);
         fd.append('password', formData.password);
@@ -380,13 +398,14 @@ const AuthPage = () => {
         const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
         if (!loginRes.ok) throw new Error(t('auth.login_after_register_error'));
         const loginData = await loginRes.json();
-        token = loginData.access_token;
-        if (!token) throw new Error(t('auth.login_after_register_error'));
+        if (!loginData.access_token || !loginData.refresh_token) {
+          throw new Error(t('auth.login_after_register_error'));
+        }
         const sessionRole = loginData.role || 'needy';
         const relatedId = loginData.related_id ?? needyId;
-        setRegToken(token);
+        setRegAuthenticated(true);
         setRegSession({ role: sessionRole, relatedId });
-        login(token, sessionRole, relatedId);
+        login(loginData.access_token, loginData.refresh_token, sessionRole, relatedId);
       }
 
       window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
@@ -400,7 +419,7 @@ const AuthPage = () => {
 
   const submitNeedyProfile = async (e) => {
     e.preventDefault();
-    if (!regNeedyId || !regToken) {
+    if (!regNeedyId || !regAuthenticated) {
       alert(t('auth.registration_session_error'));
       return;
     }
@@ -410,9 +429,9 @@ const AuthPage = () => {
     }
     setNeedySubmitting(true);
     try {
-      const res = await fetch(`${API_URL}/needy/${regNeedyId}/profile`, {
+      const res = await authFetch(`${API_URL}/needy/${regNeedyId}/profile`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${regToken}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           address: formData.address || null,
           family_size: formData.familySize ? Number(formData.familySize) : null,
@@ -494,13 +513,14 @@ const AuthPage = () => {
           if (loginRes.ok) {
             const loginData = await loginRes.json();
             token = loginData.access_token;
-            setRegToken(token);
+            if (!token || !loginData.refresh_token) throw new Error('Incomplete authentication response');
+            setRegAuthenticated(true);
             const sessionRole = loginData.role || role;
             const relatedId = loginData.related_id ?? data.id ?? null;
             // Registration already performed a successful login. Persist that
             // session just like the normal login flow rather than making the
             // new account holder authenticate a second time after Telegram.
-            login(token, sessionRole, relatedId);
+            login(token, loginData.refresh_token, sessionRole, relatedId);
             setRegSession({ role: sessionRole, relatedId });
           }
         } catch {}
@@ -706,14 +726,13 @@ const AuthPage = () => {
     <div className="auth-form">
       <h2>{t('auth.telegram_title')}</h2>
       <p style={{ color: '#aaa', marginBottom: 20 }}>{t('auth.telegram_desc')}</p>
-      {regToken && (
+      {regAuthenticated && (
         <button
           className="btn btn-primary"
           style={{ marginBottom: 12 }}
           onClick={async () => {
             try {
-              const res = await fetch(`${API_URL}/auth/telegram/init-link`, {
-                headers: { Authorization: `Bearer ${regToken}` },
+              const res = await authFetch(`${API_URL}/auth/telegram/init-link`, {
               });
               if (!res.ok) { alert(t('auth.error_tg')); return; }
               const data = await res.json();

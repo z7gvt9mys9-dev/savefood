@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { API_URL } from '../api';
+import { API_URL, authFetch } from '../api';
 
 /**
  * In-app ticket chat (§53): volunteer↔recipient messages scoped to one ticket.
  * Polls GET /tickets/{id}/messages every 4s and POSTs new ones. `me` is the
  * caller's role ('needy' | 'volunteer') used to align bubbles left/right.
  */
-const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
+const TicketChat = ({ ticketId, me, ns = 'volunteer' }) => {
   const { t } = useTranslation();
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState('');
@@ -15,12 +15,10 @@ const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
   const lastIdRef = useRef(0);
   const bottomRef = useRef(null);
 
-  const authHeader = { Authorization: `Bearer ${token}` };
-
   const poll = useCallback(async () => {
     if (!ticketId) return;
     try {
-      const res = await fetch(`${API_URL}/tickets/${ticketId}/messages?after_id=${lastIdRef.current}`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/tickets/${ticketId}/messages?after_id=${lastIdRef.current}`);
       if (!res.ok) return;
       const data = await res.json();
       if (Array.isArray(data) && data.length) {
@@ -34,7 +32,7 @@ const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
         });
       }
     } catch { /* offline — keep what we have */ }
-  }, [ticketId, token]);
+  }, [ticketId]);
 
   useEffect(() => {
     lastIdRef.current = 0;
@@ -54,9 +52,9 @@ const TicketChat = ({ ticketId, token, me, ns = 'volunteer' }) => {
     if (!body || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`${API_URL}/tickets/${ticketId}/messages`, {
+      const res = await authFetch(`${API_URL}/tickets/${ticketId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeader },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body }),
       });
       if (res.ok) {

@@ -76,6 +76,11 @@ describe('AuthPage registration', () => {
     alertMock = vi.spyOn(window, 'alert').mockImplementation(() => {});
     loginMock.mockReset();
     window.localStorage.clear();
+    loginMock.mockImplementation((accessToken, refreshToken, role, relatedId) => {
+      window.localStorage.setItem('savefood_auth_session', JSON.stringify({
+        accessToken, refreshToken, role, relatedId,
+      }));
+    });
   });
 
   afterEach(() => {
@@ -110,7 +115,7 @@ describe('AuthPage registration', () => {
     fetchMock.mockImplementation((url) => {
       if (String(url).endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
       if (String(url).endsWith('/auth/login')) {
-        return Promise.resolve(jsonResponse({ access_token: 'volunteer-token', role: 'volunteer', related_id: 7 }));
+        return Promise.resolve(jsonResponse({ access_token: 'volunteer-token', refresh_token: 'volunteer-refresh', role: 'volunteer', related_id: 7 }));
       }
       return Promise.resolve(jsonResponse({}, false));
     });
@@ -119,7 +124,7 @@ describe('AuthPage registration', () => {
     fireEvent.change(screen.getByPlaceholderText('auth.password'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'auth.submit_login' }));
 
-    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('volunteer-token', 'volunteer', 7));
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('volunteer-token', 'volunteer-refresh', 'volunteer', 7));
     const loginCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/auth/login'));
     expect(loginCall[1].body.get('role')).toBe('volunteer');
   });
@@ -128,7 +133,7 @@ describe('AuthPage registration', () => {
     fetchMock.mockImplementation((url) => {
       if (String(url).endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
       if (String(url).endsWith('/auth/login')) {
-        return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
+        return Promise.resolve(jsonResponse({ access_token: 'needy-token', refresh_token: 'needy-refresh', role: 'needy', related_id: 42 }));
       }
       return Promise.resolve(jsonResponse({}, false));
     });
@@ -148,6 +153,7 @@ describe('AuthPage registration', () => {
       if (path.endsWith('/auth/telegram/login/complete')) {
         return Promise.resolve(jsonResponse({
           access_token: 'telegram-jwt',
+          refresh_token: 'telegram-refresh',
           role: 'needy',
           related_id: 42,
         }));
@@ -159,7 +165,7 @@ describe('AuthPage registration', () => {
 
     expect(window.location.hash).toBe('');
     expect(window.location.search).toBe('?from=telegram');
-    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'needy', 42));
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'telegram-refresh', 'needy', 42));
     const completionCall = fetchMock.mock.calls.find(
       ([url]) => String(url).endsWith('/auth/telegram/login/complete')
     );
@@ -180,6 +186,7 @@ describe('AuthPage registration', () => {
         if (completionCalls === 1) return Promise.resolve(jsonResponse({}, false, 409));
         return Promise.resolve(jsonResponse({
           access_token: 'telegram-jwt',
+          refresh_token: 'telegram-refresh',
           role: 'needy',
           related_id: 42,
         }));
@@ -190,9 +197,37 @@ describe('AuthPage registration', () => {
     renderPage('', '#telegram_completion=completion-secret');
 
     expect(window.location.hash).toBe('');
-    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'needy', 42));
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith('telegram-jwt', 'telegram-refresh', 'needy', 42));
     expect(completionCalls).toBe(2);
     expect(alertMock).not.toHaveBeenCalled();
+  });
+
+  it('redeems OAuth completion and stores the same access/refresh pair', async () => {
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({ google: true }));
+      if (path.endsWith('/auth/oauth/login/complete')) {
+        return Promise.resolve(jsonResponse({
+          access_token: 'oauth-access',
+          refresh_token: 'oauth-refresh',
+          role: 'shop',
+          related_id: 7,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+
+    renderPage('?from=google', '#oauth_completion=one-time-code');
+
+    expect(window.location.hash).toBe('');
+    await waitFor(() => expect(loginMock).toHaveBeenCalledWith(
+      'oauth-access', 'oauth-refresh', 'shop', 7,
+    ));
+    const completionCall = fetchMock.mock.calls.find(
+      ([url]) => String(url).endsWith('/auth/oauth/login/complete')
+    );
+    expect(JSON.parse(completionCall[1].body)).toEqual({ token: 'one-time-code' });
+    expect(fetchMock.mock.calls.map(([url]) => String(url)).join(' ')).not.toContain('oauth-refresh');
   });
 
   it('treats Telegram polling as status-only even if a response contains a JWT', async () => {
@@ -319,7 +354,7 @@ describe('AuthPage registration', () => {
       if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
       if (path.endsWith('/needy/register')) return Promise.resolve(jsonResponse({ id: 42 }));
       if (path.endsWith('/auth/login')) {
-        return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
+        return Promise.resolve(jsonResponse({ access_token: 'needy-token', refresh_token: 'needy-refresh', role: 'needy', related_id: 42 }));
       }
       return Promise.resolve(jsonResponse({}, false));
     });
@@ -339,7 +374,7 @@ describe('AuthPage registration', () => {
     expect(loginCall[1].body.get('username')).toBe('+79990000000');
     expect(loginCall[1].body.get('password')).toBe('password123');
     expect(loginCall[1].body.get('role')).toBe('needy');
-    expect(loginMock).toHaveBeenCalledWith('needy-token', 'needy', 42);
+    expect(loginMock).toHaveBeenCalledWith('needy-token', 'needy-refresh', 'needy', 42);
     expect(fetchMock.mock.calls.some(([url]) => /profile\/upload|kyc|moderation|\/document/.test(String(url)))).toBe(false);
     expect(screen.queryByLabelText('auth.document_status')).toBeNull();
   });
@@ -350,7 +385,13 @@ describe('AuthPage registration', () => {
       if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
       if (path.endsWith('/needy/register')) return Promise.resolve(jsonResponse({ id: 42 }));
       if (path.endsWith('/auth/login')) {
-        return Promise.resolve(jsonResponse({ access_token: 'needy-token', role: 'needy', related_id: 42 }));
+        return Promise.resolve(jsonResponse({ access_token: 'needy-token', refresh_token: 'needy-refresh', role: 'needy', related_id: 42 }));
+      }
+      if (path.endsWith('/auth/refresh')) {
+        return Promise.resolve(jsonResponse({
+          access_token: 'needy-token-refreshed',
+          refresh_token: 'needy-refresh-rotated',
+        }));
       }
       if (path.endsWith('/needy/42/profile')) return Promise.resolve(jsonResponse({ needy_id: 42 }));
       return Promise.resolve(jsonResponse({}, false));
@@ -367,7 +408,7 @@ describe('AuthPage registration', () => {
 
     await waitFor(() => expect(screen.getByText('auth.telegram_title')).toBeTruthy());
     const profileCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/needy/42/profile'));
-    expect(profileCall[1].headers.Authorization).toBe('Bearer needy-token');
+    expect(profileCall[1].headers.get('Authorization')).toBe('Bearer needy-token-refreshed');
     expect(JSON.parse(profileCall[1].body)).toMatchObject({
       address: 'Москва, Тверская улица, 1',
       city: 'Москва',

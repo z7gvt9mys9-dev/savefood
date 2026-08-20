@@ -686,9 +686,9 @@ public class VolunteerService {
             "SELECT COUNT(t.id) FROM tickets t JOIN volunteers v ON v.id = t.assigned_volunteer_id "
             + "WHERE v.team_id = ? AND t.status = 'fulfilled'", Long.class, teamId);
         Double kg = jdbc.queryForObject(
-            "SELECT COALESCE(SUM(" + EsgService.RESCUED_KG_SQL + "), 0) FROM volunteer_routes vr "
-            + "JOIN lots l ON l.id = vr.lot_id JOIN volunteers v ON v.id = vr.volunteer_id "
-            + "WHERE v.team_id = ? AND vr.status = 'finished'", Double.class, teamId);
+            "SELECT " + EsgService.FULFILLED_TICKET_KG_SQL + " FROM tickets t "
+            + "JOIN lots l ON l.id = t.lot_id JOIN volunteers v ON v.id = t.assigned_volunteer_id "
+            + "WHERE v.team_id = ? AND t.status = 'fulfilled'", Double.class, teamId);
         Map<String, Object> out = new LinkedHashMap<>(team);
         out.put("members", members);
         out.put("deliveries", deliveries);
@@ -889,8 +889,9 @@ public class VolunteerService {
             "SELECT COUNT(*) FROM tickets WHERE assigned_volunteer_id = ? AND status = 'fulfilled'",
             Long.class, volId));
         double totalKg = num(jdbc.queryForObject(
-            "SELECT COALESCE(SUM(" + EsgService.RESCUED_KG_SQL + "), 0) FROM volunteer_routes vr "
-            + "JOIN lots l ON l.id = vr.lot_id WHERE vr.volunteer_id = ? AND vr.status = 'finished'",
+            "SELECT " + EsgService.FULFILLED_TICKET_KG_SQL + " FROM tickets t "
+            + "JOIN lots l ON l.id = t.lot_id "
+            + "WHERE t.assigned_volunteer_id = ? AND t.status = 'fulfilled'",
             Double.class, volId));
         Map<String, Object> ratingRow = one(
             "SELECT ROUND(AVG(rating)::numeric, 1) as avg_rating, COUNT(*) as rating_count "

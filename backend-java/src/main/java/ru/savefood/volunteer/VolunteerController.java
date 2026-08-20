@@ -410,7 +410,7 @@ public class VolunteerController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("route_id", result.routeId());
         List<Map<String, Object>> responsePoints = result.points().stream()
-            .map(LinkedHashMap::new).toList();
+            .<Map<String, Object>>map(LinkedHashMap::new).toList();
         if (!("volunteer".equals(user.role()) && Objects.equals(user.relatedId(), volunteerId))) {
             RoutePointPrivacy.redactAllTicketPoints(responsePoints);
         }

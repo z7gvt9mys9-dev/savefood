@@ -276,21 +276,27 @@ public class ShopRepository {
             .isEmpty();
     }
 
-    public int createReceipt(int shopId, String photo, String sha256, String fp,
-                             Map<String, Object> parsed, Map<String, Object> fraud, String status) {
+    /**
+     * Inserts a receipt unless its exact content hash already won a concurrent import.
+     * Returns {@code null} for that duplicate loser; PostgreSQL's unique constraint is
+     * the authoritative check, while {@link #findReceiptBySha} remains only a fast path.
+     */
+    public Integer createReceipt(int shopId, String photo, String sha256, String fp,
+                                 Map<String, Object> parsed, Map<String, Object> fraud, String status) {
         String itemsJson = toJson(parsed.get("items"));
         @SuppressWarnings("unchecked")
         List<String> reasons = (List<String>) fraud.get("reasons");
         String fraudReasons = reasons == null || reasons.isEmpty() ? null : String.join("; ", reasons);
-        Integer id = jdbc.queryForObject(
+        List<Integer> ids = jdbc.query(
             "INSERT INTO receipts (shop_id, photo, sha256, fingerprint, merchant, receipt_date, "
             + "total, currency, items, fraud_score, fraud_reasons, status, created_at) "
-            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
-            Integer.class,
+            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            + "ON CONFLICT ON CONSTRAINT uq_receipts_sha256_exact DO NOTHING RETURNING id",
+            (rs, rowNum) -> rs.getInt("id"),
             shopId, photo, sha256, fp, parsed.get("merchant"), parsed.get("receipt_date"),
             parsed.get("total"), parsed.get("currency"), itemsJson, fraud.get("score"),
             fraudReasons, status, OffsetDateTime.now());
-        return id;
+        return ids.isEmpty() ? null : ids.get(0);
     }
 
     public Map<String, Object> getReceiptById(int receiptId) {

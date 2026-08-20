@@ -24,8 +24,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class JwtService {
 
-    /** 24 hours, matching auth.py {@code ACCESS_TOKEN_EXPIRE_MINUTES}. */
-    private static final long ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24;
+    /** Short-lived bearer credential; durable sessions use an independent refresh token. */
+    public static final long ACCESS_TOKEN_EXPIRE_MINUTES = 15;
 
     private final SecretKey key;
 

@@ -387,15 +387,31 @@ public class AdminController {
     // ── Lot management ──────────────────────────────────────────────────────────
 
     @PostMapping("/lots/{lotId}/reset")
+    @Transactional
     public Map<String, Object> resetLot(@PathVariable int lotId, @Admin CurrentUser user) {
-        Integer found = jdbc.query("SELECT id FROM lots WHERE id = ?",
-            (rs, n) -> rs.getInt("id"), lotId).stream().findFirst().orElse(null);
-        if (found == null) {
-            throw new ApiException(404, "Lot not found");
+        // A direct lot reset is only for an orphaned, unexpired claim. Routes own
+        // their own safe recovery through resetRoute/RouteRevertService; a route
+        // record here can mean the food was already picked up even if it is no
+        // longer in progress. Assigned/fulfilled tickets are likewise evidence of
+        // delivery work which this endpoint must not silently detach.
+        List<Integer> reset = jdbc.query(
+            "UPDATE lots l SET status = 'active', taken_at = NULL, taken_by = NULL "
+            + "WHERE l.id = ? AND l.status = 'taken' "
+            + "AND (l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day') "
+            + "AND NOT EXISTS (SELECT 1 FROM volunteer_routes vr WHERE vr.lot_id = l.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
+            + "AND t.status IN ('assigned', 'fulfilled')) "
+            + "RETURNING l.id",
+            (rs, n) -> rs.getInt("id"), lotId);
+        if (reset.isEmpty()) {
+            boolean exists = !jdbc.query(
+                "SELECT id FROM lots WHERE id = ?", (rs, n) -> rs.getInt("id"), lotId).isEmpty();
+            if (!exists) {
+                throw new ApiException(404, "Lot not found");
+            }
+            throw new ApiException(409, "Lot cannot be reset from its current state");
         }
-        jdbc.update(
-            "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL WHERE id = ?",
-            lotId);
+        // Only the UPDATE ... RETURNING winner gets this side effect.
         audit.log(user.sub(), "lot_reset", "lot", lotId, "Admin reset lot #" + lotId);
         return Map.of("ok", true);
     }

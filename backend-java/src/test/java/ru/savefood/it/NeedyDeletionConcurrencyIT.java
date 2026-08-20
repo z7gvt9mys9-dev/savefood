@@ -3,6 +3,7 @@ package ru.savefood.it;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -107,6 +108,77 @@ class NeedyDeletionConcurrencyIT extends PostgresIT {
     }
 
     @Test
+    void concurrentErasuresRestoreAndNotifyOnceAndRetryIsIdempotent() throws Exception {
+        int lotId = insertLot(insertShop("Shop", 43.238, 76.889), 3.0, "Bakery");
+        int needyId = insertNeedy("Recipient");
+        int volunteerId = insertVolunteer("Volunteer");
+        int ticketId = tx.execute(ignored -> service.createTicket(needyId, "private items",
+            "Private street 7", 43.24, 76.90, null, lotId, "7", "3", "2", false));
+        jdbc.update(
+            "UPDATE tickets SET status = 'assigned', assigned_volunteer = 'Volunteer', "
+                + "assigned_volunteer_id = ?, delivery_photo = '/private/one.jpg' WHERE id = ?",
+            volunteerId, ticketId);
+        installTicketTransitionAudit();
+
+        List<NeedyService.EraseResult> results = eraseTwiceWhileFirstTransactionIsOpen(needyId);
+
+        assertThat(lotQuantity(lotId)).isEqualTo(3.0);
+        assertThat(status("tickets", ticketId)).isEqualTo("cancelled");
+        assertThat(transitionCount(ticketId)).isEqualTo(1);
+        assertThat(cancellationNotificationCount(volunteerId)).isEqualTo(1);
+        assertThat(results.stream().flatMap(result -> result.photos().stream()))
+            .containsExactly("/private/one.jpg");
+        assertErased(needyId);
+
+        NeedyService.EraseResult retry = tx.execute(ignored -> service.eraseAccount(needyId));
+
+        assertThat(retry.photos()).isEmpty();
+        assertThat(lotQuantity(lotId)).isEqualTo(3.0);
+        assertThat(transitionCount(ticketId)).isEqualTo(1);
+        assertThat(cancellationNotificationCount(volunteerId)).isEqualTo(1);
+    }
+
+    @Test
+    void concurrentErasuresRestoreEveryEligibleReservationExactlyOnce() throws Exception {
+        int shopId = insertShop("Shop", 43.238, 76.889);
+        int firstLotId = insertLot(shopId, 3.0, "Bakery");
+        int secondLotId = insertLot(shopId, 4.0, "Produce");
+        int needyId = insertNeedy("Recipient");
+        int volunteerId = insertVolunteer("Volunteer");
+
+        // Production prevents more than one live ticket, but erasure must safely
+        // clean up legacy/inconsistent rows too. Remove only the test schema guard
+        // so the batch winner/restoration behavior can be exercised directly.
+        jdbc.execute("DROP INDEX uq_tickets_one_active_per_needy");
+        int firstTicketId = tx.execute(ignored -> service.createTicket(needyId, "bread", "Address",
+            43.24, 76.90, null, firstLotId, null, null, null, false));
+        int secondTicketId = tx.execute(ignored -> {
+            jdbc.update("UPDATE lots SET quantity = quantity - 1 WHERE id = ?", secondLotId);
+            return jdbc.queryForObject(
+                "INSERT INTO tickets (needy_id, items, address, lat, lon, lot_id, quantity, "
+                    + "status, created_at) VALUES (?, 'fruit', 'Address', 43.24, 76.90, ?, 1, "
+                    + "'open', NOW()) RETURNING id",
+                Integer.class, needyId, secondLotId);
+        });
+        jdbc.update(
+            "UPDATE tickets SET status = 'assigned', assigned_volunteer = 'Volunteer', "
+                + "assigned_volunteer_id = ? WHERE id IN (?, ?)",
+            volunteerId, firstTicketId, secondTicketId);
+        installTicketTransitionAudit();
+
+        eraseTwiceWhileFirstTransactionIsOpen(needyId);
+
+        assertThat(lotQuantity(firstLotId)).isEqualTo(3.0);
+        assertThat(lotQuantity(secondLotId)).isEqualTo(4.0);
+        assertThat(status("tickets", firstTicketId)).isEqualTo("cancelled");
+        assertThat(status("tickets", secondTicketId)).isEqualTo("cancelled");
+        assertThat(transitionCount(firstTicketId)).isEqualTo(1);
+        assertThat(transitionCount(secondTicketId)).isEqualTo(1);
+        assertThat(cancellationNotificationCount(volunteerId)).isEqualTo(2);
+        assertErased(needyId);
+    }
+
+    @Test
     void deleteWinsAgainstInFlightProfileAddressMutation() throws Exception {
         int needyId = insertNeedy("Recipient");
         CountDownLatch erased = new CountDownLatch(1);
@@ -150,6 +222,51 @@ class NeedyDeletionConcurrencyIT extends PostgresIT {
         return jdbc.queryForObject(
             "SELECT COUNT(*) FROM " + table + " WHERE " + ownerColumn + " = ?",
             Integer.class, ownerId);
+    }
+
+    private List<NeedyService.EraseResult> eraseTwiceWhileFirstTransactionIsOpen(int needyId)
+            throws Exception {
+        CountDownLatch firstErased = new CountDownLatch(1);
+        CountDownLatch allowFirstCommit = new CountDownLatch(1);
+        Future<NeedyService.EraseResult> first = executor.submit(() -> tx.execute(ignored -> {
+            NeedyService.EraseResult result = service.eraseAccount(needyId);
+            firstErased.countDown();
+            await(allowFirstCommit);
+            return result;
+        }));
+        assertThat(firstErased.await(5, TimeUnit.SECONDS)).isTrue();
+
+        Future<NeedyService.EraseResult> second = executor.submit(() ->
+            tx.execute(ignored -> service.eraseAccount(needyId)));
+        assertBlocked(second);
+        allowFirstCommit.countDown();
+        return List.of(first.get(5, TimeUnit.SECONDS), second.get(5, TimeUnit.SECONDS));
+    }
+
+    private void installTicketTransitionAudit() {
+        jdbc.execute("CREATE TABLE ticket_status_transitions (ticket_id integer NOT NULL, "
+            + "old_status text NOT NULL, new_status text NOT NULL)");
+        jdbc.execute("CREATE FUNCTION audit_ticket_status_transition() RETURNS trigger "
+            + "LANGUAGE plpgsql AS $$ BEGIN "
+            + "INSERT INTO ticket_status_transitions (ticket_id, old_status, new_status) "
+            + "VALUES (NEW.id, OLD.status, NEW.status); RETURN NEW; END $$");
+        jdbc.execute("CREATE TRIGGER audit_ticket_status_transition "
+            + "AFTER UPDATE OF status ON tickets FOR EACH ROW "
+            + "WHEN (OLD.status IS DISTINCT FROM NEW.status) "
+            + "EXECUTE FUNCTION audit_ticket_status_transition()");
+    }
+
+    private int transitionCount(int ticketId) {
+        return jdbc.queryForObject(
+            "SELECT COUNT(*) FROM ticket_status_transitions WHERE ticket_id = ? "
+                + "AND old_status IN ('open','assigned') AND new_status = 'cancelled'",
+            Integer.class, ticketId);
+    }
+
+    private int cancellationNotificationCount(int volunteerId) {
+        return jdbc.queryForObject(
+            "SELECT COUNT(*) FROM notifications WHERE volunteer_id = ? AND type = 'ticket_cancelled'",
+            Integer.class, volunteerId);
     }
 
     private void assertErased(int needyId) {

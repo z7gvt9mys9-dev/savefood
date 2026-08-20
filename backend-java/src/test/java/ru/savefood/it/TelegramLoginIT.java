@@ -11,6 +11,8 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpServletRequest;
 import ru.savefood.auth.OAuthController;
+import ru.savefood.auth.RefreshTokenService;
 import ru.savefood.auth.TelegramLoginService;
 import ru.savefood.auth.TelegramPoll;
 import ru.savefood.security.CurrentUser;
@@ -59,7 +62,7 @@ class TelegramLoginIT extends PostgresIT {
         logins = new TelegramLoginService(jdbc);
         jwt = new JwtService(JWT_SECRET);
         oauth = new OAuthController(
-            jdbc, jwt, new RateLimiter(), logins,
+            jdbc, jwt, new RefreshTokenService(jdbc), new RateLimiter(), logins,
             "", "", "", "", "configured-token", "savefood_test_bot",
             "https://savefood.test");
         telegram = mock(TelegramService.class);
@@ -90,7 +93,8 @@ class TelegramLoginIT extends PostgresIT {
 
         Map<String, Object> completed = oauth.telegramLoginComplete(
             new TelegramPoll(completionToken), request("198.51.100.11"));
-        assertThat(completed).containsKeys("access_token", "token_type", "role", "related_id");
+        assertThat(completed).containsKeys(
+            "access_token", "refresh_token", "token_type", "role", "related_id");
         CurrentUser principal = jwt.decode((String) completed.get("access_token"));
         assertThat(principal).isEqualTo(
             new CurrentUser(user.userId(), "telegram-victim", "needy", user.relatedId()));
@@ -362,6 +366,28 @@ class TelegramLoginIT extends PostgresIT {
 
         assertThat(logins.status(initialToken)).isEqualTo("pending");
         assertCompletionRejected(initialToken);
+    }
+
+    @Test
+    void oauthCompletionReturnsOneTimeAccessAndRefreshPair() throws Exception {
+        UserFixture user = insertLinkedUser("oauth-completion-user");
+        String completionToken = "abcdefghijklmnopqrstuvwxyzABCDEF";
+        byte[] tokenHash = MessageDigest.getInstance("SHA-256")
+            .digest(completionToken.getBytes(StandardCharsets.US_ASCII));
+        jdbc.update(
+            "INSERT INTO oauth_login_completions (token_hash, user_id, created_at) VALUES (?, ?, NOW())",
+            tokenHash, user.userId());
+
+        Map<String, Object> completed = oauth.oauthLoginComplete(
+            new TelegramPoll(completionToken), request("198.51.100.30"));
+
+        assertThat(completed).containsKeys(
+            "access_token", "refresh_token", "token_type", "role", "related_id");
+        assertThat(jwt.decode((String) completed.get("access_token")).userId()).isEqualTo(user.userId());
+        assertThatThrownBy(() -> oauth.oauthLoginComplete(
+            new TelegramPoll(completionToken), request("198.51.100.31")))
+            .isInstanceOfSatisfying(ApiException.class,
+                error -> assertThat(error.getStatus()).isEqualTo(401));
     }
 
     private UserFixture insertLinkedUser(String username) {

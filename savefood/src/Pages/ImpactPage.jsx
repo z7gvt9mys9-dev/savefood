@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api';
+import { API_URL, authFetch } from '../api';
 import MonoIcon from '../components/MonoIcon';
 import './Style/ImpactPage.css';
 
@@ -50,9 +50,7 @@ const ImpactPage = () => {
   useEffect(() => {
     if (user?.role === 'needy' && user?.relatedId) {
       // Fetch up to 100 recent tickets to ensure recipients can find orders to photograph
-      fetch(`${API_URL}/needy/${user.relatedId}/history?limit=100`, {
-        headers: { Authorization: `Bearer ${user.token}` }
-      })
+      authFetch(`${API_URL}/needy/${user.relatedId}/history?limit=100`)
       .then(res => res.ok ? res.json() : [])
       .then(data => {
         const fulfilled = Array.isArray(data) ? data.filter(t => t.status === 'fulfilled' && !t.delivery_photo) : [];
@@ -68,9 +66,8 @@ const ImpactPage = () => {
     const fd = new FormData();
     fd.append('file', file);
     try {
-      const res = await fetch(`${API_URL}/needy/${user.relatedId}/ticket/${ticketId}/photo`, {
+      const res = await authFetch(`${API_URL}/needy/${user.relatedId}/ticket/${ticketId}/photo`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user.token}` },
         body: fd
       });
       if (res.ok) {

@@ -9,7 +9,7 @@ import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
 import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
-import { API_URL } from '../../api';
+import { API_URL, authFetch } from '../../api';
 import './Shop.css';
 
 const CAT_KEYS = {
@@ -69,33 +69,33 @@ const ShopDashboard = () => {
 
   const fetchShopData = () => {
     if (!shopId) return;
-    const authHeader = { Authorization: `Bearer ${user?.token}` };
-    fetch(`${API_URL}/shops/${shopId}`, { headers: authHeader })
+    const authHeader = {};
+    authFetch(`${API_URL}/shops/${shopId}`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setShopInfo(data))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/lots`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/lots`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setLots(Array.isArray(data) ? data : []))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=0`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=0`, { headers: authHeader })
       .then(res => res.json())
       .then(data => { const arr = Array.isArray(data) ? data : []; setHistory(arr); setHistoryHasMore(arr.length === 20); setHistoryOffset(arr.length); })
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/notifications`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/notifications`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/plan`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/plan`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setPlan(data && data.plan ? data : null))
       .catch(() => {});
 
-    fetch(`${API_URL}/shops/${shopId}/forecast`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/forecast`, { headers: authHeader })
       .then(res => res.ok ? res.json() : null)
       .then(data => setForecast(data))
       .catch(() => {});
@@ -112,9 +112,9 @@ const ShopDashboard = () => {
     const unread = notifications.filter(n => !n.read);
     if (unread.length === 0) return;
     unread.forEach(n => {
-      fetch(`${API_URL}/shops/notifications/${n.id}/read`, {
+      authFetch(`${API_URL}/shops/notifications/${n.id}/read`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       }).catch(() => {});
     });
     setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
@@ -124,7 +124,7 @@ const ShopDashboard = () => {
   useEffect(() => {
     if (activeTab !== 'esg' || !shopId) return;
     setEsgError(null);
-    fetch(`${API_URL}/shops/${shopId}/esg?months=12`, { headers: { Authorization: `Bearer ${user?.token}` } })
+    authFetch(`${API_URL}/shops/${shopId}/esg?months=12`, { headers: {} })
       .then(async res => {
         const data = await res.json();
         if (!res.ok) { setEsgError(data.detail || t('common.error')); return; }
@@ -136,12 +136,12 @@ const ShopDashboard = () => {
   // Partner API tab: load keys + webhooks lazily (enterprise plan only).
   useEffect(() => {
     if (activeTab !== 'api' || !shopId || !plan?.api) return;
-    const authHeader = { Authorization: `Bearer ${user?.token}` };
-    fetch(`${API_URL}/shops/${shopId}/api_keys`, { headers: authHeader })
+    const authHeader = {};
+    authFetch(`${API_URL}/shops/${shopId}/api_keys`, { headers: authHeader })
       .then(r => r.ok ? r.json() : [])
       .then(data => setApiKeys(Array.isArray(data) ? data : []))
       .catch(() => {});
-    fetch(`${API_URL}/shops/${shopId}/webhooks`, { headers: authHeader })
+    authFetch(`${API_URL}/shops/${shopId}/webhooks`, { headers: authHeader })
       .then(r => r.ok ? r.json() : [])
       .then(data => setWebhooks(Array.isArray(data) ? data : []))
       .catch(() => {});
@@ -150,9 +150,9 @@ const ShopDashboard = () => {
   const handleCreateApiKey = async () => {
     setApiBusy(true);
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/api_keys`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/api_keys`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       const data = await res.json();
       if (!res.ok) { alert(data.detail || t('common.error')); return; }
@@ -165,9 +165,9 @@ const ShopDashboard = () => {
   const handleRevokeApiKey = async (keyId) => {
     if (!window.confirm(t('shop.api_revoke_confirm'))) return;
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/api_keys/${keyId}/revoke`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/api_keys/${keyId}/revoke`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (res.ok) setApiKeys(prev => prev.map(k => k.id === keyId ? { ...k, revoked: true } : k));
     } catch {}
@@ -177,9 +177,9 @@ const ShopDashboard = () => {
     e.preventDefault();
     setApiBusy(true);
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/webhooks`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/webhooks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newHook),
       });
       const data = await res.json();
@@ -194,9 +194,9 @@ const ShopDashboard = () => {
   const handleDeleteWebhook = async (hookId) => {
     if (!window.confirm(t('shop.api_hook_delete_confirm'))) return;
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/webhooks/${hookId}`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/webhooks/${hookId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (res.ok) setWebhooks(prev => prev.filter(h => h.id !== hookId));
     } catch {}
@@ -210,9 +210,9 @@ const ShopDashboard = () => {
     try {
       const fd = new FormData();
       fd.append('file', receiptFile);
-      const res = await fetch(`${API_URL}/shops/${shopId}/receipts`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/receipts`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
         body: fd,
       });
       const data = await res.json();
@@ -240,9 +240,9 @@ const ShopDashboard = () => {
       if (receiptCommon.expiry_date) body.expiry_date = receiptCommon.expiry_date;
       if (receiptCommon.address) body.address = receiptCommon.address;
       if (receiptCommon.time_slot) body.time_slot = receiptCommon.time_slot;
-      const res = await fetch(`${API_URL}/shops/${shopId}/receipts/${receipt.id}/confirm`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/receipts/${receipt.id}/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -276,8 +276,8 @@ const ShopDashboard = () => {
 
   const downloadEsgCsv = async () => {
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/esg/report.csv?months=12`, {
-        headers: { Authorization: `Bearer ${user?.token}` },
+      const res = await authFetch(`${API_URL}/shops/${shopId}/esg/report.csv?months=12`, {
+        headers: {},
       });
       if (!res.ok) { alert(t('common.connection_error')); return; }
       const blob = await res.blob();
@@ -336,9 +336,9 @@ const ShopDashboard = () => {
     if (photoFiles[0]) fd.append('file', photoFiles[0]);
 
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/lots/upload`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/lots/upload`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
         body: fd,
       });
       if (!res.ok) {
@@ -363,9 +363,9 @@ const ShopDashboard = () => {
     if (!pickupCode.trim()) return;
     setPickupBusy(true);
     try {
-      const res = await fetch(`${API_URL}/shops/${shopId}/self_pickup/confirm`, {
+      const res = await authFetch(`${API_URL}/shops/${shopId}/self_pickup/confirm`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: pickupCode.trim() }),
       });
       if (!res.ok) {
@@ -428,9 +428,9 @@ const ShopDashboard = () => {
 
   const handleConfirmTransfer = async (lotId) => {
     try {
-      const res = await fetch(`${API_URL}/lots/${lotId}/confirm_transfer`, {
+      const res = await authFetch(`${API_URL}/lots/${lotId}/confirm_transfer`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (!res.ok) { alert(t('shop.error_confirm')); return; }
       fetchShopData();
@@ -452,9 +452,9 @@ const ShopDashboard = () => {
         requires_cold: !!editLot.requires_cold,
       };
       if (editLot.expiry_date) body.expiry_date = editLot.expiry_date;
-      const res = await fetch(`${API_URL}/lots/${editLot.id}`, {
+      const res = await authFetch(`${API_URL}/lots/${editLot.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) { alert(t('shop.error_save')); return; }
@@ -468,9 +468,9 @@ const ShopDashboard = () => {
   const handleDeleteLot = async (lotId) => {
     if (!window.confirm(t('shop.confirm_delete'))) return;
     try {
-      const res = await fetch(`${API_URL}/lots/${lotId}`, {
+      const res = await authFetch(`${API_URL}/lots/${lotId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (!res.ok) { alert(t('shop.error_delete')); return; }
       fetchShopData();
@@ -1031,7 +1031,7 @@ const ShopDashboard = () => {
       )}
       {historyHasMore && (
         <button className="btn btn-secondary" style={{ marginTop: '12px' }} onClick={() => {
-          fetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=${historyOffset}`, { headers: { Authorization: `Bearer ${user?.token}` } })
+          authFetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=${historyOffset}`, { headers: {} })
             .then(r => r.json())
             .then(data => { const arr = Array.isArray(data) ? data : []; setHistory(prev => [...prev, ...arr]); setHistoryHasMore(arr.length === 20); setHistoryOffset(h => h + arr.length); })
             .catch(() => {});

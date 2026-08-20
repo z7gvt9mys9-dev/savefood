@@ -355,10 +355,12 @@ public class ShopController {
         }
 
         // Cheapest check first: byte-identical photo already uploaded (any shop).
+        // The unique constraint still decides correctness if concurrent requests
+        // both pass this advisory lookup before either insert commits.
         String sha = receiptService.sha256Hex(content);
         if (repo.findReceiptBySha(sha) != null) {
             deleteQuietly(path);
-            throw new ApiException(409, "Этот чек уже загружался (идентичное фото)");
+            throw duplicateReceipt();
         }
 
         Map<String, Object> parsed = receiptService.parseReceiptImage(content, file.getContentType());
@@ -382,7 +384,12 @@ public class ShopController {
         boolean fpDupe = fp != null && repo.fingerprintExists(fp);
         Map<String, Object> fraud = receiptService.evaluateFraud(parsed, fpDupe);
         String status = Boolean.TRUE.equals(fraud.get("rejected")) ? "rejected" : "parsed";
-        int receiptId = repo.createReceipt(shopId, "/receipts/" + filename, sha, fp, parsed, fraud, status);
+        Integer receiptId = repo.createReceipt(
+            shopId, "/receipts/" + filename, sha, fp, parsed, fraud, status);
+        if (receiptId == null) {
+            deleteQuietly(path);
+            throw duplicateReceipt();
+        }
 
         try {
             Map<String, Object> data = new LinkedHashMap<>();
@@ -551,6 +558,10 @@ public class ShopController {
             throw new ApiException(404, "Shop not found");
         }
         return shop;
+    }
+
+    private static ApiException duplicateReceipt() {
+        return new ApiException(409, "Этот чек уже загружался (идентичное фото)");
     }
 
     /** Return the lot if the caller owns its shop (or is admin), else 404/403. */

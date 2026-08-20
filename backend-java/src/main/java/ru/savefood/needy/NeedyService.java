@@ -402,9 +402,12 @@ public class NeedyService {
     @Transactional
     public EraseResult eraseAccount(int needyId) {
         List<Map<String, Object>> recipients = jdbc.queryForList(
-            "SELECT id FROM needy WHERE id = ? FOR UPDATE", needyId);
+            "SELECT status FROM needy WHERE id = ? FOR UPDATE", needyId);
         if (recipients.isEmpty()) {
             return null;
+        }
+        if ("deleted".equals(recipients.get(0).get("status"))) {
+            return new EraseResult(List.of());
         }
 
         List<String> photos = jdbc.query(
@@ -415,38 +418,29 @@ public class NeedyService {
             "SELECT id FROM tickets WHERE needy_id = ? ORDER BY id",
             (rs, n) -> rs.getInt("id"), needyId);
 
-        // Return reservations for live tickets to still-active lots.
-        List<Map<String, Object>> liveLots = jdbc.queryForList(
-            "SELECT id, lot_id, quantity FROM tickets WHERE needy_id = ? AND status IN ('open','assigned')",
+        // Claim the live tickets this erasure actually cancelled. Inventory and
+        // notifications must be derived only from these UPDATE winners: a retry
+        // or another concurrent erasure cannot restore or notify for them again.
+        List<Map<String, Object>> live = jdbc.queryForList(
+            "UPDATE tickets SET status = 'cancelled' "
+                + "WHERE needy_id = ? AND status IN ('open','assigned') "
+                + "RETURNING id, lot_id, quantity, assigned_volunteer_id",
             needyId);
-        for (Map<String, Object> t : liveLots) {
+        for (Map<String, Object> t : live) {
             Integer lotId = asInt(t.get("lot_id"));
             if (lotId != null) {
                 double qty = t.get("quantity") instanceof Number n ? n.doubleValue() : 1.0;
                 jdbc.update("UPDATE lots SET quantity = quantity + ? WHERE id = ? AND status = 'active'",
                     qty, lotId);
             }
-        }
-
-        // Close live tickets and notify any assigned volunteer the stop is gone.
-        List<Map<String, Object>> live = jdbc.queryForList(
-            "SELECT id, assigned_volunteer_id FROM tickets WHERE needy_id = ? "
-            + "AND status IN ('open','assigned')", needyId);
-        if (!live.isEmpty()) {
-            jdbc.update(
-                "UPDATE tickets SET status = 'cancelled', assigned_volunteer = NULL, "
-                + "assigned_volunteer_id = NULL WHERE needy_id = ? AND status IN ('open','assigned')",
-                needyId);
-            for (Map<String, Object> row : live) {
-                Integer volId = asInt(row.get("assigned_volunteer_id"));
-                if (volId != null) {
-                    jdbc.update(
-                        "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
-                        + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
-                        volId, "ticket_cancelled",
-                        "Заявка #" + row.get("id")
-                        + " отменена (аккаунт получателя удалён) — точка снята с маршрута.");
-                }
+            Integer volId = asInt(t.get("assigned_volunteer_id"));
+            if (volId != null) {
+                jdbc.update(
+                    "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
+                    + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
+                    volId, "ticket_cancelled",
+                    "Заявка #" + t.get("id")
+                    + " отменена (аккаунт получателя удалён) — точка снята с маршрута.");
             }
         }
 

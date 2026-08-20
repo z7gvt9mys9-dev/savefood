@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api';
+import { API_URL, authFetch } from '../api';
 import './OnboardingChecklist.css';
 
 // Interactive onboarding: a short checklist of real first steps, computed from
@@ -21,7 +21,7 @@ const OnboardingChecklist = ({ storageKey, items = [], withTelegram = true }) =>
 
   useEffect(() => {
     if (!withTelegram || dismissed) return;
-    fetch(`${API_URL}/auth/links`, { headers: { Authorization: `Bearer ${user?.token}` } })
+    authFetch(`${API_URL}/auth/links`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setTgLinked(!!data.telegram); })
       .catch(() => {});

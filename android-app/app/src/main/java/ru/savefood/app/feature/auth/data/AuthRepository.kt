@@ -6,6 +6,7 @@ import ru.savefood.app.core.common.safeApiCall
 import ru.savefood.app.core.datastore.Session
 import ru.savefood.app.core.datastore.SessionStore
 import ru.savefood.app.core.network.api.AuthApi
+import ru.savefood.app.core.network.dto.RefreshRequest
 import ru.savefood.app.core.push.PushTokenManager
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -22,10 +23,11 @@ class AuthRepository @Inject constructor(
         return when (val res = safeApiCall { authApi.login(username.trim(), password) }) {
             is ApiResult.Success -> {
                 val body = res.data
-                sessionStore.save(body.accessToken, body.role, body.relatedId)
+                sessionStore.save(body.accessToken, body.refreshToken, body.role, body.relatedId)
                 ApiResult.Success(
                     Session(
                         token = body.accessToken,
+                        refreshToken = body.refreshToken,
                         role = ru.savefood.app.core.datastore.UserRole.from(body.role),
                         relatedId = body.relatedId,
                     ),
@@ -39,6 +41,10 @@ class AuthRepository @Inject constructor(
         // Drop this device's FCM token first — it needs the still-valid session
         // token for auth. Best-effort: clearing the session must happen regardless.
         pushTokenManager.unregisterCurrentToken()
+        sessionStore.currentTokenPair()?.refreshToken?.let { refreshToken ->
+            // Best effort: local logout must still complete if the device is offline.
+            safeApiCall { authApi.logout(RefreshRequest(refreshToken)) }
+        }
         sessionStore.clear()
     }
 }

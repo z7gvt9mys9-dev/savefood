@@ -9,6 +9,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.OffsetDateTime;
@@ -17,6 +19,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import ru.savefood.security.Auth;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.security.JwtService;
@@ -54,6 +57,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class OAuthController {
 
     private static final int STATE_TTL_MINUTES = 10;
+    private static final int LOGIN_COMPLETION_TTL_MINUTES = 5;
+    private static final Pattern COMPLETION_TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_-]{32}");
 
     /** Per-provider OAuth endpoints, mirroring oauth_routes.py {@code PROVIDERS}. */
     private record ProviderCfg(String authUrl, String tokenUrl, String userinfoUrl,
@@ -74,6 +79,7 @@ public class OAuthController {
 
     private final JdbcTemplate jdbc;
     private final JwtService jwt;
+    private final RefreshTokenService refreshTokens;
     private final RateLimiter rateLimiter;
     private final TelegramLoginService telegramLogin;
     private final ObjectMapper mapper = new ObjectMapper();
@@ -90,7 +96,8 @@ public class OAuthController {
     private final String botName;
     private final String publicUrl;
 
-    public OAuthController(JdbcTemplate jdbc, JwtService jwt, RateLimiter rateLimiter,
+    public OAuthController(JdbcTemplate jdbc, JwtService jwt, RefreshTokenService refreshTokens,
+                          RateLimiter rateLimiter,
                           TelegramLoginService telegramLogin,
                           @Value("${savefood.oauth.google-client-id:}") String googleClientId,
                           @Value("${savefood.oauth.google-client-secret:}") String googleClientSecret,
@@ -101,6 +108,7 @@ public class OAuthController {
                           @Value("${savefood.oauth.public-url:http://localhost:3000}") String publicUrl) {
         this.jdbc = jdbc;
         this.jwt = jwt;
+        this.refreshTokens = refreshTokens;
         this.rateLimiter = rateLimiter;
         this.telegramLogin = telegramLogin;
         this.googleClientId = googleClientId;
@@ -237,17 +245,62 @@ public class OAuthController {
             return frontError("Аккаунт заблокирован администратором");
         }
 
+        String completionToken = randomToken();
+        jdbc.update(
+            "INSERT INTO oauth_login_completions (token_hash, user_id, created_at) VALUES (?, ?, NOW())",
+            hash(completionToken), ((Number) user.get("id")).intValue());
+        jdbc.update(
+            "DELETE FROM oauth_login_completions WHERE created_at < NOW() - (? * INTERVAL '1 minute')",
+            LOGIN_COMPLETION_TTL_MINUTES * 6);
+        // Only a short-lived, one-time exchange credential enters the fragment.
+        // Access and refresh credentials are returned together by the POST below.
+        return redirect(publicUrl + "/auth#oauth_completion=" + completionToken);
+    }
+
+    @PostMapping("/oauth/login/complete")
+    public Map<String, Object> oauthLoginComplete(@RequestBody TelegramPoll payload,
+                                                  HttpServletRequest request) {
+        rateLimiter.check("auth:oauth_login_complete", ClientIp.of(request), 20);
+        String token = payload == null ? null : payload.token();
+        if (token == null || !COMPLETION_TOKEN_PATTERN.matcher(token).matches()) {
+            throw new ApiException(401, "OAuth login session is invalid or expired");
+        }
+        List<Map<String, Object>> users = jdbc.query(
+            """
+            WITH consumed AS (
+                DELETE FROM oauth_login_completions
+                WHERE token_hash = ?
+                RETURNING user_id, created_at
+            )
+            SELECT u.id, u.username, u.role, u.related_id
+            FROM consumed c
+            JOIN users u ON u.id = c.user_id
+            WHERE c.created_at >= NOW() - (? * INTERVAL '1 minute')
+              AND NOT u.is_blocked
+            """,
+            (rs, n) -> {
+                Map<String, Object> user = new LinkedHashMap<>();
+                user.put("id", rs.getInt("id"));
+                user.put("username", rs.getString("username"));
+                user.put("role", rs.getString("role"));
+                user.put("related_id", rs.getObject("related_id"));
+                return user;
+            }, hash(token), LOGIN_COMPLETION_TTL_MINUTES);
+        if (users.isEmpty()) {
+            throw new ApiException(401, "OAuth login session is invalid or expired");
+        }
+
+        Map<String, Object> user = users.get(0);
+        int userId = ((Number) user.get("id")).intValue();
         String role = (String) user.get("role");
         Integer relatedId = toInteger(user.get("related_id"));
-        String accessToken = jwt.create(((Number) user.get("id")).intValue(),
-            (String) user.get("username"), role, relatedId);
-        // The token travels in the URL fragment: fragments are not sent to
-        // servers and never appear in access logs.
-        Map<String, String> frag = new LinkedHashMap<>();
-        frag.put("oauth_token", accessToken);
-        frag.put("role", role);
-        frag.put("related_id", relatedId != null ? relatedId.toString() : "");
-        return redirect(publicUrl + "/auth#" + formEncode(frag));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("access_token", jwt.create(userId, (String) user.get("username"), role, relatedId));
+        out.put("refresh_token", refreshTokens.issue(userId));
+        out.put("token_type", "bearer");
+        out.put("role", role);
+        out.put("related_id", relatedId);
+        return out;
     }
 
     // ── Link status / unlink (profile UI) ───────────────────────────────────────
@@ -320,6 +373,7 @@ public class OAuthController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("status", "ok");
         out.put("access_token", jwt.create(user.userId(), user.username(), user.role(), user.relatedId()));
+        out.put("refresh_token", refreshTokens.issue(user.userId()));
         out.put("token_type", "bearer");
         out.put("role", user.role());
         out.put("related_id", user.relatedId());
@@ -441,6 +495,15 @@ public class OAuthController {
         byte[] buf = new byte[24];
         random.nextBytes(buf);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+    }
+
+    private static byte[] hash(String token) {
+        try {
+            return MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(StandardCharsets.US_ASCII));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private static String formEncode(Map<String, String> params) {

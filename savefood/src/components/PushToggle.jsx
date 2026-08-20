@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api';
+import { API_URL, authFetch } from '../api';
 import MonoIcon from './MonoIcon';
 
 const urlBase64ToUint8Array = (base64String) => {
@@ -17,7 +17,7 @@ const urlBase64ToUint8Array = (base64String) => {
 const PushToggle = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const authHeader = { Authorization: `Bearer ${user?.token}` };
+  const authHeader = {};
 
   const [publicKey, setPublicKey] = useState(null);
   const [subscribed, setSubscribed] = useState(false);
@@ -73,7 +73,7 @@ const PushToggle = () => {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(publicKey),
       });
-      const res = await fetch(`${API_URL}/push/subscribe`, {
+      const res = await authFetch(`${API_URL}/push/subscribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(sub.toJSON()),
@@ -98,7 +98,7 @@ const PushToggle = () => {
       const reg = await navigator.serviceWorker.getRegistration();
       const sub = reg ? await reg.pushManager.getSubscription() : null;
       if (sub) {
-        await fetch(`${API_URL}/push/unsubscribe`, {
+        await authFetch(`${API_URL}/push/unsubscribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeader },
           body: JSON.stringify({ endpoint: sub.endpoint }),

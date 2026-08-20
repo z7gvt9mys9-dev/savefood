@@ -89,8 +89,9 @@ public class ImpactController {
     public List<Map<String, Object>> volunteerLeaderboard() {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT v.id, v.name, COUNT(t.id) AS deliveries, COALESCE(("
-            + "SELECT SUM(" + EsgService.RESCUED_KG_SQL + ") FROM volunteer_routes vr "
-            + "JOIN lots l ON l.id = vr.lot_id WHERE vr.volunteer_id = v.id AND vr.status = 'finished'"
+            + "SELECT " + EsgService.FULFILLED_TICKET_KG_SQL + " FROM tickets t "
+            + "JOIN lots l ON l.id = t.lot_id "
+            + "WHERE t.assigned_volunteer_id = v.id AND t.status = 'fulfilled'"
             + "), 0) AS kg FROM volunteers v "
             + "JOIN tickets t ON t.assigned_volunteer_id = v.id AND t.status = 'fulfilled' "
             + "GROUP BY v.id, v.name ORDER BY deliveries DESC, kg DESC LIMIT 10");
@@ -116,9 +117,9 @@ public class ImpactController {
     public List<Map<String, Object>> teamLeaderboard() {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT tm.id, tm.name, COUNT(DISTINCT v.id) AS members, COUNT(t.id) AS deliveries, COALESCE(("
-            + "SELECT SUM(" + EsgService.RESCUED_KG_SQL + ") FROM volunteer_routes vr "
-            + "JOIN lots l ON l.id = vr.lot_id JOIN volunteers v2 ON v2.id = vr.volunteer_id "
-            + "WHERE v2.team_id = tm.id AND vr.status = 'finished'"
+            + "SELECT " + EsgService.FULFILLED_TICKET_KG_SQL + " FROM tickets t "
+            + "JOIN lots l ON l.id = t.lot_id JOIN volunteers v2 ON v2.id = t.assigned_volunteer_id "
+            + "WHERE v2.team_id = tm.id AND t.status = 'fulfilled'"
             + "), 0) AS kg FROM teams tm JOIN volunteers v ON v.team_id = tm.id "
             + "LEFT JOIN tickets t ON t.assigned_volunteer_id = v.id AND t.status = 'fulfilled' "
             + "GROUP BY tm.id, tm.name ORDER BY deliveries DESC, kg DESC LIMIT 10");

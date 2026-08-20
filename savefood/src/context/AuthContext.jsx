@@ -1,11 +1,13 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { API_URL } from '../api';
+import {
+  clearSession,
+  getSession,
+  revokeAndClearSession,
+  storeSession,
+  subscribeSession,
+} from '../api';
 
 const AuthContext = createContext(null);
-
-const parseJwt = (token) => {
-  try { return JSON.parse(atob(token.split('.')[1])); } catch { return {}; }
-};
 
 // Authenticated API responses must never survive on a shared device after the
 // account signs out. The service worker also receives the message, but clear
@@ -29,53 +31,36 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const role = localStorage.getItem('role');
-    const relatedId = localStorage.getItem('related_id');
-    if (token && role) {
-      setUser({ token, role, relatedId: relatedId ? Number(relatedId) : null });
-    }
+    // Access-only legacy sessions cannot rotate and intentionally sign in once.
+    if (!getSession()) clearSession();
+    const applySession = (session) => {
+      setUser(session ? {
+        token: session.accessToken,
+        role: session.role,
+        relatedId: session.relatedId,
+      } : null);
+      if (!session) clearSessionCaches();
+    };
+    applySession(getSession());
+    const unsubscribe = subscribeSession(applySession);
+    const onStorage = (event) => {
+      if (event.key === 'savefood_auth_session') applySession(getSession());
+    };
+    window.addEventListener('storage', onStorage);
     setLoading(false);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', onStorage);
+    };
   }, []);
 
-  // Refresh token when it has less than 2 hours left
-  useEffect(() => {
-    if (!user?.token) return;
-    const tryRefresh = async () => {
-      const payload = parseJwt(user.token);
-      if (!payload.exp) return;
-      const msLeft = payload.exp * 1000 - Date.now();
-      if (msLeft > 2 * 3600 * 1000) return;
-      try {
-        const res = await fetch(`${API_URL}/auth/refresh`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${user.token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          localStorage.setItem('token', data.access_token);
-          setUser(prev => ({ ...prev, token: data.access_token }));
-        }
-      } catch {}
-    };
-    tryRefresh();
-    const interval = setInterval(tryRefresh, 30 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [user?.token]);
-
-  const login = (token, role, relatedId) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('role', role);
-    localStorage.setItem('related_id', relatedId != null ? String(relatedId) : '');
-    setUser({ token, role, relatedId: relatedId != null ? Number(relatedId) : null });
+  const login = (accessToken, refreshToken, role, relatedId) => {
+    storeSession(accessToken, refreshToken, role, relatedId);
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    localStorage.removeItem('related_id');
     clearSessionCaches();
-    setUser(null);
+    return revokeAndClearSession();
   };
 
   return (

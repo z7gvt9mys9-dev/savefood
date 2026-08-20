@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api';
+import { API_URL, authFetch } from '../api';
 import MonoIcon from './MonoIcon';
 
 // Profile block: link / unlink Telegram, Google and Yandex.
@@ -17,7 +17,7 @@ const PROVIDER_META = [
 const AccountLinks = ({ dashboardPath = '/' }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const authHeader = { Authorization: `Bearer ${user?.token}` };
+  const authHeader = {};
 
   const [links, setLinks] = useState(null);
   const [providers, setProviders] = useState(null);
@@ -26,7 +26,7 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
   const [justLinked, setJustLinked] = useState('');
 
   const loadLinks = () => {
-    fetch(`${API_URL}/auth/links`, { headers: authHeader })
+    authFetch(`${API_URL}/auth/links`, { headers: authHeader })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setLinks(data); })
       .catch(() => {});
@@ -61,12 +61,12 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
     setBusy(provider);
     try {
       if (provider === 'telegram') {
-        const res = await fetch(`${API_URL}/auth/telegram/init-link`, { headers: authHeader });
+        const res = await authFetch(`${API_URL}/auth/telegram/init-link`, { headers: authHeader });
         if (!res.ok) { alert(t('common.error')); return; }
         setTgLink(await res.json());
         return;
       }
-      const res = await fetch(
+      const res = await authFetch(
         `${API_URL}/auth/oauth/${provider}/start?mode=link&next=${encodeURIComponent(dashboardPath)}`,
         { headers: authHeader },
       );
@@ -88,7 +88,7 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
     if (!window.confirm(t('links.confirm_unlink'))) return;
     setBusy(provider);
     try {
-      const res = await fetch(`${API_URL}/auth/links/${provider}/unlink`, {
+      const res = await authFetch(`${API_URL}/auth/links/${provider}/unlink`, {
         method: 'POST',
         headers: authHeader,
       });

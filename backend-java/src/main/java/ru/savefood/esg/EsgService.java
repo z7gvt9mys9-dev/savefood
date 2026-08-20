@@ -53,6 +53,15 @@ public class EsgService {
         + "WHERE _ft.lot_id = l.id AND _ft.status = 'fulfilled') * l.unit_weight_kg "
         + "END)";
 
+    /**
+     * Volunteer and team credit comes only from the immutable fulfilled-ticket
+     * fact, never from a route's terminal status or the lot's later status.
+     * Callers join {@code tickets t} to {@code lots l} and constrain the
+     * fulfiller with {@code t.assigned_volunteer_id}.
+     */
+    public static final String FULFILLED_TICKET_KG_SQL =
+        "COALESCE(SUM(t.quantity * l.unit_weight_kg), 0)";
+
     private final JdbcTemplate jdbc;
 
     public EsgService(JdbcTemplate jdbc) {

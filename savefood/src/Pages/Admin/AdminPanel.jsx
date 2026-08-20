@@ -4,22 +4,22 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieCha
 import EmptyState from '../../components/EmptyState';
 import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
-import { API_URL } from '../../api';
+import { API_URL, authFetch } from '../../api';
 import './Admin.css';
 
 /** An admin image endpoint requires Bearer auth, which a plain <img> cannot send. */
-const ProtectedDeliveryPhoto = ({ path, token }) => {
+const ProtectedDeliveryPhoto = ({ path }) => {
   const [objectUrl, setObjectUrl] = useState(null);
 
   useEffect(() => {
-    if (!path || !token) {
+    if (!path) {
       setObjectUrl(null);
       return undefined;
     }
     let cancelled = false;
     let createdUrl = null;
     setObjectUrl(null);
-    fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` } })
+    authFetch(`${API_URL}${path}`)
       .then(res => {
         if (!res.ok) throw new Error('photo unavailable');
         return res.blob();
@@ -34,7 +34,7 @@ const ProtectedDeliveryPhoto = ({ path, token }) => {
       cancelled = true;
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
-  }, [path, token]);
+  }, [path]);
 
   if (!objectUrl) return <div className="photo-mod-img" aria-label="Photo unavailable" />;
   return (
@@ -61,13 +61,13 @@ const AdminPanel = () => {
   const [kycQueue, setKycQueue] = useState([]);
   const [kycBusy, setKycBusy] = useState({});
 
-  const authHeader = { Authorization: `Bearer ${user?.token}` };
+  const authHeader = {};
 
   const fetchData = async () => {
     try {
       const [statsRes, routesRes] = await Promise.all([
-        fetch(`${API_URL}/admin/stats`, { headers: authHeader }),
-        fetch(`${API_URL}/admin/routes`, { headers: authHeader }),
+        authFetch(`${API_URL}/admin/stats`, { headers: authHeader }),
+        authFetch(`${API_URL}/admin/routes`, { headers: authHeader }),
       ]);
       if (statsRes.ok) setStats(await statsRes.json());
       if (routesRes.ok) setActiveRoutes(await routesRes.json());
@@ -76,7 +76,7 @@ const AdminPanel = () => {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/users`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/users`, { headers: authHeader });
       if (res.ok) setUsers(await res.json());
     } catch {}
   };
@@ -87,28 +87,28 @@ const AdminPanel = () => {
 
   const fetchAuditLog = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/audit?limit=50&offset=0`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/audit?limit=50&offset=0`, { headers: authHeader });
       if (res.ok) setAuditLog(await res.json());
     } catch {}
   };
 
   const fetchShops = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/shops`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/shops`, { headers: authHeader });
       if (res.ok) setShops(await res.json());
     } catch {}
   };
 
   const fetchDeliveryPhotos = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/delivery_photos?status=pending`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/delivery_photos?status=pending`, { headers: authHeader });
       if (res.ok) setDeliveryPhotos(await res.json());
     } catch {}
   };
 
   const fetchKycQueue = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
       setKycQueue(res.ok ? await res.json() : []);
     } catch {}
   };
@@ -120,13 +120,13 @@ const AdminPanel = () => {
     if (activeTab === 'photos') fetchDeliveryPhotos();
     if (activeTab === 'kyc') fetchKycQueue();
     if (activeTab === 'analytics' && !esgGlobal) {
-      fetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
+      authFetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
         .then(data => data && setEsgGlobal(data))
         .catch(() => {});
     }
     if (activeTab === 'analytics' && !heatmap) {
-      fetch(`${API_URL}/admin/heatmap`, { headers: authHeader })
+      authFetch(`${API_URL}/admin/heatmap`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
         .then(data => data && setHeatmap(data))
         .catch(() => {});
@@ -135,7 +135,7 @@ const AdminPanel = () => {
 
   const handleSetPlan = async (shopId, planValue) => {
     try {
-      const res = await fetch(`${API_URL}/admin/shops/${shopId}/plan`, {
+      const res = await authFetch(`${API_URL}/admin/shops/${shopId}/plan`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ plan: planValue }),
@@ -148,7 +148,7 @@ const AdminPanel = () => {
   const handleResetRoute = async (routeId) => {
     if (!window.confirm(t('admin.confirm_reset_route', { id: routeId }))) return;
     try {
-      const res = await fetch(`${API_URL}/admin/routes/${routeId}/reset`, { method: 'POST', headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/routes/${routeId}/reset`, { method: 'POST', headers: authHeader });
       if (res.ok) fetchData();
       else alert(t('admin.error_reset'));
     } catch {}
@@ -158,7 +158,7 @@ const AdminPanel = () => {
     const action = isBlocked ? 'unblock' : 'block';
     if (!window.confirm(isBlocked ? t('admin.confirm_unblock') : t('admin.confirm_block'))) return;
     try {
-      const res = await fetch(`${API_URL}/admin/users/${userId}/${action}`, { method: 'POST', headers: authHeader });
+      const res = await authFetch(`${API_URL}/admin/users/${userId}/${action}`, { method: 'POST', headers: authHeader });
       if (res.ok) fetchUsers();
       else alert(t('common.error'));
     } catch {}
@@ -176,7 +176,7 @@ const AdminPanel = () => {
     setPhotoBusy(prev => ({ ...prev, [ticketId]: true }));
     try {
       const ref = encodeURIComponent(photo.photo_ref);
-      const res = await fetch(
+      const res = await authFetch(
         `${API_URL}/admin/delivery_photos/${ticketId}/${action}?photo_ref=${ref}`,
         { method: 'POST', headers: authHeader },
       );
@@ -219,7 +219,7 @@ const AdminPanel = () => {
     const key = `volunteer:${id}`;
     setKycBusy(prev => ({ ...prev, [key]: true }));
     try {
-      const res = await fetch(`${API_URL}/admin/volunteers/${id}/moderation`, {
+      const res = await authFetch(`${API_URL}/admin/volunteers/${id}/moderation`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ status }),
@@ -313,7 +313,7 @@ const AdminPanel = () => {
       <div className="photo-mod-grid">
         {deliveryPhotos.map(p => (
           <div key={p.ticket_id} className="photo-mod-card">
-            <ProtectedDeliveryPhoto path={p.photo_url} token={user?.token} />
+            <ProtectedDeliveryPhoto path={p.photo_url} />
             <div className="photo-mod-meta">
               <div>{photoBadge(p)}</div>
               {p.delivery_photo_ai_notes && (

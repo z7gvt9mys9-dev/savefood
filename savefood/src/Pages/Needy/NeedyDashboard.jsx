@@ -11,7 +11,7 @@ import OnboardingChecklist from '../../components/OnboardingChecklist';
 import TicketChat from '../../components/TicketChat';
 import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
-import { API_URL } from '../../api';
+import { API_URL, authFetch, getFreshAccessToken } from '../../api';
 import { hasDeliveryLocation, hasValidCoordinates, isTerminalTicketStatus } from '../../utils/ticket';
 import './Needy.css';
 
@@ -76,8 +76,8 @@ const NeedyDashboard = () => {
   const loadHistory = async (offset = 0, append = false) => {
     if (!needyId) return;
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/history?limit=${PAGE}&offset=${offset}`, {
-        headers: { Authorization: `Bearer ${user?.token}` },
+      const res = await authFetch(`${API_URL}/needy/${needyId}/history?limit=${PAGE}&offset=${offset}`, {
+        headers: {},
       });
       const data = await res.json();
       const arr = Array.isArray(data) ? data : [];
@@ -92,8 +92,8 @@ const NeedyDashboard = () => {
 
     if (!needyId) return;
 
-    fetch(`${API_URL}/needy/${needyId}/profile`, {
-      headers: { Authorization: `Bearer ${user?.token}` },
+    authFetch(`${API_URL}/needy/${needyId}/profile`, {
+      headers: {},
     })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
@@ -103,8 +103,8 @@ const NeedyDashboard = () => {
       })
       .catch(() => {});
 
-    fetch(`${API_URL}/needy/${needyId}/notifications`, {
-      headers: { Authorization: `Bearer ${user?.token}` },
+    authFetch(`${API_URL}/needy/${needyId}/notifications`, {
+      headers: {},
     })
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
@@ -113,8 +113,8 @@ const NeedyDashboard = () => {
     // Restore the active ticket after a page reload — otherwise the QR code is
     // gone (delivery can't be confirmed) and the ticket can't be cancelled,
     // while the weekly "one active ticket" rule blocks creating a new one.
-    fetch(`${API_URL}/needy/${needyId}/tickets`, {
-      headers: { Authorization: `Bearer ${user?.token}` },
+    authFetch(`${API_URL}/needy/${needyId}/tickets`, {
+      headers: {},
     })
       .then(res => res.ok ? res.json() : null)
       .then(list => {
@@ -140,7 +140,7 @@ const NeedyDashboard = () => {
 
   // WebSocket: live notification stream
   useEffect(() => {
-    if (!needyId || !user?.token) return;
+    if (!needyId) return;
     const apiBase = import.meta.env.VITE_API_URL ?? '';
     const wsUrl = apiBase
       ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
@@ -150,12 +150,21 @@ const NeedyDashboard = () => {
     // Track the highest notification id we've seen so a reconnect can replay
     // anything that arrived while the socket was down.
     let lastSeenId = null;
-    const connect = () => {
+    let disposed = false;
+    const connect = async () => {
+      let token;
+      try {
+        token = await getFreshAccessToken();
+      } catch {
+        if (!disposed) reconnectTimer = setTimeout(connect, 5000);
+        return;
+      }
+      if (disposed || !token) return;
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {
         // Token is sent in the first message instead of the query string so it
         // never lands in nginx access logs or browser history.
-        const handshake = { type: 'auth', token: user.token };
+        const handshake = { type: 'auth', token };
         if (lastSeenId != null) handshake.since_id = lastSeenId;
         ws.send(JSON.stringify(handshake));
       };
@@ -173,12 +182,14 @@ const NeedyDashboard = () => {
           });
         } catch {}
       };
-      ws.onclose = () => { reconnectTimer = setTimeout(connect, 5000); };
+      ws.onclose = () => {
+        if (!disposed) reconnectTimer = setTimeout(connect, 5000);
+      };
       ws.onerror = () => ws.close();
     };
     connect();
-    return () => { clearTimeout(reconnectTimer); ws?.close(); };
-  }, [needyId, user?.token]);
+    return () => { disposed = true; clearTimeout(reconnectTimer); ws?.close(); };
+  }, [needyId]);
 
   useEffect(() => {
     if (locationPollRef.current) clearInterval(locationPollRef.current);
@@ -186,7 +197,7 @@ const NeedyDashboard = () => {
     const ticketFulfilled = activeOrder?.ticketStatus === 'fulfilled';
     if (!assignedVolunteerId || ticketFulfilled) { setVolunteerLocation(null); return; }
     const poll = () => {
-      fetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`, { headers: { Authorization: `Bearer ${user?.token}` } })
+      authFetch(`${API_URL}/volunteers/${assignedVolunteerId}/location`, { headers: {} })
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data && hasValidCoordinates(data.lat, data.lon)) setVolunteerLocation(data); })
         .catch(() => {});
@@ -205,7 +216,7 @@ const NeedyDashboard = () => {
     const ticketId = activeOrder?.ticketId;
     if (!ticketId) return;
     const poll = () => {
-      fetch(`${API_URL}/needy/${needyId}/tickets`, { headers: { Authorization: `Bearer ${user?.token}` } })
+      authFetch(`${API_URL}/needy/${needyId}/tickets`, { headers: {} })
         .then(r => r.ok ? r.json() : null)
         .then(list => {
           if (!Array.isArray(list)) return;
@@ -237,7 +248,7 @@ const NeedyDashboard = () => {
     poll();
     ticketPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(ticketPollRef.current);
-  }, [activeOrder?.ticketId, needyId, user?.token]);
+  }, [activeOrder?.ticketId, needyId]);
 
   const handleBook = async (lot, selfPickup = false) => {
     if (!needyId) { alert(t('common.auth_required')); return; }
@@ -247,9 +258,9 @@ const NeedyDashboard = () => {
       return;
     }
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/ticket`, {
+      const res = await authFetch(`${API_URL}/needy/${needyId}/ticket`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: lot.description,
           address: selfPickup ? (lot.address || '') : profile.address.trim(),
@@ -276,8 +287,8 @@ const NeedyDashboard = () => {
       // screen never manufactures an invalid `SF-<id>` substitute.
       let ticket = createdTicket;
       try {
-        const ticketsRes = await fetch(`${API_URL}/needy/${needyId}/tickets`, {
-          headers: { Authorization: `Bearer ${user?.token}` },
+        const ticketsRes = await authFetch(`${API_URL}/needy/${needyId}/tickets`, {
+          headers: {},
         });
         if (ticketsRes.ok) {
           const tickets = await ticketsRes.json();
@@ -313,9 +324,9 @@ const NeedyDashboard = () => {
     if (!activeOrder?.ticketId || !needyId) return;
     if (!window.confirm(t('needy.confirm_cancel'))) return;
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/ticket/${activeOrder.ticketId}`, {
+      const res = await authFetch(`${API_URL}/needy/${needyId}/ticket/${activeOrder.ticketId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (!res.ok) {
         const err = await res.json();
@@ -354,9 +365,9 @@ const NeedyDashboard = () => {
     try {
       const params = new URLSearchParams({ rating: String(stars) });
       if (comment != null) params.set('comment', comment);
-      const res = await fetch(
+      const res = await authFetch(
         `${API_URL}/needy/${needyId}/ticket/${ticketId}/rate?${params.toString()}`,
-        { method: 'POST', headers: { Authorization: `Bearer ${user?.token}` } }
+        { method: 'POST', headers: {} }
       );
       if (res.ok) { setRatings(prev => ({ ...prev, [ticketId]: stars })); return true; }
       alert(t('needy.error_rate'));
@@ -368,9 +379,9 @@ const NeedyDashboard = () => {
     e.preventDefault();
     if (!needyId) { alert(t('common.auth_required')); return; }
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/profile`, {
+      const res = await authFetch(`${API_URL}/needy/${needyId}/profile`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           address: profile.address,
           family_size: Number(profile.family_size),
@@ -401,9 +412,9 @@ const NeedyDashboard = () => {
     if (!needyId) return;
     setProfile(p => ({ ...p, geo_push_enabled: enabled }));
     try {
-      await fetch(`${API_URL}/needy/${needyId}/geo_push`, {
+      await authFetch(`${API_URL}/needy/${needyId}/geo_push`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user?.token}` },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       });
     } catch {
@@ -414,8 +425,8 @@ const NeedyDashboard = () => {
   const exportData = async () => {
     if (!needyId) return;
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/export`, {
-        headers: { Authorization: `Bearer ${user?.token}` },
+      const res = await authFetch(`${API_URL}/needy/${needyId}/export`, {
+        headers: {},
       });
       if (!res.ok) { alert(t('common.connection_error')); return; }
       const blob = await res.blob();
@@ -439,9 +450,9 @@ const NeedyDashboard = () => {
     if (!needyId) return;
     if (!window.confirm(t('needy.delete_confirm'))) return;
     try {
-      const res = await fetch(`${API_URL}/needy/${needyId}/account`, {
+      const res = await authFetch(`${API_URL}/needy/${needyId}/account`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       });
       if (!res.ok) { alert(t('common.connection_error')); return; }
       alert(t('needy.deleted'));
@@ -744,7 +755,7 @@ const NeedyDashboard = () => {
               {activeOrder.assigned_volunteer_id && activeOrder.ticketStatus !== 'fulfilled' && (
                 <div style={{ marginTop: 16 }}>
                   <h4>{t('needy.chat_title')}</h4>
-                  <TicketChat ticketId={activeOrder.ticketId} token={user?.token} me="needy" ns="needy" />
+                  <TicketChat ticketId={activeOrder.ticketId} me="needy" ns="needy" />
                 </div>
               )}
             </>
@@ -769,9 +780,9 @@ const NeedyDashboard = () => {
     const unread = notifications.filter(n => !n.read);
     if (unread.length === 0) return;
     unread.forEach(n => {
-      fetch(`${API_URL}/needy/notifications/${n.id}/read`, {
+      authFetch(`${API_URL}/needy/notifications/${n.id}/read`, {
         method: 'PATCH',
-        headers: { Authorization: `Bearer ${user?.token}` },
+        headers: {},
       }).catch(() => {});
     });
     setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));

@@ -4,7 +4,7 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { YMaps, Map, Placemark, useYMaps } from '@pbe/react-yandex-maps';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
-import { API_URL } from '../../api';
+import { API_URL, authFetch } from '../../api';
 import { buildNavigatorUrls, haversineMeters } from '../../utils/geo';
 import { hasValidCoordinates } from '../../utils/ticket';
 import EmptyState from '../../components/EmptyState';
@@ -188,7 +188,7 @@ const VolunteerDashboard = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const volunteerId = user?.relatedId;
-  const authHeader = { Authorization: `Bearer ${user?.token}` };
+  const authHeader = {};
 
   const [activeTab, setActiveTab] = useState('map');
   const [mapData, setMapData] = useState({ shops: [], tickets: [] });
@@ -277,7 +277,7 @@ const VolunteerDashboard = () => {
   const refreshVolunteerInfo = async () => {
     if (!volunteerId) return;
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
       if (res.ok) setVolunteerInfo(await res.json());
     } catch { /* offline */ }
   };
@@ -286,11 +286,11 @@ const VolunteerDashboard = () => {
     fetchMapData();
     if (volunteerId) {
       fetchActiveRoute();
-      fetch(`${API_URL}/volunteers/${volunteerId}/history`, { headers: authHeader })
+      authFetch(`${API_URL}/volunteers/${volunteerId}/history`, { headers: authHeader })
         .then(res => res.ok ? res.json() : [])
         .then(data => setRoutes(Array.isArray(data) ? data : []))
         .catch(() => {});
-      fetch(`${API_URL}/volunteers/${volunteerId}/rating`, { headers: authHeader })
+      authFetch(`${API_URL}/volunteers/${volunteerId}/rating`, { headers: authHeader })
         .then(res => res.ok ? res.json() : null)
         .then(data => { if (data) setVolunteerRating(data); })
         .catch(() => {});
@@ -307,7 +307,7 @@ const VolunteerDashboard = () => {
     try {
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/document/upload`, {
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/document/upload`, {
         method: 'POST', headers: authHeader, body: form,
       });
       if (!res.ok) {
@@ -332,7 +332,7 @@ const VolunteerDashboard = () => {
     const sendLocation = () => {
       navigator.geolocation && navigator.geolocation.getCurrentPosition(
         pos => {
-          fetch(`${API_URL}/volunteers/${volunteerId}/location`, {
+          authFetch(`${API_URL}/volunteers/${volunteerId}/location`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...authHeader },
             body: JSON.stringify({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
@@ -362,7 +362,7 @@ const VolunteerDashboard = () => {
   const saveAvailability = async () => {
     if (!volunteerId) return;
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ availability }),
@@ -375,7 +375,7 @@ const VolunteerDashboard = () => {
     if (!volunteerId) return;
     setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: checked }));
     try {
-      await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+      await authFetch(`${API_URL}/volunteers/${volunteerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ has_thermal_bag: checked }),
@@ -393,7 +393,7 @@ const VolunteerDashboard = () => {
     const previous = volunteerInfo?.capacity_kg ?? null;
     setVolunteerInfo(v => ({ ...(v || {}), capacity_kg: capacity }));
     try {
-      await fetch(`${API_URL}/volunteers/${volunteerId}`, {
+      await authFetch(`${API_URL}/volunteers/${volunteerId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ capacity_kg: capacity }),
@@ -406,7 +406,7 @@ const VolunteerDashboard = () => {
   const fetchStats = async () => {
     if (!volunteerId) return;
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/stats`, { headers: authHeader });
       if (res.ok) setStats(await res.json());
     } catch {}
     await refreshVolunteerInfo();
@@ -422,11 +422,11 @@ const VolunteerDashboard = () => {
       });
     } catch {}
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/team`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/team`, { headers: authHeader });
       if (res.ok) setTeam((await res.json()).team);
     } catch {}
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/thanks`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/thanks`, { headers: authHeader });
       if (res.ok) setThanks(await res.json());
     } catch {}
   };
@@ -434,7 +434,7 @@ const VolunteerDashboard = () => {
   const teamAction = async (path, body) => {
     setTeamBusy(true);
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/team/${path}`, {
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/team/${path}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: body ? JSON.stringify(body) : undefined,
@@ -457,7 +457,7 @@ const VolunteerDashboard = () => {
       return;
     }
     try {
-      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/attempt_delivery`, {
+      const res = await authFetch(`${API_URL}/volunteers/route/${activeRoute.id}/attempt_delivery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({
@@ -476,7 +476,7 @@ const VolunteerDashboard = () => {
 
   const fetchMapData = async () => {
     try {
-      const res = await fetch(`${API_URL}/volunteers/map`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/map`, { headers: authHeader });
       if (res.ok) {
         const data = await res.json();
         setMapData({
@@ -489,7 +489,7 @@ const VolunteerDashboard = () => {
 
   const fetchActiveRoute = async () => {
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/active_route`, { headers: authHeader });
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/active_route`, { headers: authHeader });
       if (!res.ok) return;
       const data = await res.json();
       setActiveRoute(data && data.id ? data : null);
@@ -500,7 +500,7 @@ const VolunteerDashboard = () => {
     if (!volunteerId) { alert(t('volunteer.error_auth')); return; }
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/volunteers/${volunteerId}/start_route`, {
+      const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/start_route`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ lot_id: lotId }),
@@ -550,7 +550,7 @@ const VolunteerDashboard = () => {
         form.append('file', proofFile);
         form.append('lat', String(pos.lat));
         form.append('lon', String(pos.lon));
-        const proofRes = await fetch(
+        const proofRes = await authFetch(
           `${API_URL}/volunteers/route/${activeRoute.id}/ticket/${ticketId}/photo`,
           { method: 'POST', headers: authHeader, body: form },
         );
@@ -560,7 +560,7 @@ const VolunteerDashboard = () => {
           return false;
         }
       }
-      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
+      const res = await authFetch(`${API_URL}/volunteers/route/${activeRoute.id}/complete_point`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(body),
@@ -591,7 +591,7 @@ const VolunteerDashboard = () => {
   const handleFinishRoute = async () => {
     if (!activeRoute) return;
     try {
-      const res = await fetch(`${API_URL}/volunteers/route/${activeRoute.id}/finish`, {
+      const res = await authFetch(`${API_URL}/volunteers/route/${activeRoute.id}/finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify({ volunteer_id: volunteerId }),
@@ -866,7 +866,7 @@ const VolunteerDashboard = () => {
             {isShopDone && nextTicket?.ticket_id && (
               <div style={{ marginTop: 12 }}>
                 <h4 style={{ margin: '0 0 4px' }}>{t('volunteer.chat_title')}</h4>
-                <TicketChat ticketId={nextTicket.ticket_id} token={user?.token} me="volunteer" ns="volunteer" />
+                <TicketChat ticketId={nextTicket.ticket_id} me="volunteer" ns="volunteer" />
               </div>
             )}
 

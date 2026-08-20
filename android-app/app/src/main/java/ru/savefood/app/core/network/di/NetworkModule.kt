@@ -10,6 +10,7 @@ import ru.savefood.app.BuildConfig
 import ru.savefood.app.core.datastore.SessionStore
 import ru.savefood.app.core.network.AuthInterceptor
 import ru.savefood.app.core.network.TokenAuthenticator
+import ru.savefood.app.core.network.TokenRefreshManager
 import ru.savefood.app.core.network.api.AuthApi
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -37,10 +38,8 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideAuthenticator(
-        sessionStore: SessionStore,
-        @Named("baseUrl") baseUrl: String,
-        json: Json,
-    ): TokenAuthenticator = TokenAuthenticator(sessionStore, baseUrl, json)
+        refreshManager: TokenRefreshManager,
+    ): TokenAuthenticator = TokenAuthenticator(refreshManager)
 
     @Provides
     @Singleton

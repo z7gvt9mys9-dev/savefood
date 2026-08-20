@@ -2,8 +2,10 @@ package ru.savefood.it;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 import ru.savefood.auth.AuthController;
 import ru.savefood.auth.OAuthController;
+import ru.savefood.auth.RefreshTokenService;
 import ru.savefood.auth.TelegramLoginService;
 import ru.savefood.security.AuthArgumentResolver;
 import ru.savefood.security.JwtService;
@@ -36,10 +38,11 @@ class AuthIdentityIT extends PostgresIT {
     @BeforeEach
     void wireAuthentication() {
         JwtService jwt = new JwtService(JWT_SECRET);
+        RefreshTokenService refreshTokens = new RefreshTokenService(jdbc);
         RateLimiter rateLimiter = new RateLimiter();
-        AuthController auth = new AuthController(jdbc, passwords, jwt, rateLimiter);
+        AuthController auth = new AuthController(jdbc, passwords, jwt, refreshTokens, rateLimiter);
         OAuthController oauth = new OAuthController(
-            jdbc, jwt, rateLimiter, new TelegramLoginService(jdbc),
+            jdbc, jwt, refreshTokens, rateLimiter, new TelegramLoginService(jdbc),
             "", "", "", "", "configured-token", "savefood_test_bot",
             "https://savefood.test");
         mvc = MockMvcBuilders.standaloneSetup(auth, oauth)
@@ -51,32 +54,35 @@ class AuthIdentityIT extends PostgresIT {
     @Test
     void deletedUsernameReuseCannotTransferOrRefreshOldIdentity() throws Exception {
         int userA = insertUser("reused-name", "password-a", "needy", insertNeedy("A"));
-        String oldToken = login("reused-name", "password-a");
+        Tokens old = login("reused-name", "password-a");
 
         jdbc.update("DELETE FROM users WHERE id = ?", userA);
         int userB = insertUser("reused-name", "password-b", "needy", insertNeedy("B"));
         assertThat(userB).isNotEqualTo(userA);
 
-        mvc.perform(get("/auth/me").header("Authorization", bearer(oldToken)))
+        mvc.perform(get("/auth/me").header("Authorization", bearer(old.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
-        mvc.perform(post("/auth/refresh").header("Authorization", bearer(oldToken)))
+        mvc.perform(post("/auth/refresh")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(refreshBody(old.refreshToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
-        mvc.perform(get("/auth/telegram/init-link").header("Authorization", bearer(oldToken)))
+        mvc.perform(get("/auth/telegram/init-link").header("Authorization", bearer(old.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM telegram_link_tokens", Integer.class)).isZero();
 
-        String newToken = login("reused-name", "password-b");
-        mvc.perform(get("/auth/me").header("Authorization", bearer(newToken)))
+        Tokens current = login("reused-name", "password-b");
+        mvc.perform(get("/auth/me").header("Authorization", bearer(current.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
             .andExpect(jsonPath("$.sub").value("reused-name"))
             .andExpect(jsonPath("$.role").value("needy"));
-        mvc.perform(get("/auth/telegram/init-link").header("Authorization", bearer(newToken)))
+        mvc.perform(get("/auth/telegram/init-link").header("Authorization", bearer(current.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
         assertThat(jdbc.queryForObject(
             "SELECT COUNT(*) FROM telegram_link_tokens WHERE user_id = ?", Integer.class, userB)).isOne();
         MvcResult refreshed = mvc.perform(post("/auth/refresh")
-                .header("Authorization", bearer(newToken)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(refreshBody(current.refreshToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
             .andReturn();
         String refreshedToken = mapper.readTree(refreshed.getResponse().getContentAsString())
@@ -85,13 +91,17 @@ class AuthIdentityIT extends PostgresIT {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
 
         jdbc.update("UPDATE users SET is_blocked = TRUE WHERE id = ?", userB);
-        mvc.perform(get("/auth/me").header("Authorization", bearer(newToken)))
+        mvc.perform(get("/auth/me").header("Authorization", bearer(current.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
-        mvc.perform(post("/auth/refresh").header("Authorization", bearer(newToken)))
+        String rotatedRefresh = mapper.readTree(refreshed.getResponse().getContentAsString())
+            .path("refresh_token").asText();
+        mvc.perform(post("/auth/refresh")
+            .contentType(MediaType.APPLICATION_JSON)
+                .content(refreshBody(rotatedRefresh)))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
 
         jdbc.update("DELETE FROM users WHERE id = ?", userB);
-        mvc.perform(get("/auth/me").header("Authorization", bearer(newToken)))
+        mvc.perform(get("/auth/me").header("Authorization", bearer(current.accessToken())))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
     }
 
@@ -102,7 +112,7 @@ class AuthIdentityIT extends PostgresIT {
             Integer.class, username, passwords.hash(password), role, relatedId);
     }
 
-    private String login(String username, String password) throws Exception {
+    private Tokens login(String username, String password) throws Exception {
         MvcResult result = mvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED)
                 .param("username", username)
@@ -110,10 +120,17 @@ class AuthIdentityIT extends PostgresIT {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
             .andReturn();
         JsonNode body = mapper.readTree(result.getResponse().getContentAsString());
-        return body.path("access_token").asText();
+        return new Tokens(body.path("access_token").asText(), body.path("refresh_token").asText());
+    }
+
+    private String refreshBody(String refreshToken) throws Exception {
+        return mapper.writeValueAsString(Map.of("refresh_token", refreshToken));
     }
 
     private static String bearer(String token) {
         return "Bearer " + token;
+    }
+
+    private record Tokens(String accessToken, String refreshToken) {
     }
 }

@@ -1,5 +1,6 @@
 package ru.savefood.auth;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,13 +34,16 @@ public class AuthController {
     private final JdbcTemplate jdbc;
     private final PasswordService passwords;
     private final JwtService jwt;
+    private final RefreshTokenService refreshTokens;
     private final RateLimiter rateLimiter;
 
     public AuthController(JdbcTemplate jdbc, PasswordService passwords, JwtService jwt,
+                          RefreshTokenService refreshTokens,
                           RateLimiter rateLimiter) {
         this.jdbc = jdbc;
         this.passwords = passwords;
         this.jwt = jwt;
+        this.refreshTokens = refreshTokens;
         this.rateLimiter = rateLimiter;
     }
 
@@ -90,9 +95,11 @@ public class AuthController {
         Integer relatedId = toInteger(user.get("related_id"));
         String accessToken = jwt.create(((Number) user.get("id")).intValue(),
             (String) user.get("username"), role, relatedId);
+        String refreshToken = refreshTokens.issue(((Number) user.get("id")).intValue());
 
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", accessToken);
+        out.put("refresh_token", refreshToken);
         out.put("token_type", "bearer");
         out.put("role", role);
         out.put("related_id", relatedId);
@@ -100,12 +107,30 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public Map<String, Object> refresh(@Auth CurrentUser user) {
-        String accessToken = jwt.create(user.userId(), user.sub(), user.role(), user.relatedId());
+    public Map<String, Object> refresh(@RequestBody(required = false) RefreshRequest request) {
+        RefreshTokenService.Rotation rotation = request == null
+            ? null : refreshTokens.rotate(request.refreshToken());
+        if (rotation == null) {
+            if (request != null && refreshTokens.isActiveTokenForBlockedUser(request.refreshToken())) {
+                throw new ApiException(403, "Аккаунт заблокирован администратором");
+            }
+            throw new ApiException(401, "Invalid or expired refresh token");
+        }
+        String accessToken = jwt.create(rotation.userId(), rotation.username(),
+            rotation.role(), rotation.relatedId());
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", accessToken);
+        out.put("refresh_token", rotation.refreshToken());
         out.put("token_type", "bearer");
         return out;
+    }
+
+    @PostMapping("/logout")
+    public Map<String, Object> logout(@RequestBody(required = false) RefreshRequest request) {
+        if (request != null) {
+            refreshTokens.revokeSession(request.refreshToken());
+        }
+        return Map.of("ok", true);
     }
 
     @GetMapping("/me")
@@ -118,5 +143,8 @@ public class AuthController {
 
     private static Integer toInteger(Object value) {
         return value instanceof Number n ? n.intValue() : null;
+    }
+
+    public record RefreshRequest(@JsonProperty("refresh_token") String refreshToken) {
     }
 }
