@@ -10,6 +10,8 @@ import java.nio.file.Paths;
 import java.util.Set;
 import java.util.UUID;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import ru.savefood.web.ApiException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -31,7 +33,9 @@ public class UploadService {
     private static final Set<String> ALLOWED_IMAGE_TYPES =
         Set.of("image/jpeg", "image/jpg", "image/png");
     private static final Set<String> ALLOWED_IMAGE_EXTS = Set.of(".jpg", ".jpeg", ".png");
-    private static final long MAX_UPLOAD_BYTES = 5L * 1024 * 1024;
+    static final long MAX_UPLOAD_BYTES = 5L * 1024 * 1024;
+    static final int MAX_IMAGE_DIMENSION = 8_192;
+    static final long MAX_IMAGE_PIXELS = 25_000_000L;
 
     public String validateAndSave(MultipartFile file, String destDir) {
         return validateAndSave(file, destDir, false);
@@ -107,16 +111,50 @@ public class UploadService {
             case ".png" -> "png";
             default -> "jpeg";
         };
-        try {
-            BufferedImage img = ImageIO.read(new ByteArrayInputStream(content));
-            if (img == null) throw new ApiException(415, "File is not a supported image");
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            if (!ImageIO.write(img, fmt, out)) {
-                throw new ApiException(415, "Image format cannot be safely processed");
+        try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(content))) {
+            if (input == null) {
+                throw new ApiException(415, "File is not a supported image");
             }
-            return out.toByteArray();
-        } catch (IOException e) {
+            var readers = ImageIO.getImageReaders(input);
+            if (!readers.hasNext()) {
+                throw new ApiException(415, "File is not a supported image");
+            }
+
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(input, false, true);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                validateDimensions(width, height);
+
+                BufferedImage img = reader.read(0);
+                if (img == null) {
+                    throw new ApiException(415, "File is not a supported image");
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                if (!ImageIO.write(img, fmt, out)) {
+                    throw new ApiException(415, "Image format cannot be safely processed");
+                }
+                return out.toByteArray();
+            } finally {
+                reader.dispose();
+            }
+        } catch (ApiException e) {
+            throw e;
+        } catch (IOException | RuntimeException e) {
             throw new ApiException(400, "Invalid or corrupted image");
+        }
+    }
+
+    private static void validateDimensions(int width, int height) {
+        if (width <= 0 || height <= 0) {
+            throw new ApiException(400, "Invalid image dimensions");
+        }
+        if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+            throw new ApiException(413, "Image dimensions are too large");
+        }
+        if ((long) width * height > MAX_IMAGE_PIXELS) {
+            throw new ApiException(413, "Image has too many pixels");
         }
     }
 

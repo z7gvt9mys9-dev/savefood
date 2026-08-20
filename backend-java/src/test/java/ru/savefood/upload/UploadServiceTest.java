@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,7 +24,7 @@ class UploadServiceTest {
     private final UploadService uploads = new UploadService();
 
     @Test
-    void rejectsArbitraryBytesClaimingToBeAnImage() {
+    void malformedImageIsRejected() {
         MockMultipartFile forged = new MockMultipartFile(
             "file", "proof.jpg", "image/jpeg", "not an image".getBytes());
 
@@ -50,7 +51,7 @@ class UploadServiceTest {
     }
 
     @Test
-    void savesOnlyDecodedAndReencodedImage() throws Exception {
+    void normalImageIsAccepted() throws Exception {
         BufferedImage image = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
         image.setRGB(0, 0, Color.GREEN.getRGB());
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -63,5 +64,64 @@ class UploadServiceTest {
         try (InputStream saved = Files.newInputStream(tempDir.resolve(filename))) {
             assertThat(ImageIO.read(saved)).isNotNull();
         }
+    }
+
+    @Test
+    void oversizedDimensionIsRejectedBeforeFullDecode() throws Exception {
+        byte[] image = pngHeaderWithDimensions(UploadService.MAX_IMAGE_DIMENSION + 1, 1);
+        MockMultipartFile oversized = new MockMultipartFile(
+            "file", "oversized.png", "image/png", image);
+
+        assertThatThrownBy(() -> uploads.validateAndSave(oversized, tempDir.toString()))
+            .isInstanceOfSatisfying(ApiException.class, e -> {
+                assertThat(e.getStatus()).isEqualTo(413);
+                assertThat(e.getMessage()).contains("dimensions");
+            });
+    }
+
+    @Test
+    void excessiveTotalPixelsAreRejected() throws Exception {
+        int width = UploadService.MAX_IMAGE_DIMENSION;
+        int height = Math.toIntExact(UploadService.MAX_IMAGE_PIXELS / width + 1);
+        byte[] image = pngHeaderWithDimensions(width, height);
+        MockMultipartFile oversized = new MockMultipartFile(
+            "file", "oversized.png", "image/png", image);
+
+        assertThatThrownBy(() -> uploads.validateAndSave(oversized, tempDir.toString()))
+            .isInstanceOfSatisfying(ApiException.class, e -> {
+                assertThat(e.getStatus()).isEqualTo(413);
+                assertThat(e.getMessage()).contains("too many pixels");
+            });
+    }
+
+    @Test
+    void encodedSizeLimitStillRejectsFilesOverFiveMegabytes() {
+        byte[] tooLarge = new byte[Math.toIntExact(UploadService.MAX_UPLOAD_BYTES + 1)];
+        MockMultipartFile oversized = new MockMultipartFile(
+            "file", "oversized.png", "image/png", tooLarge);
+
+        assertThatThrownBy(() -> uploads.validateAndSave(oversized, tempDir.toString()))
+            .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(413));
+    }
+
+    private static byte[] pngHeaderWithDimensions(int width, int height) throws Exception {
+        BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        assertThat(ImageIO.write(image, "png", bytes)).isTrue();
+        byte[] png = bytes.toByteArray();
+        writeInt(png, 16, width);
+        writeInt(png, 20, height);
+
+        CRC32 crc = new CRC32();
+        crc.update(png, 12, 17);
+        writeInt(png, 29, (int) crc.getValue());
+        return png;
+    }
+
+    private static void writeInt(byte[] bytes, int offset, int value) {
+        bytes[offset] = (byte) (value >>> 24);
+        bytes[offset + 1] = (byte) (value >>> 16);
+        bytes[offset + 2] = (byte) (value >>> 8);
+        bytes[offset + 3] = (byte) value;
     }
 }
