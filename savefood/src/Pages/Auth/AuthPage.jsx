@@ -301,18 +301,19 @@ const AuthPage = () => {
   };
 
   const renderSocialLogin = () => {
-    if (!providers || (!providers.google && !providers.yandex && !providers.telegram)) return null;
+    if (!providers || (!providers.yandex && !providers.telegram)) return null;
     return (
       <div style={{ marginTop: 16 }}>
         <p style={{ textAlign: 'center', color: '#888', fontSize: '0.85em', margin: '0 0 10px' }}>
           {t('auth.or_login_with')}
         </p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {providers.google && (
+          {/* Google login is temporarily disabled. */}
+          {/* {providers.google && (
             <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('google')}>
               G&nbsp;Google
             </button>
-          )}
+          )} */}
           {providers.yandex && (
             <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('yandex')}>
               Я&nbsp;Yandex
