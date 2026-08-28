@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import ru.savefood.it.PostgresIT;
 import ru.savefood.telegram.TelegramService;
+import ru.savefood.storage.SensitiveFileCleanup;
 import ru.savefood.volunteer.RouteRevertService;
 import ru.savefood.volunteer.VolunteerRepository;
 
@@ -29,8 +30,10 @@ class VolunteerKycRetentionIT extends PostgresIT {
     void wire() {
         volunteers = new VolunteerRepository(jdbc);
         telegram = mock(TelegramService.class);
+        SensitiveFileCleanup cleanup = new SensitiveFileCleanup(jdbc, uploadDir.toString(),
+            uploadDir.toString(), uploadDir.toString(), uploadDir.toString());
         maintenance = new MaintenanceTasks(jdbc, txManager, new RouteRevertService(jdbc), null,
-            telegram, "embedded", "", uploadDir.toString(), 1, 1);
+            telegram, cleanup, "embedded", "", uploadDir.toString(), 1, 1);
     }
 
     @Test

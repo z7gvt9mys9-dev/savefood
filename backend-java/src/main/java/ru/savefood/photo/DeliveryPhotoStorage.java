@@ -1,12 +1,8 @@
 package ru.savefood.photo;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.springframework.beans.factory.annotation.Value;
+import ru.savefood.storage.SensitiveFileCleanup;
+import ru.savefood.storage.SensitiveFileCleanup.Storage;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Deletes private delivery proofs only after their database reference committed.
@@ -18,70 +14,38 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 public class DeliveryPhotoStorage {
 
-    private final String privateDir;
-    private final String legacyDir;
+    private final SensitiveFileCleanup cleanup;
 
-    public DeliveryPhotoStorage(
-            @Value("${savefood.delivery-photo-upload-dir:../backend/volunteer/delivery_photos}") String privateDir,
-            @Value("${savefood.volunteer-upload-dir:../backend/volunteer/uploads}") String legacyDir) {
-        this.privateDir = privateDir;
-        this.legacyDir = legacyDir;
+    public DeliveryPhotoStorage(SensitiveFileCleanup cleanup) {
+        this.cleanup = cleanup;
     }
 
-    /** Queue deletion after commit, or delete immediately outside a transaction. */
+    /** Persist cleanup before commit, then attempt deletion after commit. */
     public void deleteAfterCommit(String photoRef) {
-        Path path = pathFor(photoRef);
-        if (path == null) {
-            return;
-        }
-        Runnable cleanup = () -> {
-            try {
-                Files.deleteIfExists(path);
-            } catch (Exception ignored) {
-                // The DB no longer exposes this file; a later retention sweep can
-                // remove a rare filesystem orphan without affecting correctness.
-            }
-        };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    cleanup.run();
-                }
-            });
-        } else {
-            cleanup.run();
+        Storage storage = storageFor(photoRef);
+        if (storage != null) {
+            cleanup.trackAndDeleteAfterCommit(storage, photoRef);
         }
     }
 
-    private Path pathFor(String photoRef) {
+    /** Clean a file that never acquired a database reference. */
+    public void deleteOrQueue(String photoRef) {
+        Storage storage = storageFor(photoRef);
+        if (storage != null) {
+            cleanup.deleteOrQueue(storage, photoRef);
+        }
+    }
+
+    private Storage storageFor(String photoRef) {
         if (photoRef == null || photoRef.isBlank()) {
             return null;
         }
-        String dir;
-        String filename;
         if (photoRef.startsWith("/delivery_photos/")) {
-            dir = privateDir;
-            filename = photoRef.substring("/delivery_photos/".length());
-        } else if (photoRef.startsWith("/volunteer_uploads/")) {
-            // Legacy proofs can still be scrubbed while old rows are migrated.
-            dir = legacyDir;
-            filename = photoRef.substring("/volunteer_uploads/".length());
-        } else {
-            return null;
+            return Storage.DELIVERY_PHOTO;
         }
-        // Stored references are virtual URL paths with exactly one generated
-        // filename. Refuse separators rather than normalising a path traversal
-        // into some unrelated file in the private directory.
-        if (filename.isBlank() || filename.contains("/") || filename.contains("\\")) {
-            return null;
+        if (photoRef.startsWith("/volunteer_uploads/")) {
+            return Storage.LEGACY_DELIVERY_PHOTO;
         }
-        try {
-            Path base = Paths.get(dir).toAbsolutePath().normalize();
-            Path candidate = base.resolve(filename).normalize();
-            return candidate.getParent() != null && candidate.getParent().equals(base) ? candidate : null;
-        } catch (RuntimeException ignored) {
-            return null;
-        }
+        return null;
     }
 }

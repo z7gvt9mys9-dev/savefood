@@ -346,7 +346,11 @@ public class NeedyService {
             + "delivery_photo_ai_verdict = NULL, delivery_photo_ai_score = NULL, "
             + "delivery_photo_ai_notes = NULL, delivery_photo_reviewed_at = NULL WHERE id = ?",
             photoUrl, ticketId);
-        return (String) ticket.get("delivery_photo");
+        String previous = (String) ticket.get("delivery_photo");
+        if (previous != null && !previous.equals(photoUrl) && deliveryPhotos != null) {
+            deliveryPhotos.deleteAfterCommit(previous);
+        }
+        return previous;
     }
 
     // ── Account erase (§49 «право на забвение») ──────────────────────────────────
@@ -413,6 +417,12 @@ public class NeedyService {
         List<String> photos = jdbc.query(
             "SELECT delivery_photo FROM tickets WHERE needy_id = ? AND delivery_photo IS NOT NULL",
             (rs, n) -> rs.getString("delivery_photo"), needyId);
+
+        // These tombstones participate in the erasure transaction. If queueing
+        // fails, the transaction rolls back and the live references remain.
+        if (deliveryPhotos != null) {
+            photos.stream().distinct().forEach(deliveryPhotos::deleteAfterCommit);
+        }
 
         List<Integer> ticketIds = jdbc.query(
             "SELECT id FROM tickets WHERE needy_id = ? ORDER BY id",

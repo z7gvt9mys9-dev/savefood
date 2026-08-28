@@ -1,6 +1,5 @@
 package ru.savefood.admin;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
@@ -18,6 +17,7 @@ import ru.savefood.billing.Plans;
 import ru.savefood.esg.EsgService;
 import ru.savefood.security.Admin;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.util.Clamp;
 import ru.savefood.volunteer.AvailabilityService;
@@ -26,6 +26,7 @@ import ru.savefood.volunteer.RoutePointPrivacy;
 import ru.savefood.volunteer.VolunteerRepository;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
@@ -58,13 +59,16 @@ public class AdminController {
     private final RouteRevertService routeRevert;
     private final AvailabilityService availability;
     private final TelegramService telegram;
+    private final DeliveryPhotoStorage deliveryPhotos;
     /** Legacy public dir is read only to clean up pre-private-storage rows. */
     private final String volunteerUploadDir;
     private final String deliveryPhotoUploadDir;
 
+    @Autowired
     public AdminController(JdbcTemplate jdbc, VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
                            AvailabilityService availability, TelegramService telegram,
+                           DeliveryPhotoStorage deliveryPhotos,
                            @Value("${savefood.volunteer-upload-dir}") String volunteerUploadDir,
                            @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir) {
         this.jdbc = jdbc;
@@ -74,8 +78,18 @@ public class AdminController {
         this.routeRevert = routeRevert;
         this.availability = availability;
         this.telegram = telegram;
+        this.deliveryPhotos = deliveryPhotos;
         this.volunteerUploadDir = volunteerUploadDir;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
+    }
+
+    /** Constructor retained for focused controller tests without file cleanup. */
+    public AdminController(JdbcTemplate jdbc, VolunteerRepository volunteerRepo, EsgService esgService,
+                           AuditService audit, RouteRevertService routeRevert,
+                           AvailabilityService availability, TelegramService telegram,
+                           String volunteerUploadDir, String deliveryPhotoUploadDir) {
+        this(jdbc, volunteerRepo, esgService, audit, routeRevert, availability, telegram,
+            null, volunteerUploadDir, deliveryPhotoUploadDir);
     }
 
     // ── Moderation ───────────────────────────────────────────────────────────
@@ -215,6 +229,7 @@ public class AdminController {
     }
 
     @PostMapping("/delivery_photos/{ticketId}/reject")
+    @Transactional
     public Map<String, Object> rejectDeliveryPhoto(@PathVariable int ticketId,
                                                     @RequestParam("photo_ref") String photoRef,
                                                     @Admin CurrentUser user) {
@@ -233,15 +248,8 @@ public class AdminController {
             throw new ApiException(409,
                 "Фото уже изменилось или обработано — обновите очередь перед решением");
         }
-        // Remove the file so a rejected (e.g. trolling) image can never leak.
-        Path path = deliveryPhotoPath(photoRef);
-        if (path != null) {
-            try {
-                Files.deleteIfExists(path);
-            } catch (IOException ignored) {
-                // best-effort, like the Python except OSError: pass
-            }
-        }
+        // The exact rejected reference is durably tracked in this transaction.
+        deliveryPhotos.deleteAfterCommit(photoRef);
         audit.log(user.sub(), "photo_reject", "ticket", ticketId,
             "Admin rejected delivery photo for ticket #" + ticketId);
         return Map.of("ok", true, "status", "rejected");

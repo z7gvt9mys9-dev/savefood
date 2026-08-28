@@ -124,7 +124,7 @@ savefood:
   ocr-model: ${OCR_MODEL:${AI_MODEL:gemini-2.5-flash}}
   receipt-max-age-hours: ${RECEIPT_MAX_AGE_HOURS:48}
   # Legacy recipient KYC storage. New uploads are disabled; Flyway V5 queues old
-  # references and NeedyKycDocumentCleanup retries file deletion until it succeeds.
+  # references and SensitiveFileCleanup retries file deletion until it succeeds.
   needy-upload-dir: ${NEEDY_UPLOAD_DIR:../backend/needy/uploads}
   # Fernet key for KYC document encryption-at-rest (kyc_crypto.py). Unset ⇒
   # documents stored UNENCRYPTED (dev/CI only) with a startup warning, exactly

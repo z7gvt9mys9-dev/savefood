@@ -20,6 +20,9 @@ import ru.savefood.photo.PhotoModerationService;
 import ru.savefood.security.Auth;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.storage.SensitiveFileCleanup;
+import ru.savefood.storage.SensitiveFileCleanup.Storage;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
 import ru.savefood.util.Geo;
@@ -38,10 +41,12 @@ import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -75,15 +80,19 @@ public class VolunteerController {
     private final TelegramService telegram;
     private final JdbcTemplate jdbc;
     private final AuditService audit;
+    private final SensitiveFileCleanup sensitiveFiles;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final boolean kycRequired;
     private final String kycUploadDir;
     private final String deliveryPhotoUploadDir;
 
+    @Autowired
     public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
                               UploadService uploads, KycCrypto kycCrypto, KycService kycService,
                               PhotoModerationService photoModeration,
                               WebhookService webhooks, TelegramService telegram,
                               JdbcTemplate jdbc, AuditService audit,
+                              SensitiveFileCleanup sensitiveFiles, DeliveryPhotoStorage deliveryPhotos,
                               @Value("${savefood.volunteer-kyc-required:true}") boolean kycRequired,
                               @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}")
                                   String kycUploadDir,
@@ -100,9 +109,23 @@ public class VolunteerController {
         this.telegram = telegram;
         this.jdbc = jdbc;
         this.audit = audit;
+        this.sensitiveFiles = sensitiveFiles;
+        this.deliveryPhotos = deliveryPhotos;
         this.kycRequired = kycRequired;
         this.kycUploadDir = kycUploadDir;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
+    }
+
+    /** Constructor retained for focused controller tests without file cleanup. */
+    public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
+                              UploadService uploads, KycCrypto kycCrypto, KycService kycService,
+                              PhotoModerationService photoModeration,
+                              WebhookService webhooks, TelegramService telegram,
+                              JdbcTemplate jdbc, AuditService audit, boolean kycRequired,
+                              String kycUploadDir, String deliveryPhotoUploadDir) {
+        this(repo, service, rateLimiter, uploads, kycCrypto, kycService, photoModeration,
+            webhooks, telegram, jdbc, audit, null, null, kycRequired, kycUploadDir,
+            deliveryPhotoUploadDir);
     }
 
     // ── Registration / KYC ────────────────────────────────────────────────────────
@@ -119,6 +142,7 @@ public class VolunteerController {
     }
 
     @PostMapping("/volunteers/{volunteerId}/document/upload")
+    @Transactional
     public Map<String, Object> uploadDocument(@PathVariable int volunteerId,
                                               @RequestParam(required = false) MultipartFile file,
                                               @Auth CurrentUser user, HttpServletRequest request) {
@@ -141,12 +165,13 @@ public class VolunteerController {
                 throw new ApiException(404, "Volunteer not found");
             }
         } catch (RuntimeException e) {
-            deleteQuietly(path);
+            sensitiveFiles.deleteOrQueue(Storage.VOLUNTEER_KYC, document);
             throw e;
         }
         if (replacement.previousDocument() != null
                 && !replacement.previousDocument().equals(document)) {
-            deleteQuietly(Paths.get(kycUploadDir, basename(replacement.previousDocument())));
+            sensitiveFiles.trackAndDeleteAfterCommit(
+                Storage.VOLUNTEER_KYC, replacement.previousDocument());
         }
         String name = vol.get("name") == null ? "" : vol.get("name").toString();
         kycService.startVolunteerKycCheck(volunteerId, path.toString(), name, generation);
@@ -189,6 +214,7 @@ public class VolunteerController {
      * On a decision the identity document is deleted from disk (§5 — PII).
      */
     @PatchMapping("/volunteers/{volunteerId}/moderation")
+    @Transactional
     public Map<String, Object> moderate(@PathVariable int volunteerId,
             @RequestBody ModerationUpdate payload, @Auth CurrentUser user) {
         if (!user.isAdmin()) {
@@ -255,11 +281,7 @@ public class VolunteerController {
     private void deleteDocument(int volunteerId, String docUrl, String generation) {
         if (docUrl != null && !docUrl.isBlank() && generation != null
                 && repo.clearVolunteerKycDocument(volunteerId, docUrl, generation)) {
-            try {
-                Files.deleteIfExists(Paths.get(kycUploadDir, basename(docUrl)));
-            } catch (Exception ignore) {
-                // best-effort
-            }
+            sensitiveFiles.trackAndDeleteAfterCommit(Storage.VOLUNTEER_KYC, docUrl);
         }
     }
 
@@ -279,14 +301,6 @@ public class VolunteerController {
             return MediaType.parseMediaType("image/webp");
         }
         return MediaType.IMAGE_JPEG;
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (Exception ignored) {
-            // Best effort after a database replacement/validation failure.
-        }
     }
 
     // ── Map / profile ─────────────────────────────────────────────────────────────
@@ -460,15 +474,11 @@ public class VolunteerController {
         int volunteerId = ((Number) route.get("volunteer_id")).intValue();
         String filename = uploads.validateAndSave(file, deliveryPhotoUploadDir);
         String photoRef = "/delivery_photos/" + filename;
-        String oldPhoto;
         try {
-            oldPhoto = service.attachDeliveryPhoto(route, volunteerId, ticketId, lat, lon, photoRef);
+            service.attachDeliveryPhoto(route, volunteerId, ticketId, lat, lon, photoRef);
         } catch (RuntimeException e) {
-            deleteQuietly(Paths.get(deliveryPhotoUploadDir, filename));
+            deliveryPhotos.deleteOrQueue(photoRef);
             throw e;
-        }
-        if (oldPhoto != null && oldPhoto.startsWith("/delivery_photos/")) {
-            deleteQuietly(Paths.get(deliveryPhotoUploadDir, basename(oldPhoto)));
         }
         photoModeration.startPhotoCheck(ticketId, Paths.get(deliveryPhotoUploadDir, filename).toString(), photoRef);
         return Map.of("ok", true, "status", "pending",

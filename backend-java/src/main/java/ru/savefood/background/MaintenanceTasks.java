@@ -11,10 +11,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 import ru.savefood.kyc.KycService;
+import ru.savefood.storage.SensitiveFileCleanup;
+import ru.savefood.storage.SensitiveFileCleanup.Storage;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.volunteer.RouteRevertService;
 import ru.savefood.volunteer.RoutePointPrivacy;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -55,6 +58,7 @@ public class MaintenanceTasks {
     private final RouteRevertService revert;
     private final KycService kyc;
     private final TelegramService telegram;
+    private final SensitiveFileCleanup sensitiveFiles;
 
     private final boolean enabled;
     private final String supportChatId;
@@ -62,8 +66,10 @@ public class MaintenanceTasks {
     private final int kycRetryBatch;
     private final int kycRetentionHours;
 
+    @Autowired
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
                             RouteRevertService revert, KycService kyc, TelegramService telegram,
+                            SensitiveFileCleanup sensitiveFiles,
                             @Value("${savefood.background-tasks:off}") String mode,
                             @Value("${savefood.support-chat-id:}") String supportChatId,
                             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
@@ -74,11 +80,21 @@ public class MaintenanceTasks {
         this.revert = revert;
         this.kyc = kyc;
         this.telegram = telegram;
+        this.sensitiveFiles = sensitiveFiles;
         this.enabled = "embedded".equalsIgnoreCase(mode.strip());
         this.supportChatId = supportChatId == null ? "" : supportChatId;
         this.volunteerKycDir = volunteerKycDir;
         this.kycRetryBatch = kycRetryBatch;
         this.kycRetentionHours = kycRetentionHours;
+    }
+
+    /** Constructor retained for focused tests unrelated to filesystem cleanup. */
+    public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
+                            RouteRevertService revert, KycService kyc, TelegramService telegram,
+                            String mode, String supportChatId, String volunteerKycDir,
+                            int kycRetryBatch, int kycRetentionHours) {
+        this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
+            volunteerKycDir, kycRetryBatch, kycRetentionHours);
     }
 
     // ── expire_tick (every 30 min) ───────────────────────────────────────────
@@ -435,6 +451,11 @@ public class MaintenanceTasks {
 
     /** Guarded winner step for one retention candidate, kept visible for focused tests. */
     boolean purgeVolunteerKycDocument(int id, String document, String generation) {
+        return Boolean.TRUE.equals(tx.execute(status ->
+            purgeVolunteerKycDocumentInTransaction(id, document, generation)));
+    }
+
+    private boolean purgeVolunteerKycDocumentInTransaction(int id, String document, String generation) {
         int won = jdbc.update(
             "UPDATE volunteers SET document = NULL, kyc_generation = NULL "
             + "WHERE id = ? AND document = ? AND kyc_generation = ? AND status = 'pending' "
@@ -444,7 +465,10 @@ public class MaintenanceTasks {
         if (won != 1) {
             return false;
         }
-        deleteDoc(volunteerKycDir, document);
+        if (sensitiveFiles == null) {
+            throw new IllegalStateException("Sensitive-file cleanup is required for KYC retention");
+        }
+        sensitiveFiles.trackAndDeleteAfterCommit(Storage.VOLUNTEER_KYC, document);
         String msg = "Срок хранения вашего удостоверения истёк, и оно удалено. "
             + "Загрузите документ заново, чтобы пройти верификацию.";
         jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
@@ -483,17 +507,6 @@ public class MaintenanceTasks {
             return real.startsWith(base) && Files.isRegularFile(real) ? real.toString() : null;
         } catch (Exception e) {
             return null;
-        }
-    }
-
-    private static void deleteDoc(String uploadDir, String doc) {
-        String path = safeDocPath(uploadDir, doc);
-        if (path != null) {
-            try {
-                Files.deleteIfExists(Path.of(path));
-            } catch (Exception ignore) {
-                // best-effort, like os.remove(OSError) pass
-            }
         }
     }
 

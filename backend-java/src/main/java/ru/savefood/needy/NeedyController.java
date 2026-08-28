@@ -1,9 +1,6 @@
 package ru.savefood.needy;
 
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +10,7 @@ import ru.savefood.needy.dto.NeedyCreate;
 import ru.savefood.needy.dto.NeedyProfileUpsert;
 import ru.savefood.needy.dto.TicketCreate;
 import ru.savefood.photo.PhotoModerationService;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.security.Auth;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
@@ -26,6 +24,7 @@ import ru.savefood.web.ApiException;
 import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -60,14 +59,15 @@ public class NeedyController {
     private final PhotoModerationService photoModeration;
     private final RateLimiter rateLimiter;
     private final TelegramService telegram;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final String deliveryPhotoUploadDir;
-    /** Only used to remove legacy photos written before private storage existed. */
-    private final String legacyVolunteerUploadDir;
 
+    @Autowired
     public NeedyController(NeedyRepository repo, NeedyService service, ShopRepository shopRepo,
                           CacheService cache, UploadService uploads,
                           PhotoModerationService photoModeration,
                           RateLimiter rateLimiter, TelegramService telegram,
+                          DeliveryPhotoStorage deliveryPhotos,
                           @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir,
                           @Value("${savefood.volunteer-upload-dir}") String legacyVolunteerUploadDir) {
         this.repo = repo;
@@ -78,8 +78,18 @@ public class NeedyController {
         this.photoModeration = photoModeration;
         this.rateLimiter = rateLimiter;
         this.telegram = telegram;
+        this.deliveryPhotos = deliveryPhotos;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
-        this.legacyVolunteerUploadDir = legacyVolunteerUploadDir;
+    }
+
+    /** Constructor retained for focused controller tests without file cleanup. */
+    public NeedyController(NeedyRepository repo, NeedyService service, ShopRepository shopRepo,
+                          CacheService cache, UploadService uploads,
+                          PhotoModerationService photoModeration,
+                          RateLimiter rateLimiter, TelegramService telegram,
+                          String deliveryPhotoUploadDir, String legacyVolunteerUploadDir) {
+        this(repo, service, shopRepo, cache, uploads, photoModeration, rateLimiter, telegram,
+            null, deliveryPhotoUploadDir, legacyVolunteerUploadDir);
     }
 
     // ── Registration ────────────────────────────────────────────────────────────
@@ -236,16 +246,12 @@ public class NeedyController {
         // public /volunteer_uploads alias.
         String filename = uploads.validateAndSave(file, deliveryPhotoUploadDir);
         String photoRef = "/delivery_photos/" + filename;
-        String oldPhoto;
         try {
-            oldPhoto = service.setDeliveryPhotoPending(needyId, ticketId, photoRef);
+            service.setDeliveryPhotoPending(needyId, ticketId, photoRef);
         } catch (RuntimeException e) {
-            deleteQuietly(Paths.get(deliveryPhotoUploadDir, filename));
+            deliveryPhotos.deleteOrQueue(photoRef);
             throw e;
         }
-
-        // The DB now points at the new file — the replaced photo (if any) is an orphan.
-        deleteDeliveryPhoto(oldPhoto);
 
         // Fire-and-forget AI "is this actually food?" pre-check (§36.1).
         photoModeration.startPhotoCheck(ticketId, Paths.get(deliveryPhotoUploadDir, filename).toString(), photoRef);
@@ -331,11 +337,6 @@ public class NeedyController {
         if (result == null) {
             throw new ApiException(404, "Needy not found");
         }
-        // Delete any delivery photos from private storage (and legacy public
-        // storage for pre-migration rows).
-        for (String photo : result.photos()) {
-            deleteDeliveryPhoto(photo);
-        }
         return Map.of("ok", true, "deleted", true);
     }
 
@@ -419,18 +420,6 @@ public class NeedyController {
         }
     }
 
-    private static String basename(String url) {
-        return Paths.get(url).getFileName().toString();
-    }
-
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException ignored) {
-            // best-effort, like the Python os.remove in a failure branch
-        }
-    }
-
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }
@@ -442,17 +431,6 @@ public class NeedyController {
 
     private static Double asDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : null;
-    }
-
-    private void deleteDeliveryPhoto(String photo) {
-        if (photo == null || photo.isBlank()) {
-            return;
-        }
-        if (photo.startsWith("/delivery_photos/")) {
-            deleteQuietly(Paths.get(deliveryPhotoUploadDir, basename(photo)));
-        } else if (photo.startsWith("/volunteer_uploads/")) {
-            deleteQuietly(Paths.get(legacyVolunteerUploadDir, basename(photo)));
-        }
     }
 
     private static void validateProvidedCoordinates(Double lat, Double lon) {

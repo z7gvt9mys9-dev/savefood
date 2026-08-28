@@ -657,7 +657,11 @@ public class VolunteerService {
             throw new ApiException(409,
                 "Заявка уже не закреплена за вами (снята по таймауту или передана другому волонтёру)");
         }
-        return (String) ticket.get("delivery_photo");
+        String previous = (String) ticket.get("delivery_photo");
+        if (previous != null && !previous.equals(photoRef) && deliveryPhotos != null) {
+            deliveryPhotos.deleteAfterCommit(previous);
+        }
+        return previous;
     }
 
     // ── finish_route ─────────────────────────────────────────────────────────────

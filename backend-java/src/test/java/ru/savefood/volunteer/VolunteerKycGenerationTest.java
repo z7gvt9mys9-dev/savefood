@@ -21,7 +21,10 @@ import ru.savefood.audit.AuditService;
 import ru.savefood.kyc.KycCrypto;
 import ru.savefood.kyc.KycService;
 import ru.savefood.photo.PhotoModerationService;
+import ru.savefood.photo.DeliveryPhotoStorage;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.storage.SensitiveFileCleanup;
+import ru.savefood.storage.SensitiveFileCleanup.Storage;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
 import ru.savefood.web.RateLimiter;
@@ -49,6 +52,8 @@ class VolunteerKycGenerationTest {
         UUID.fromString(generation.getValue());
         verify(fixture.kyc).startVolunteerKycCheck(7,
             uploadDir.resolve("b.pdf").toString(), "Volunteer", generation.getValue());
+        verify(fixture.sensitiveFiles).trackAndDeleteAfterCommit(
+            Storage.VOLUNTEER_KYC, "/volunteer_kyc/a.pdf");
     }
 
     @Test
@@ -71,12 +76,14 @@ class VolunteerKycGenerationTest {
         KycService kyc = mock(KycService.class);
         MultipartFile file = mock(MultipartFile.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
+        SensitiveFileCleanup sensitiveFiles = mock(SensitiveFileCleanup.class);
         VolunteerController controller = new VolunteerController(
             repo, mock(VolunteerService.class), mock(RateLimiter.class), uploads,
             mock(KycCrypto.class), kyc, mock(PhotoModerationService.class),
             mock(WebhookService.class), mock(TelegramService.class), mock(JdbcTemplate.class),
-            mock(AuditService.class), true, uploadDir.toString(), uploadDir.toString());
-        return new Fixture(controller, repo, uploads, kyc, file, request);
+            mock(AuditService.class), sensitiveFiles, mock(DeliveryPhotoStorage.class),
+            true, uploadDir.toString(), uploadDir.toString());
+        return new Fixture(controller, repo, uploads, kyc, sensitiveFiles, file, request);
     }
 
     private static Map<String, Object> volunteerRow(String document, String generation) {
@@ -90,7 +97,8 @@ class VolunteerKycGenerationTest {
     }
 
     private record Fixture(VolunteerController controller, VolunteerRepository repo,
-                           UploadService uploads, KycService kyc, MultipartFile file,
+                           UploadService uploads, KycService kyc, SensitiveFileCleanup sensitiveFiles,
+                           MultipartFile file,
                            HttpServletRequest request) {
     }
 }

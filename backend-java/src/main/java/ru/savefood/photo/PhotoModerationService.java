@@ -72,6 +72,7 @@ public class PhotoModerationService {
     private final String model;
     private final boolean autoModerate;
     private final double autoApproveScore;
+    private final DeliveryPhotoStorage deliveryPhotos;
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "photo-check");
         t.setDaemon(true);
@@ -82,12 +83,14 @@ public class PhotoModerationService {
             @Value("${savefood.gemini-api-key:}") String apiKey,
             @Value("${savefood.photo-model:${savefood.ocr-model:gemini-2.5-flash}}") String model,
             @Value("${savefood.photo-auto-moderate:false}") boolean autoModerate,
-            @Value("${savefood.photo-auto-approve-score:0.85}") double autoApproveScore) {
+            @Value("${savefood.photo-auto-approve-score:0.85}") double autoApproveScore,
+            DeliveryPhotoStorage deliveryPhotos) {
         this.jdbc = jdbc;
         this.apiKey = apiKey;
         this.model = model;
         this.autoModerate = autoModerate;
         this.autoApproveScore = autoApproveScore;
+        this.deliveryPhotos = deliveryPhotos;
     }
 
     /** Fire-and-forget entry point, the analogue of {@code start_photo_check}. */
@@ -122,11 +125,7 @@ public class PhotoModerationService {
                 result.verdict, result.score, notes, auto != null);
             if (applied && "rejected".equals(auto)) {
                 // Drop the analysed file so it never leaks; the row keeps the verdict.
-                try {
-                    Files.deleteIfExists(path);
-                } catch (Exception ignored) {
-                    // best-effort, like the Python os.remove in a failure branch
-                }
+                deliveryPhotos.deleteAfterCommit(photoRef);
             }
             log.info("[photo] ticket " + ticketId + ": " + result.verdict + " (" + result.score + ") → "
                 + (auto != null ? auto : "pending") + (applied ? "" : " (stale, not applied)"));
