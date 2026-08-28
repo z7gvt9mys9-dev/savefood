@@ -191,6 +191,7 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
         return new ShopController(receipts, mock(ShopService.class), billing, ocr,
             mock(ForecastService.class), mock(EsgService.class), webhooks,
             mock(NeedsMatchService.class), new UploadService(), new RateLimiter(),
+            mock(ru.savefood.shop.LotPhotoReferenceService.class),
             receiptDir.toString(), receiptDir.toString());
     }
 

@@ -50,6 +50,29 @@ public class ShopRepository {
             address, timeSlot, category, comment, requiresCold, unit, unitWeightKg);
     }
 
+    // ── Staged lot-photo references ──────────────────────────────────────────
+
+    /** Records a validated image produced by the shop lot-photo upload endpoint. */
+    public void stageLotPhotoUpload(int shopId, String filename) {
+        jdbc.update("INSERT INTO shop_lot_photo_uploads (filename, shop_id) VALUES (?, ?)",
+            filename, shopId);
+    }
+
+    /** Fast-fail check; {@link #claimLotPhotoUpload} remains authoritative. */
+    public boolean hasAvailableLotPhotoUpload(int shopId, String filename) {
+        return Boolean.TRUE.equals(jdbc.query(
+            "SELECT EXISTS (SELECT 1 FROM shop_lot_photo_uploads "
+                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL)",
+            rs -> rs.next() && rs.getBoolean(1), shopId, filename));
+    }
+
+    /** Atomically binds a staged upload to exactly one lot owned by its uploader. */
+    public boolean claimLotPhotoUpload(int shopId, String filename, int lotId) {
+        return jdbc.update("UPDATE shop_lot_photo_uploads SET lot_id = ?, claimed_at = CURRENT_TIMESTAMP "
+                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL",
+            lotId, shopId, filename) == 1;
+    }
+
     /**
      * Multi-photo variant: the whole list is stored as a JSON array in {@code photos},
      * the first item is duplicated into the legacy {@code photo} column (volunteer map,

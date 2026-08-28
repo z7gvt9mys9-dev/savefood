@@ -82,6 +82,27 @@ public class ShopService {
             category, comment, requiresCold, unit, unitWeightKg);
     }
 
+    /**
+     * Creates a private-donor lot and consumes its already validated, owner-bound
+     * staged image in the same transaction.  The conditional claim prevents a
+     * reference from being attached to two lots under concurrent requests.
+     */
+    @Transactional
+    public int createLotWithClaimedPhoto(int shopId, String description, double quantity,
+                                         LocalDate expiryDate, String filename, String address,
+                                         String timeSlot, String category, String comment,
+                                         boolean requiresCold, String unit, double unitWeightKg) {
+        requirePositiveFinite(quantity, "quantity");
+        requirePositiveFinite(unitWeightKg, "unit_weight_kg");
+        billing.acquireLotQuota(shopId);
+        int lotId = repo.createLot(shopId, description, quantity, expiryDate, "/uploads/" + filename,
+            address, timeSlot, category, comment, requiresCold, unit, unitWeightKg);
+        if (!repo.claimLotPhotoUpload(shopId, filename, lotId)) {
+            throw new ApiException(400, "Фотография лота недействительна или уже использована");
+        }
+        return lotId;
+    }
+
     /** As {@link #createLot} but with the full photo list (multi-upload form). */
     @Transactional
     public int createLotWithPhotos(int shopId, String description, double quantity, LocalDate expiryDate,

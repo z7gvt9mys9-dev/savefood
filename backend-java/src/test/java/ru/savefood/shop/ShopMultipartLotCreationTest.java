@@ -148,6 +148,7 @@ class ShopMultipartLotCreationTest {
         return new ShopController(repo, service, mock(BillingService.class), mock(ReceiptService.class),
             mock(ForecastService.class), mock(EsgService.class), mock(WebhookService.class),
             mock(NeedsMatchService.class), new UploadService(), mock(RateLimiter.class),
+            mock(LotPhotoReferenceService.class),
             uploadDir.toString(), uploadDir.toString());
     }
 

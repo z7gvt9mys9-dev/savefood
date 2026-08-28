@@ -75,6 +75,7 @@ public class ShopController {
     private final WebhookService webhooks;
     private final NeedsMatchService needsMatch;
     private final ru.savefood.upload.UploadService uploads;
+    private final LotPhotoReferenceService lotPhotoReferences;
     private final RateLimiter rateLimiter;
     private final ObjectMapper mapper = new ObjectMapper();
     private final String uploadDir;
@@ -84,6 +85,7 @@ public class ShopController {
                           ReceiptService receiptService, ForecastService forecast, EsgService esg,
                           WebhookService webhooks, NeedsMatchService needsMatch,
                           ru.savefood.upload.UploadService uploads, RateLimiter rateLimiter,
+                          LotPhotoReferenceService lotPhotoReferences,
                           @Value("${savefood.shop-upload-dir}") String uploadDir,
                           @Value("${savefood.receipt-upload-dir}") String receiptDir) {
         this.repo = repo;
@@ -96,6 +98,7 @@ public class ShopController {
         this.needsMatch = needsMatch;
         this.uploads = uploads;
         this.rateLimiter = rateLimiter;
+        this.lotPhotoReferences = lotPhotoReferences;
         this.uploadDir = uploadDir;
         this.receiptDir = receiptDir;
     }
@@ -129,24 +132,42 @@ public class ShopController {
 
         String unit = payload.unit() == null ? "кг" : payload.unit();
         double weight = resolveWeight(unit, payload.unitWeightKg());
-        // C2C anti-abuse (§45): a private donor's lot must show the actual food.
-        if ("private".equals(shop.get("kind")) && isBlank(payload.photo())) {
+        boolean privateDonor = "private".equals(shop.get("kind"));
+        if (privateDonor && isBlank(payload.photo())) {
             throw new ApiException(400, "Для частных доноров фотография лота обязательна");
         }
         if (payload.quantity() == null) {
             throw new ApiException(422, "quantity обязателен");
         }
         requirePositiveFinite(payload.quantity(), "quantity");
-        int lotId = service.createLot(shopId, payload.description(), payload.quantity(),
-            payload.expiryDate(), payload.photo(), payload.address(), payload.timeSlot(),
-            requireKnownCategory(payload.category()), payload.comment(),
-            Boolean.TRUE.equals(payload.requiresCold()), unit, weight);
+        int lotId;
+        if (privateDonor) {
+            String filename = lotPhotoReferences.requireAvailable(shopId, payload.photo());
+            lotId = service.createLotWithClaimedPhoto(shopId, payload.description(), payload.quantity(),
+                payload.expiryDate(), filename, payload.address(), payload.timeSlot(),
+                requireKnownCategory(payload.category()), payload.comment(),
+                Boolean.TRUE.equals(payload.requiresCold()), unit, weight);
+        } else {
+            lotId = service.createLot(shopId, payload.description(), payload.quantity(),
+                payload.expiryDate(), payload.photo(), payload.address(), payload.timeSlot(),
+                requireKnownCategory(payload.category()), payload.comment(),
+                Boolean.TRUE.equals(payload.requiresCold()), unit, weight);
+        }
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }
 
     /** Photos per lot: the multi-upload form caps at this many files. */
     private static final int MAX_LOT_PHOTOS = 5;
+
+    /** Stages one validated image for the JSON private-donor lot-create contract. */
+    @PostMapping(value = "/shops/{shopId}/lot-photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> uploadLotPhoto(@PathVariable int shopId, @RequestParam MultipartFile file,
+                                              @Auth CurrentUser user) {
+        Authz.ensureOwnerOrAdmin(user, "shop", shopId);
+        requireShop(shopId);
+        return Map.of("photo", lotPhotoReferences.stage(shopId, file));
+    }
 
     @PostMapping(value = "/shops/{shopId}/lots/upload",
                  consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
