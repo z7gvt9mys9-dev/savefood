@@ -22,6 +22,7 @@ import ru.savefood.shop.ShopService;
 import ru.savefood.util.Clamp;
 import ru.savefood.web.ApiException;
 import ru.savefood.webhook.WebhookService;
+import ru.savefood.webhook.WebhookProperties;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,16 +58,19 @@ public class PartnerApiController {
     private final NeedsMatchService needsMatch;
     private final ShopService shopService;
     private final ShopRepository shopRepo;
+    private final WebhookProperties webhookProperties;
     private final SecureRandom random = new SecureRandom();
 
     public PartnerApiController(JdbcTemplate jdbc, BillingService billing, EsgService esg,
-                               NeedsMatchService needsMatch, ShopService shopService, ShopRepository shopRepo) {
+                               NeedsMatchService needsMatch, ShopService shopService, ShopRepository shopRepo,
+                               WebhookProperties webhookProperties) {
         this.jdbc = jdbc;
         this.billing = billing;
         this.esg = esg;
         this.needsMatch = needsMatch;
         this.shopService = shopService;
         this.shopRepo = shopRepo;
+        this.webhookProperties = webhookProperties;
     }
 
     // ── /api/v1 (X-API-Key) ─────────────────────────────────────────────────────
@@ -200,9 +204,18 @@ public class PartnerApiController {
                 + ". Допустимые: " + String.join(", ", WebhookService.EVENTS) + " или *");
         }
         String secret = "whsec_" + tokenHex(24);
-        Integer hookId = jdbc.queryForObject(
-            "INSERT INTO webhooks (shop_id, url, secret, events) VALUES (?, ?, ?, ?) RETURNING id",
-            Integer.class, shopId, payload.url(), secret, String.join(",", events));
+        List<Integer> hookIds = jdbc.query(
+            "WITH shop_lock AS (SELECT pg_advisory_xact_lock(?)), inserted AS ("
+                + "INSERT INTO webhooks (shop_id, url, secret, events) "
+                + "SELECT ?, ?, ?, ? FROM shop_lock "
+                + "WHERE (SELECT COUNT(*) FROM webhooks WHERE shop_id = ?) < ? RETURNING id) "
+                + "SELECT id FROM inserted",
+            (rs, n) -> rs.getInt("id"), shopId, shopId, payload.url(), secret, String.join(",", events),
+            shopId, webhookProperties.getMaxPerShop());
+        if (hookIds.isEmpty()) {
+            throw new ApiException(409, "Достигнут лимит вебхуков для магазина");
+        }
+        Integer hookId = hookIds.getFirst();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", hookId);
         out.put("secret", secret);

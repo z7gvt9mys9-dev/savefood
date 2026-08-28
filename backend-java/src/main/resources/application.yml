@@ -92,6 +92,15 @@ savefood:
   background-tasks: ${BACKGROUND_TASKS_JAVA:off}
   kyc-retry-batch: ${KYC_RETRY_BATCH:100}
   kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
+  webhook:
+    # Bound partner delivery so slow endpoints cannot consume arbitrary JVM resources.
+    worker-count: ${WEBHOOK_WORKER_COUNT:8}
+    queue-capacity: ${WEBHOOK_QUEUE_CAPACITY:100}
+    request-timeout: ${WEBHOOK_REQUEST_TIMEOUT:10s}
+    max-retries: ${WEBHOOK_MAX_RETRIES:2}
+    initial-backoff: ${WEBHOOK_INITIAL_BACKOFF:100ms}
+    max-per-shop: ${WEBHOOK_MAX_PER_SHOP:20}
+    max-in-flight-per-shop: ${WEBHOOK_MAX_IN_FLIGHT_PER_SHOP:2}
   # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27) and
   # the questions the AI assistant escalates (§16).
   support-chat-id: ${SUPPORT_CHAT_ID:}

@@ -8,17 +8,22 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Logger;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -26,32 +31,57 @@ import org.springframework.stereotype.Service;
  * Outgoing webhooks for Enterprise shops, ported from webhook_service.py.
  * Delivery runs off the request thread (a daemon executor here, daemon threads
  * in Python); the body is HMAC-SHA256-signed with the webhook secret and sent
- * with {@code X-SaveFood-Event} / {@code X-SaveFood-Signature} headers. No
- * retries — {@code last_status}/{@code last_delivery_at} surface failures in the
- * dashboard. A best-effort SSRF guard blocks delivery to internal addresses.
+ * with {@code X-SaveFood-Event} / {@code X-SaveFood-Signature} headers. Delivery
+ * is bounded so a partner's slow endpoint cannot consume request threads or grow
+ * the process without limit. A best-effort SSRF guard blocks internal addresses.
  */
 @Service
 public class WebhookService {
 
     private static final Logger log = Logger.getLogger(WebhookService.class.getName());
-    private static final Duration DELIVERY_TIMEOUT = Duration.ofSeconds(10);
-
     /** The events a partner webhook may subscribe to (webhook_service.py {@code EVENTS}). */
     public static final java.util.List<String> EVENTS =
         java.util.List.of("lot.taken", "lot.confirmed", "receipt.parsed");
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ExecutorService delivery = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "webhook-delivery");
-        t.setDaemon(true);
-        return t;
-    });
-    private final HttpClient http = HttpClient.newBuilder()
-        .connectTimeout(DELIVERY_TIMEOUT).build();
+    private final WebhookProperties properties;
+    private final ThreadPoolExecutor delivery;
+    private final HttpClient http;
+    private final DeliverySender sender;
+    private final UrlValidator urlValidator;
+    private final ConcurrentHashMap<Integer, Semaphore> shopPermits = new ConcurrentHashMap<>();
+    private final AtomicInteger createdThreads = new AtomicInteger();
+    private final AtomicLong rejectedDeliveries = new AtomicLong();
 
-    public WebhookService(JdbcTemplate jdbc) {
+    public WebhookService(JdbcTemplate jdbc, WebhookProperties properties) {
         this.jdbc = jdbc;
+        this.properties = properties;
+        properties.validate();
+        this.http = HttpClient.newBuilder().connectTimeout(properties.getRequestTimeout()).build();
+        this.sender = this::sendHttp;
+        this.urlValidator = WebhookService::isSafeWebhookUrl;
+        this.delivery = newExecutor();
+    }
+
+    WebhookService(JdbcTemplate jdbc, WebhookProperties properties, DeliverySender sender,
+                   UrlValidator urlValidator) {
+        this.jdbc = jdbc;
+        this.properties = properties;
+        properties.validate();
+        this.http = HttpClient.newBuilder().connectTimeout(properties.getRequestTimeout()).build();
+        this.sender = sender;
+        this.urlValidator = urlValidator;
+        this.delivery = newExecutor();
+    }
+
+    private ThreadPoolExecutor newExecutor() {
+        return new ThreadPoolExecutor(properties.getWorkerCount(), properties.getWorkerCount(),
+            0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(properties.getQueueCapacity()), r -> {
+                Thread t = new Thread(r, "webhook-delivery-" + createdThreads.incrementAndGet());
+                t.setDaemon(true);
+                return t;
+            }, new ThreadPoolExecutor.AbortPolicy());
     }
 
     /** Fan {@code event} out to every matching active webhook of the shop. */
@@ -88,7 +118,29 @@ public class WebhookService {
             int id = ((Number) h.get("id")).intValue();
             String url = (String) h.get("url");
             String secret = (String) h.get("secret");
-            delivery.submit(() -> deliver(id, url, secret, event, body));
+            Semaphore permits = shopPermits.computeIfAbsent(shopId,
+                ignored -> new Semaphore(properties.getMaxInFlightPerShop()));
+            if (!permits.tryAcquire()) {
+                rejectedDeliveries.incrementAndGet();
+                log.warning("[webhook] delivery for webhook id=" + id
+                    + " dropped: per-shop delivery limit reached");
+                continue;
+            }
+            try {
+                delivery.execute(() -> {
+                    try {
+                        deliverWithRetries(id, url, secret, event, body);
+                    } finally {
+                        permits.release();
+                    }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                permits.release();
+                rejectedDeliveries.incrementAndGet();
+                // The caller must never wait for capacity. A later event can retry delivery.
+                log.warning("[webhook] delivery for webhook id=" + id
+                    + " dropped: delivery queue is full");
+            }
         }
     }
 
@@ -119,24 +171,28 @@ public class WebhookService {
         }
     }
 
-    private void deliver(int webhookId, String url, String secret, String event, byte[] body) {
+    private void deliverWithRetries(int webhookId, String url, String secret, String event, byte[] body) {
         Integer status = null;
-        if (!isSafeWebhookUrl(url)) {
-            log.warning("[webhook] delivery to " + url
+        if (!urlValidator.isSafe(url)) {
+            log.warning("[webhook] delivery for webhook id=" + webhookId
                 + " blocked: resolves to an internal/unsafe address");
         } else {
-            try {
-                HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(DELIVERY_TIMEOUT)
-                    .header("content-type", "application/json")
-                    .header("x-savefood-event", event)
-                    .header("x-savefood-signature", sign(secret, body))
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                    .build();
-                HttpResponse<Void> resp = http.send(req, HttpResponse.BodyHandlers.discarding());
-                status = resp.statusCode();
-            } catch (Exception e) {
-                log.warning("[webhook] delivery to " + url + " failed: " + e);
+            for (int attempt = 0; attempt <= properties.getMaxRetries(); attempt++) {
+                try {
+                    status = sender.send(url, secret, event, body);
+                    if (!isRetryableStatus(status) || attempt == properties.getMaxRetries()) {
+                        break;
+                    }
+                } catch (Exception e) {
+                    if (attempt == properties.getMaxRetries()) {
+                        log.warning("[webhook] delivery for webhook id=" + webhookId
+                            + " failed after " + (attempt + 1) + " attempts: " + e.getClass().getSimpleName());
+                        break;
+                    }
+                }
+                if (!backoff(attempt)) {
+                    break;
+                }
             }
         }
         try {
@@ -145,6 +201,55 @@ public class WebhookService {
         } catch (RuntimeException ignored) {
             // best-effort, like the Python except: pass
         }
+    }
+
+    private Integer sendHttp(String url, String secret, String event, byte[] body) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+            .timeout(properties.getRequestTimeout())
+            .header("content-type", "application/json")
+            .header("x-savefood-event", event)
+            .header("x-savefood-signature", sign(secret, body))
+            .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+            .build();
+        HttpResponse<Void> resp = http.send(req, HttpResponse.BodyHandlers.discarding());
+        return resp.statusCode();
+    }
+
+    private boolean backoff(int attempt) {
+        try {
+            long delay = Math.multiplyExact(properties.getInitialBackoff().toMillis(), 1L << attempt);
+            Thread.sleep(delay);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ArithmeticException e) {
+            return false;
+        }
+    }
+
+    private static boolean isRetryableStatus(Integer status) {
+        return status != null && (status == 408 || status == 429 || status >= 500);
+    }
+
+    @PreDestroy
+    void stop() {
+        delivery.shutdown();
+    }
+
+    int activeDeliveryCount() { return delivery.getActiveCount(); }
+    int queuedDeliveryCount() { return delivery.getQueue().size(); }
+    int createdThreadCount() { return createdThreads.get(); }
+    long rejectedDeliveryCount() { return rejectedDeliveries.get(); }
+
+    @FunctionalInterface
+    interface DeliverySender {
+        Integer send(String url, String secret, String event, byte[] body) throws Exception;
+    }
+
+    @FunctionalInterface
+    interface UrlValidator {
+        boolean isSafe(String url);
     }
 
     /**
