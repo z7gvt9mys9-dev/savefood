@@ -46,7 +46,10 @@
 
     <!-- Rating -->
     <string name="vol_rating_title">Рейтинг</string>
-    <string name="vol_rating_level">Уровень %1$d</string>
+    <string name="vol_rating_level">Уровень %1$s</string>
+    <string name="vol_rating_points">Очки: %1$s</string>
+    <string name="vol_rating_next_level">Следующий уровень: %1$s (осталось %2$s очков)</string>
+    <string name="vol_rating_level_max">Максимальный уровень</string>
     <string name="vol_rating_avg">Средняя оценка: %1$s (%2$d)</string>
     <string name="vol_rating_no_rating">Пока нет оценок</string>
     <string name="vol_rating_deliveries">Доставок: %1$d</string>

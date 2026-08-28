@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
@@ -98,10 +99,32 @@ private fun LevelCard(stats: StatsDto) {
     SaveFoodCard {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
-                stringResource(R.string.vol_rating_level, stats.level),
+                stringResource(R.string.vol_rating_level, stats.level.code),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                stringResource(R.string.vol_rating_points, formatPoints(stats.level.points)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            LinearProgressIndicator(
+                progress = { stats.level.progress.toFloat() },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            val nextCode = stats.level.nextCode
+            Text(
+                if (nextCode == null) {
+                    stringResource(R.string.vol_rating_level_max)
+                } else {
+                    stringResource(
+                        R.string.vol_rating_next_level,
+                        nextCode,
+                        formatPoints(stats.level.pointsToNext),
+                    )
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             val avg = stats.avgRating
             Text(
@@ -248,3 +271,6 @@ private fun TeamCard(
 
 private fun formatKg(kg: Double): String =
     if (kg == kg.toLong().toDouble()) kg.toLong().toString() else "%.1f".format(kg)
+
+private fun formatPoints(points: Double): String =
+    if (points == points.toLong().toDouble()) points.toLong().toString() else "%.1f".format(points)

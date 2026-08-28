@@ -220,13 +220,23 @@ data class RatingDto(
 /** GET /volunteers/{id}/stats. */
 @Serializable
 data class StatsDto(
-    @SerialName("total_routes") val totalRoutes: Int = 0,
-    @SerialName("total_deliveries") val totalDeliveries: Int = 0,
-    @SerialName("total_kg") val totalKg: Double = 0.0,
-    @SerialName("avg_rating") val avgRating: Double? = null,
-    @SerialName("rating_count") val ratingCount: Int = 0,
-    val achievements: List<String> = emptyList(),
-    val level: Int = 0,
+    @SerialName("total_routes") val totalRoutes: Int,
+    @SerialName("total_deliveries") val totalDeliveries: Int,
+    @SerialName("total_kg") val totalKg: Double,
+    @SerialName("avg_rating") val avgRating: Double?,
+    @SerialName("rating_count") val ratingCount: Int,
+    val achievements: List<String>,
+    val level: VolunteerLevelDto,
+)
+
+/** Server-calculated progress returned in GET /volunteers/{id}/stats.level. */
+@Serializable
+data class VolunteerLevelDto(
+    val code: String,
+    val points: Double,
+    @SerialName("next_code") val nextCode: String?,
+    @SerialName("points_to_next") val pointsToNext: Double,
+    val progress: Double,
 )
 
 /** A thank-you note (GET /volunteers/{id}/thanks). */

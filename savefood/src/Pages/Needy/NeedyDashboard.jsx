@@ -45,6 +45,7 @@ const NeedyDashboard = () => {
   const [lotsOffset, setLotsOffset] = useState(0);
   const [lotsHasMore, setLotsHasMore] = useState(true);
   const [notifications, setNotifications] = useState([]);
+  const [notificationBoundary, setNotificationBoundary] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
@@ -107,8 +108,18 @@ const NeedyDashboard = () => {
       headers: {},
     })
       .then(res => res.json())
-      .then(data => setNotifications(Array.isArray(data) ? data : []))
-      .catch(() => {});
+      .then(data => {
+        const initial = Array.isArray(data) ? data : [];
+        const cursor = initial.reduce((max, item) =>
+          typeof item.id === 'number' ? Math.max(max, item.id) : max, 0);
+        setNotifications(initial);
+        // The first socket is intentionally gated on this REST boundary. Any
+        // row committed after the query snapshot is replayed from this cursor.
+        setNotificationBoundary({ needyId, cursor });
+      })
+      // A zero boundary lets the authenticated socket recover the complete
+      // notification stream if the initial REST request itself fails.
+      .catch(() => setNotificationBoundary({ needyId, cursor: 0 }));
 
     // Restore the active ticket after a page reload — otherwise the QR code is
     // gone (delivery can't be confirmed) and the ticket can't be cancelled,
@@ -140,7 +151,7 @@ const NeedyDashboard = () => {
 
   // WebSocket: live notification stream
   useEffect(() => {
-    if (!needyId) return;
+    if (!needyId || notificationBoundary?.needyId !== needyId) return;
     const apiBase = import.meta.env.VITE_API_URL ?? '';
     const wsUrl = apiBase
       ? apiBase.replace(/^https?/, m => m === 'https' ? 'wss' : 'ws') + `/ws/needy/${needyId}`
@@ -149,7 +160,7 @@ const NeedyDashboard = () => {
     let reconnectTimer;
     // Track the highest notification id we've seen so a reconnect can replay
     // anything that arrived while the socket was down.
-    let lastSeenId = null;
+    let lastSeenId = notificationBoundary.cursor;
     let disposed = false;
     const connect = async () => {
       let token;
@@ -164,8 +175,7 @@ const NeedyDashboard = () => {
       ws.onopen = () => {
         // Token is sent in the first message instead of the query string so it
         // never lands in nginx access logs or browser history.
-        const handshake = { type: 'auth', token };
-        if (lastSeenId != null) handshake.since_id = lastSeenId;
+        const handshake = { type: 'auth', token, since_id: lastSeenId };
         ws.send(JSON.stringify(handshake));
       };
       ws.onmessage = (e) => {
@@ -189,7 +199,7 @@ const NeedyDashboard = () => {
     };
     connect();
     return () => { disposed = true; clearTimeout(reconnectTimer); ws?.close(); };
-  }, [needyId]);
+  }, [needyId, notificationBoundary]);
 
   useEffect(() => {
     if (locationPollRef.current) clearInterval(locationPollRef.current);

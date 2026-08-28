@@ -46,7 +46,7 @@ import ru.savefood.app.feature.needy.data.TicketDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
 import ru.savefood.app.feature.needy.ui.RatingDialog
 
-/** "History" tab: past pickups, re-rating, impact photo, and deletion. */
+/** "History" tab: completed pickup details and active-request cancellation. */
 @Composable
 fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -60,7 +60,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
     }
 
     var rateTicket by remember { mutableStateOf<TicketDto?>(null) }
-    var deleteTicket by remember { mutableStateOf<Int?>(null) }
+    var ticketToCancel by remember { mutableStateOf<TicketDto?>(null) }
     var photoForTicket by remember { mutableStateOf<Int?>(null) }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -104,7 +104,7 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
                                 photoForTicket = ticket.id
                                 photoPicker.launch("image/*")
                             },
-                            onDelete = { deleteTicket = ticket.id },
+                            onCancel = { ticketToCancel = ticket },
                         )
                     }
                 }
@@ -126,16 +126,16 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
         )
     }
 
-    deleteTicket?.let { id ->
+    ticketToCancel?.let { ticket ->
         ConfirmDialog(
-            title = stringResource(R.string.needy_history_delete_confirm_title),
-            text = stringResource(R.string.needy_history_delete_confirm_desc),
-            confirmLabel = stringResource(R.string.needy_history_delete),
+            title = stringResource(R.string.needy_history_cancel_confirm_title),
+            text = stringResource(R.string.needy_history_cancel_confirm_desc),
+            confirmLabel = stringResource(R.string.needy_history_cancel),
             onConfirm = {
-                viewModel.delete(id)
-                deleteTicket = null
+                HistoryTicketActions.runCancellation(ticket) { viewModel.cancel(ticket) }
+                ticketToCancel = null
             },
-            onDismiss = { deleteTicket = null },
+            onDismiss = { ticketToCancel = null },
         )
     }
 }
@@ -146,7 +146,7 @@ private fun HistoryCard(
     busy: Boolean,
     onRate: () -> Unit,
     onAddPhoto: () -> Unit,
-    onDelete: () -> Unit,
+    onCancel: () -> Unit,
 ) {
     val isFulfilled = ticket.status == "fulfilled"
     val canRate = isFulfilled && ticket.assignedVolunteerId != null
@@ -209,11 +209,13 @@ private fun HistoryCard(
                 }
             }
 
-            TextButton(onClick = onDelete, enabled = !busy) {
-                Text(
-                    stringResource(R.string.needy_history_delete),
-                    color = MaterialTheme.colorScheme.error,
-                )
+            if (HistoryTicketActions.actionFor(ticket) == HistoryTicketAction.CANCEL_ACTIVE_REQUEST) {
+                TextButton(onClick = onCancel, enabled = !busy) {
+                    Text(
+                        stringResource(R.string.needy_history_cancel),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }

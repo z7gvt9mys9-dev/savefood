@@ -63,7 +63,7 @@ public class EsgService {
         "COALESCE(SUM(t.quantity * l.unit_weight_kg), 0)";
 
     private final JdbcTemplate jdbc;
-
+    
     public EsgService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }

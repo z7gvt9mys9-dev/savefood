@@ -66,11 +66,12 @@ class HistoryViewModel @Inject constructor(
         }
     }
 
-    fun delete(ticketId: Int, onDone: () -> Unit = {}) {
+    fun cancel(ticket: TicketDto, onDone: () -> Unit = {}) {
+        if (!HistoryTicketActions.canCancel(ticket)) return
         viewModelScope.launch {
             val needyId = repo.currentNeedyId() ?: return@launch
-            _state.update { it.copy(busyTicketId = ticketId) }
-            val res = repo.deleteTicket(needyId, ticketId)
+            _state.update { it.copy(busyTicketId = ticket.id) }
+            val res = repo.deleteTicket(needyId, ticket.id)
             _state.update { it.copy(busyTicketId = null) }
             handleResult(res) { load(); onDone() }
         }

@@ -64,9 +64,9 @@
     <string name="needy_history_photo_pending">Photo under review</string>
     <string name="needy_history_photo_approved">Photo published</string>
     <string name="needy_history_photo_rejected">Photo rejected</string>
-    <string name="needy_history_delete">Delete request</string>
-    <string name="needy_history_delete_confirm_title">Delete request?</string>
-    <string name="needy_history_delete_confirm_desc">The record will be removed. This cannot be undone.</string>
+    <string name="needy_history_cancel">Cancel active request</string>
+    <string name="needy_history_cancel_confirm_title">Cancel active request?</string>
+    <string name="needy_history_cancel_confirm_desc">The active request and delivery will be cancelled. This cannot be undone.</string>
 
     <!-- Rating -->
     <string name="needy_rate_title">Rate the delivery</string>

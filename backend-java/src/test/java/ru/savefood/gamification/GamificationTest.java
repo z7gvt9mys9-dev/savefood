@@ -12,7 +12,9 @@ class GamificationTest {
         assertThat(lvl.get("code")).isEqualTo("novice");
         assertThat(lvl.get("points")).isEqualTo(0.0);
         assertThat(lvl.get("next_code")).isEqualTo("helper");
+        assertThat(lvl.get("points_to_next")).isEqualTo(50.0);
         assertThat(lvl.get("progress")).isEqualTo(0.0);
+        assertThat(lvl).containsOnlyKeys("code", "points", "next_code", "points_to_next", "progress");
     }
 
     @Test

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -302,28 +303,166 @@ type wsMessage struct {
 	Payload string `json:"payload"`
 }
 
-type client struct {
-	conn    *websocket.Conn
+type notificationRow struct {
 	needyID int
-	mu      sync.Mutex // gorilla/websocket forbids concurrent writers
+	msg     wsMessage
+}
+
+type notificationSource interface {
+	latestID(context.Context) (int64, error)
+	after(context.Context, int64) ([]notificationRow, error)
+	afterForNeedy(context.Context, int, int64) ([]wsMessage, error)
+}
+
+type postgresNotificationSource struct {
+	pool *pgxpool.Pool
+}
+
+func (s postgresNotificationSource) latestID(ctx context.Context) (int64, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx,
+		"SELECT COALESCE(MAX(id), 0) FROM notifications WHERE needy_id IS NOT NULL").Scan(&id)
+	return id, err
+}
+
+func (s postgresNotificationSource) after(ctx context.Context, since int64) ([]notificationRow, error) {
+	rows, err := s.pool.Query(ctx,
+		"SELECT id, needy_id, COALESCE(type, ''), COALESCE(payload, '') FROM notifications WHERE id > $1 AND needy_id IS NOT NULL ORDER BY id ASC",
+		since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []notificationRow
+	for rows.Next() {
+		var row notificationRow
+		if err := rows.Scan(&row.msg.ID, &row.needyID, &row.msg.Type, &row.msg.Payload); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+func (s postgresNotificationSource) afterForNeedy(ctx context.Context, needyID int, since int64) ([]wsMessage, error) {
+	rows, err := s.pool.Query(ctx,
+		"SELECT id, COALESCE(type, ''), COALESCE(payload, '') FROM notifications WHERE needy_id = $1 AND id > $2 ORDER BY id ASC",
+		needyID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []wsMessage
+	for rows.Next() {
+		var msg wsMessage
+		if err := rows.Scan(&msg.ID, &msg.Type, &msg.Payload); err != nil {
+			return nil, err
+		}
+		result = append(result, msg)
+	}
+	return result, rows.Err()
+}
+
+type client struct {
+	conn       *websocket.Conn
+	needyID    int
+	mu         sync.Mutex // protects writes and the per-connection delivery cursor
+	cursor     int64
+	catchingUp bool
+	pending    map[int64]wsMessage
+	writeJSON  func(any) error // test seam; nil uses conn.WriteJSON
+}
+
+func newClient(conn *websocket.Conn, needyID int, cursor int64) *client {
+	return &client{
+		conn: conn, needyID: needyID, cursor: cursor, catchingUp: true,
+		pending: make(map[int64]wsMessage),
+	}
+}
+
+func (cl *client) writeLocked(v any) error {
+	if cl.writeJSON != nil {
+		return cl.writeJSON(v)
+	}
+	cl.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	return cl.conn.WriteJSON(v)
 }
 
 func (cl *client) send(v any) error {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
-	cl.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return cl.conn.WriteJSON(v)
+	return cl.writeLocked(v)
+}
+
+// deliver queues live rows while the connection's own catch-up query is in
+// flight. Once catch-up completes, rows from both paths are merged by id and
+// written once, in order, before normal live delivery begins.
+func (cl *client) deliver(msg wsMessage) error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	if msg.ID <= cl.cursor {
+		return nil
+	}
+	if cl.catchingUp {
+		cl.pending[msg.ID] = msg
+		return nil
+	}
+	if err := cl.writeLocked(msg); err != nil {
+		return err
+	}
+	cl.cursor = msg.ID
+	return nil
+}
+
+func (cl *client) finishCatchUp(replay []wsMessage) error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	merged := make(map[int64]wsMessage, len(replay)+len(cl.pending))
+	for _, msg := range replay {
+		merged[msg.ID] = msg
+	}
+	for id, msg := range cl.pending {
+		merged[id] = msg
+	}
+	ids := make([]int64, 0, len(merged))
+	for id := range merged {
+		if id > cl.cursor {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		if err := cl.writeLocked(merged[id]); err != nil {
+			return err
+		}
+		cl.cursor = id
+	}
+	cl.pending = nil
+	cl.catchingUp = false
+	return nil
+}
+
+func (cl *client) lastDeliveredID() int64 {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	return cl.cursor
 }
 
 type hub struct {
 	mu      sync.Mutex
 	clients map[int]map[*client]struct{} // needyID → connections
 	lastID  int64
+	source  notificationSource
 }
 
 func newHub(ctx context.Context) *hub {
-	h := &hub{clients: make(map[int]map[*client]struct{})}
-	_ = pool.QueryRow(ctx, "SELECT COALESCE(MAX(id), 0) FROM notifications").Scan(&h.lastID)
+	return newHubWithSource(ctx, postgresNotificationSource{pool: pool})
+
+}
+
+func newHubWithSource(ctx context.Context, source notificationSource) *hub {
+	h := &hub{clients: make(map[int]map[*client]struct{}), source: source}
+	h.lastID, _ = source.latestID(ctx)
 	return h
 }
 
@@ -349,6 +488,41 @@ func (h *hub) remove(cl *client) {
 	}
 }
 
+func (h *hub) pollOnce(ctx context.Context) error {
+	h.mu.Lock()
+	idle := len(h.clients) == 0
+	last := h.lastID
+	h.mu.Unlock()
+	if idle {
+		return nil
+	}
+	batch, err := h.source.after(ctx, last)
+	if err != nil {
+		return err
+	}
+	for _, row := range batch {
+		h.mu.Lock()
+		if row.msg.ID > h.lastID {
+			h.lastID = row.msg.ID
+		}
+		targets := make([]*client, 0, len(h.clients[row.needyID]))
+		for cl := range h.clients[row.needyID] {
+			targets = append(targets, cl)
+		}
+		h.mu.Unlock()
+		for _, cl := range targets {
+			if err := cl.deliver(row.msg); err != nil {
+				h.remove(cl)
+				if cl.conn != nil {
+					cl.conn.Close()
+				}
+			}
+		}
+	}
+	return nil
+
+}
+
 // run is the single shared poller: one query per tick feeds every connection.
 func (h *hub) run(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
@@ -359,53 +533,8 @@ func (h *hub) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
-
-		h.mu.Lock()
-		idle := len(h.clients) == 0
-		last := h.lastID
-		h.mu.Unlock()
-		if idle {
-			continue // nobody connected — skip the query entirely
-		}
-
-		rows, err := pool.Query(ctx,
-			"SELECT id, needy_id, COALESCE(type, ''), COALESCE(payload, '') FROM notifications WHERE id > $1 AND needy_id IS NOT NULL ORDER BY id ASC",
-			last)
-		if err != nil {
+		if err := h.pollOnce(ctx); err != nil {
 			log.Printf("[hub] poll error: %v", err)
-			continue
-		}
-		type row struct {
-			id      int64
-			needyID int
-			msg     wsMessage
-		}
-		var batch []row
-		for rows.Next() {
-			var r row
-			if err := rows.Scan(&r.id, &r.needyID, &r.msg.Type, &r.msg.Payload); err == nil {
-				r.msg.ID = r.id
-				batch = append(batch, r)
-			}
-		}
-		rows.Close()
-
-		for _, r := range batch {
-			h.mu.Lock()
-			if r.id > h.lastID {
-				h.lastID = r.id
-			}
-			targets := make([]*client, 0, len(h.clients[r.needyID]))
-			for cl := range h.clients[r.needyID] {
-				targets = append(targets, cl)
-			}
-			h.mu.Unlock()
-			for _, cl := range targets {
-				if err := cl.send(r.msg); err != nil {
-					h.remove(cl)
-					cl.conn.Close()
-				}
-			}
 		}
 	}
 }
@@ -455,37 +584,28 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 			closeWith(websocket.ClosePolicyViolation)
 			return
 		}
-		cl := &client{conn: conn, needyID: needyID}
+		since := int64(0)
+		if frame.SinceID != nil && *frame.SinceID >= 0 {
+			since = *frame.SinceID
+		}
+		cl := newClient(conn, needyID, since)
 		if !h.add(cl) {
 			closeWith(websocket.ClosePolicyViolation) // connection cap reached
 			return
 		}
 		defer func() { h.remove(cl); conn.Close() }()
 
-		// Register BEFORE catch-up: the shared poller may race us, but the
-		// frontend dedupes by id, so a duplicate beats a lost notification.
-		since := int64(-1)
-		if frame.SinceID != nil && *frame.SinceID >= 0 {
-			since = *frame.SinceID
+		// Registration happens before the per-client replay query. Live rows are
+		// buffered on this connection until replay completes, then merged by id.
+		replay, err := h.source.afterForNeedy(ctx, needyID, since)
+		if err != nil {
+			closeWith(websocket.CloseInternalServerErr)
+			return
 		}
-		if since >= 0 {
-			rows, err := pool.Query(ctx,
-				"SELECT id, COALESCE(type, ''), COALESCE(payload, '') FROM notifications WHERE needy_id = $1 AND id > $2 ORDER BY id ASC",
-				needyID, since)
-			if err == nil {
-				for rows.Next() {
-					var m wsMessage
-					if rows.Scan(&m.ID, &m.Type, &m.Payload) == nil {
-						_ = cl.send(m)
-					}
-				}
-				rows.Close()
-			}
+		if err := cl.finishCatchUp(replay); err != nil {
+			return
 		}
-		h.mu.Lock()
-		ready := h.lastID
-		h.mu.Unlock()
-		_ = cl.send(map[string]any{"type": "ready", "last_id": ready})
+		_ = cl.send(map[string]any{"type": "ready", "last_id": cl.lastDeliveredID()})
 
 		// Reader loop: we never expect more frames, but reading is what
 		// detects the disconnect instantly (the Python version learnt this

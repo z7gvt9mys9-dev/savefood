@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import NeedyDashboard from './NeedyDashboard';
 
@@ -75,11 +75,19 @@ describe('recipient WebSocket authentication', () => {
 
   it('reads the current access token again for a reconnect', async () => {
     render(<NeedyDashboard />);
-    await act(async () => { await Promise.resolve(); });
+    await flushPromises();
     expect(FakeWebSocket.instances).toHaveLength(1);
 
     FakeWebSocket.instances[0].onopen();
-    expect(JSON.parse(FakeWebSocket.instances[0].sent[0]).token).toBe('access-before-rotation');
+    const firstHandshake = JSON.parse(FakeWebSocket.instances[0].sent[0]);
+    expect(firstHandshake.token).toBe('access-before-rotation');
+    expect(firstHandshake.since_id).toBe(0);
+
+    act(() => {
+      FakeWebSocket.instances[0].onmessage({
+        data: JSON.stringify({ id: 15, type: 'delivery', payload: 'live' }),
+      });
+    });
 
     FakeWebSocket.instances[0].onclose();
     await act(async () => {
@@ -89,8 +97,65 @@ describe('recipient WebSocket authentication', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     FakeWebSocket.instances[1].onopen();
 
-    expect(JSON.parse(FakeWebSocket.instances[1].sent[0]).token).toBe('access-after-rotation');
+    const reconnectHandshake = JSON.parse(FakeWebSocket.instances[1].sent[0]);
+    expect(reconnectHandshake.token).toBe('access-after-rotation');
+    expect(reconnectHandshake.since_id).toBe(15);
     expect(FakeWebSocket.instances[1].url).not.toContain('access-after-rotation');
     expect(getFreshAccessTokenMock).toHaveBeenCalledTimes(2);
   });
+
+  it('waits for the REST cursor before the first WebSocket handshake', async () => {
+    let completeNotifications;
+    const notificationsResponse = new Promise(resolve => { completeNotifications = resolve; });
+    authFetchMock.mockImplementation(url => {
+      if (url === '/needy/4/notifications') return notificationsResponse;
+      return Promise.resolve(response([]));
+    });
+
+    render(<NeedyDashboard />);
+    await flushPromises();
+    expect(FakeWebSocket.instances).toHaveLength(0);
+
+    completeNotifications(response([
+      { id: 21, type: 'before_rest_completed', payload: 'observed by REST', read: 0, created_at: '2026-08-28T00:00:00Z' },
+    ]));
+    await flushPromises();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    FakeWebSocket.instances[0].onopen();
+
+    const handshake = JSON.parse(FakeWebSocket.instances[0].sent[0]);
+    expect(handshake.since_id).toBe(21);
+    expect(handshake.token).toBe('access-before-rotation');
+  });
+
+  it('deduplicates a notification observed by REST and WebSocket catch-up', async () => {
+    authFetchMock.mockImplementation(url => Promise.resolve(response(
+      url === '/needy/4/notifications'
+        ? [{ id: 21, type: 'overlap', payload: 'same notification', read: 0, created_at: '2026-08-28T00:00:00Z' }]
+        : [],
+    )));
+    render(<NeedyDashboard />);
+    await flushPromises();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    act(() => {
+      FakeWebSocket.instances[0].onmessage({
+        data: JSON.stringify({ id: 21, type: 'overlap', payload: 'same notification' }),
+      });
+    });
+    fireEvent.click(screen.getByRole('button', { name: /common\.notifications/ }));
+    expect(screen.getAllByText('same notification')).toHaveLength(1);
+  });
 });
+
+function response(data) {
+  return { ok: true, status: 200, json: vi.fn().mockResolvedValue(data) };
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}

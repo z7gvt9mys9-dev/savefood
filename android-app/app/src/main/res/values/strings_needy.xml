@@ -64,9 +64,9 @@
     <string name="needy_history_photo_pending">Фото на модерации</string>
     <string name="needy_history_photo_approved">Фото опубликовано</string>
     <string name="needy_history_photo_rejected">Фото отклонено</string>
-    <string name="needy_history_delete">Удалить заявку</string>
-    <string name="needy_history_delete_confirm_title">Удалить заявку?</string>
-    <string name="needy_history_delete_confirm_desc">Запись будет удалена. Это действие нельзя отменить.</string>
+    <string name="needy_history_cancel">Отменить активную заявку</string>
+    <string name="needy_history_cancel_confirm_title">Отменить активную заявку?</string>
+    <string name="needy_history_cancel_confirm_desc">Активная заявка и доставка будут отменены. Это действие нельзя отменить.</string>
 
     <!-- Rating dialog -->
     <string name="needy_rate_title">Оцените доставку</string>
