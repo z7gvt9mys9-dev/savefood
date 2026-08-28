@@ -141,7 +141,7 @@ VOLUNTEER_KYC_REQUIRED=true              # гейт: волонтёр без app
 SENTRY_DSN=                              # ошибки в Sentry; пусто = выключено
 SENTRY_ENV=production
 SENTRY_TRACES_SAMPLE_RATE=0.05
-METRICS_TOKEN=                           # если задан, GET /metrics требует Bearer-токен
+METRICS_TOKEN=                           # обязателен: GET /metrics требует Authorization: Bearer <token>
 
 # Каталоги загрузок. docker-compose задаёт их явно (тома), но дефолты в
 # application.yml всё ещё указывают на `../backend/...` — layout удалённого
@@ -266,6 +266,9 @@ cloudflared tunnel --url http://localhost:3000   # dev-сервер
 Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js` (`server.allowedHosts`). Quick-туннель живёт, пока работает процесс `cloudflared`; при перезапуске URL меняется.
 Скрипт `cloudflare-tunnel.sh` всегда проксирует `localhost:80`, поэтому при
 изменённом `APP_PORT` запускайте `cloudflared` вручную с фактическим портом.
+Туннель не делает `/metrics` приватным: каждый scrape, включая локальный или
+туннельный, обязан передать `Authorization: Bearer <METRICS_TOKEN>`; токен не
+передавайте в query-параметрах и не публикуйте.
 
 ### Миграции (Flyway)
 
@@ -471,7 +474,7 @@ savefood/
 | `POST` | `/telegram/webhook` | Входящие апдейты бота (сверяет secret-токен) |
 | `WS` | `/ws/needy/{id}` | WebSocket уведомлений (auth первым сообщением) |
 | `GET` | `/healthz`, `/readyz` | Liveness / readiness |
-| `GET` | `/metrics` | Prometheus; закрыт на приватные сети + `METRICS_TOKEN` |
+| `GET` | `/metrics` | Prometheus; обязателен `Authorization: Bearer <METRICS_TOKEN>` |
 
 Swagger UI нет (springdoc не подключён) — источник правды по контракту это
 контроллеры и DTO в `backend-java/src/main/java/ru/savefood/*/`.

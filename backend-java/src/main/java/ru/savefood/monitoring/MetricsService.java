@@ -1,5 +1,7 @@
 package ru.savefood.monitoring;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.DoubleAdder;
@@ -18,8 +20,9 @@ import org.springframework.stereotype.Service;
  *   <li>business gauges (active lots / open tickets / routes / pending moderation)</li>
  * </ul>
  * HTTP series key on the matched route template (e.g. {@code /lots/{id}}), not the
- * raw path, so ids don't explode label cardinality. {@code METRICS_TOKEN} gates
- * the scrape exactly like {@code metrics_allowed}.
+ * raw path, so ids don't explode label cardinality. A non-empty
+ * {@code METRICS_TOKEN} is required for every scrape; network location is not an
+ * authorization boundary because the application may be behind a public proxy.
  */
 @Service
 public class MetricsService {
@@ -34,11 +37,13 @@ public class MetricsService {
 
     public MetricsService(JdbcTemplate jdbc, @Value("${savefood.metrics-token:}") String metricsToken) {
         this.jdbc = jdbc;
-        this.metricsToken = metricsToken == null ? "" : metricsToken;
+        this.metricsToken = metricsToken == null || metricsToken.isBlank() ? "" : metricsToken;
     }
 
     public boolean metricsAllowed(String token) {
-        return metricsToken.isEmpty() || metricsToken.equals(token);
+        return !metricsToken.isEmpty() && token != null
+            && MessageDigest.isEqual(metricsToken.getBytes(StandardCharsets.UTF_8),
+                token.getBytes(StandardCharsets.UTF_8));
     }
 
     public void observe(String method, String route, int status, double seconds) {

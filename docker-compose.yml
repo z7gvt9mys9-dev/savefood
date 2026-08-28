@@ -65,8 +65,9 @@ services:
       BACKGROUND_TASKS_JAVA: embedded
       KYC_RETRY_BATCH: ${KYC_RETRY_BATCH:-100}
       KYC_DOC_RETENTION_HOURS: ${KYC_DOC_RETENTION_HOURS:-0}
-      # Observability — METRICS_TOKEN gates GET /metrics (not exposed via nginx).
-      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      # Required for every GET /metrics scrape, including traffic via localhost
+      # or the Cloudflare Tunnel proxy hop. Never put this value in a URL.
+      METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set and non-empty}
       # Web Push / VAPID (optional — empty keys ⇒ /push 503, toggle hidden).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}

@@ -103,7 +103,8 @@ savefood:
     #   curl "https://api.telegram.org/bot<TOKEN>/setWebhook\
     #        ?url=<PUBLIC_URL>/telegram/webhook&secret_token=<SECRET>"
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
-  # Optional guard on GET /metrics (mirrors METRICS_TOKEN). Empty ⇒ open scrape.
+  # GET /metrics is fail-closed when this is absent or blank. Supply its value
+  # only out-of-band and use it as an Authorization: Bearer credential.
   metrics-token: ${METRICS_TOKEN:}
   # Free-form support assistant model (ai_service.py). Falls back to the OCR model.
   ai-model: ${AI_MODEL:${OCR_MODEL:gemini-2.5-flash}}

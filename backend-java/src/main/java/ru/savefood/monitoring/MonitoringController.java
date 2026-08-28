@@ -10,7 +10,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -33,13 +32,10 @@ public class MonitoringController {
     }
 
     @GetMapping("/metrics")
-    public ResponseEntity<String> metrics(@RequestParam(value = "token", required = false) String token,
-                                          @RequestHeader(value = "Authorization", required = false) String auth) {
-        String t = token == null ? "" : token;
-        if (auth != null && auth.toLowerCase().startsWith("bearer ")) {
-            t = t.isEmpty() ? auth.substring(7) : t;
-        }
-        if (!metrics.metricsAllowed(t)) {
+    public ResponseEntity<String> metrics(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        String token = bearerToken(authorization);
+        if (!metrics.metricsAllowed(token)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_JSON).body("{\"detail\":\"Forbidden\"}");
         }
@@ -47,6 +43,13 @@ public class MonitoringController {
         return ResponseEntity.ok()
             .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             .body(metrics.render());
+    }
+
+    private static String bearerToken(String authorization) {
+        if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return null;
+        }
+        return authorization.substring(7);
     }
 
     @GetMapping("/healthz")
