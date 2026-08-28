@@ -75,7 +75,7 @@ public class ShopService {
     public int createLot(int shopId, String description, double quantity, LocalDate expiryDate,
                          String photo, String address, String timeSlot, String category,
                          String comment, boolean requiresCold, String unit, double unitWeightKg) {
-        requirePositiveFinite(quantity, "quantity");
+        LotQuantity.requireWholeUnits(quantity, "quantity");
         requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
         return repo.createLot(shopId, description, quantity, expiryDate, photo, address, timeSlot,
@@ -92,7 +92,7 @@ public class ShopService {
                                          LocalDate expiryDate, String filename, String address,
                                          String timeSlot, String category, String comment,
                                          boolean requiresCold, String unit, double unitWeightKg) {
-        requirePositiveFinite(quantity, "quantity");
+        LotQuantity.requireWholeUnits(quantity, "quantity");
         requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
         int lotId = repo.createLot(shopId, description, quantity, expiryDate, "/uploads/" + filename,
@@ -108,7 +108,7 @@ public class ShopService {
     public int createLotWithPhotos(int shopId, String description, double quantity, LocalDate expiryDate,
                                    List<String> photos, String address, String timeSlot, String category,
                                    String comment, boolean requiresCold, String unit, double unitWeightKg) {
-        requirePositiveFinite(quantity, "quantity");
+        LotQuantity.requireWholeUnits(quantity, "quantity");
         requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
         return repo.createLotMultiPhoto(shopId, description, quantity, expiryDate, photos, address,
@@ -129,7 +129,7 @@ public class ShopService {
                                            String uploadDir, String address, String timeSlot,
                                            String category, String comment, boolean requiresCold,
                                            String unit, double unitWeightKg) {
-        requirePositiveFinite(quantity, "quantity");
+        LotQuantity.requireWholeUnits(quantity, "quantity");
         requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
 
@@ -179,9 +179,10 @@ public class ShopService {
             throw new ApiException(422, "lots: список не может быть пустым");
         }
         for (ReceiptLotDraft draft : drafts) {
-            if (draft == null || draft.quantity() == null || draft.quantity() <= 0) {
-                throw new ApiException(422, "quantity каждого лота должна быть положительной");
+            if (draft == null) {
+                throw new ApiException(422, "quantity каждого лота должна быть целым числом не меньше 1");
             }
+            LotQuantity.requireWholeUnits(draft.quantity(), "quantity каждого лота");
         }
         List<Integer> lotIds = new ArrayList<>();
         billing.acquireLotQuota(shopId, drafts.size());

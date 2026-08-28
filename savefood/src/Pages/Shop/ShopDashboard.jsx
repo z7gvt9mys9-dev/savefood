@@ -232,10 +232,15 @@ const ShopDashboard = () => {
   const handleConfirmReceipt = async (e) => {
     e.preventDefault();
     if (!receipt || receiptDrafts.length === 0) return;
+    const lots = receiptDrafts.map(d => ({ ...d, quantity: Number(d.quantity) }));
+    if (lots.some(d => !Number.isInteger(d.quantity) || d.quantity < 1)) {
+      alert('Количество должно быть целым числом не меньше 1');
+      return;
+    }
     setReceiptBusy(true);
     try {
       const body = {
-        lots: receiptDrafts.map(d => ({ ...d, quantity: Math.max(1, Number(d.quantity) || 1) })),
+        lots,
       };
       if (receiptCommon.expiry_date) body.expiry_date = receiptCommon.expiry_date;
       if (receiptCommon.address) body.address = receiptCommon.address;
@@ -322,9 +327,14 @@ const ShopDashboard = () => {
   const handleCreateLot = async (e) => {
     e.preventDefault();
     if (!shopId) { alert(t('shop.error_no_shop')); return; }
+    const quantity = Number(newLot.quantity);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      alert('Количество должно быть целым числом не меньше 1');
+      return;
+    }
     const fd = new FormData();
     fd.append('description', newLot.description);
-    fd.append('quantity', String(newLot.quantity));
+    fd.append('quantity', String(quantity));
     if (newLot.category) fd.append('category', newLot.category);
     if (newLot.expiry_date) fd.append('expiry_date', newLot.expiry_date.split('T')[0]);
     if (newLot.address) fd.append('address', newLot.address);
@@ -442,10 +452,15 @@ const ShopDashboard = () => {
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     if (!editLot) return;
+    const quantity = Number(editLot.quantity);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      alert('Количество должно быть целым числом не меньше 1');
+      return;
+    }
     try {
       const body = {
         description: editLot.description,
-        quantity: Number(editLot.quantity),
+        quantity,
         address: editLot.address,
         category: editLot.category,
         comment: editLot.comment,
@@ -591,6 +606,8 @@ const ShopDashboard = () => {
             <label>{t('shop.weight')}</label>
             <input
               type="number"
+              min="1"
+              step="1"
               value={newLot.quantity}
               onChange={(e) => setNewLot({...newLot, quantity: e.target.value})}
               required
@@ -833,7 +850,7 @@ const ShopDashboard = () => {
                   </div>
                   <div className="form-group">
                     <label>{t('shop.weight')}</label>
-                    <input type="number" min="1" value={d.quantity} onChange={e => setReceiptDrafts(ds => ds.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} required />
+                    <input type="number" min="1" step="1" value={d.quantity} onChange={e => setReceiptDrafts(ds => ds.map((x, j) => j === i ? { ...x, quantity: e.target.value } : x))} required />
                   </div>
                   <div className="form-group">
                     <label>{t('shop.category')}</label>
@@ -1054,7 +1071,7 @@ const ShopDashboard = () => {
               <div className="form-row">
                 <div className="form-group">
                   <label>{t('shop.weight')}</label>
-                  <input type="number" value={editLot.quantity || ''} onChange={e => setEditLot({...editLot, quantity: e.target.value})} required />
+                  <input type="number" min="1" step="1" value={editLot.quantity || ''} onChange={e => setEditLot({...editLot, quantity: e.target.value})} required />
                 </div>
                 <div className="form-group">
                   <label>{t('shop.category')}</label>

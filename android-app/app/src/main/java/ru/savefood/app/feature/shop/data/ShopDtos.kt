@@ -55,7 +55,7 @@ data class LotDto(
 @Serializable
 data class LotCreateDto(
     val description: String,
-    val quantity: Double,
+    val quantity: Int,
     val unit: String = "кг",
     @SerialName("unit_weight_kg") val unitWeightKg: Double = 1.0,
     @SerialName("expiry_date") val expiryDate: String? = null,
@@ -71,7 +71,7 @@ data class LotCreateDto(
 @Serializable
 data class LotUpdateDto(
     val description: String? = null,
-    val quantity: Double? = null,
+    val quantity: Int? = null,
     val unit: String? = null,
     @SerialName("unit_weight_kg") val unitWeightKg: Double? = null,
     @SerialName("expiry_date") val expiryDate: String? = null,

@@ -297,7 +297,7 @@ private fun EditLotDialog(
     onDismiss: () -> Unit,
 ) {
     var description by remember { mutableStateOf(lot.description.orEmpty()) }
-    var quantity by remember { mutableStateOf(lot.quantity?.let { if (it % 1.0 == 0.0) it.toInt().toString() else it.toString() } ?: "") }
+    var quantity by remember { mutableStateOf(lot.quantity?.toInt()?.toString() ?: "") }
     var category by remember { mutableStateOf(lot.category.orEmpty()) }
     var address by remember { mutableStateOf(lot.address.orEmpty()) }
     var comment by remember { mutableStateOf(lot.comment.orEmpty()) }
@@ -314,7 +314,8 @@ private fun EditLotDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
-                    value = quantity, onValueChange = { quantity = it },
+                    value = quantity,
+                    onValueChange = { value -> if (value.all(Char::isDigit)) quantity = value },
                     label = { Text(stringResource(R.string.shop_field_quantity)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -347,12 +348,12 @@ private fun EditLotDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = !saving && description.isNotBlank(),
+                enabled = !saving && description.isNotBlank() && quantity.toIntOrNull()?.let { it >= 1 } == true,
                 onClick = {
                     onSave(
                         LotUpdateDto(
                             description = description.trim(),
-                            quantity = quantity.toDoubleOrNull(),
+                            quantity = quantity.toIntOrNull(),
                             category = category.trim().ifBlank { null },
                             address = address.trim().ifBlank { null },
                             comment = comment.trim().ifBlank { null },

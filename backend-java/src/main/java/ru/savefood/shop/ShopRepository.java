@@ -106,7 +106,7 @@ public class ShopRepository {
         StringBuilder sql = new StringBuilder(
             "SELECT l.*, s.name AS shop_name, s.lat AS shop_lat, s.lon AS shop_lon, s.kind AS shop_kind "
             + "FROM lots l JOIN shops s ON s.id = l.shop_id "
-            + "WHERE l.status = 'active' AND l.quantity > 0 "
+            + "WHERE l.status = 'active' AND l.quantity >= 1 "
             + "AND (l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day')");
         List<Object> params = new java.util.ArrayList<>();
         if (category != null && !category.isBlank()) {
@@ -125,13 +125,13 @@ public class ShopRepository {
     }
 
     /**
-     * Active (quantity &gt; 0, not within a day of expiry) plus all taken lots —
+     * Active (at least one reservable unit, not within a day of expiry) plus all taken lots —
      * taken lots stay visible so the shop can still confirm the hand-over.
      */
     public List<Map<String, Object>> getActiveLots(int shopId) {
         return jdbc.query(
             "SELECT * FROM lots WHERE shop_id = ? AND ("
-            + "(status = 'active' AND quantity > 0 AND "
+            + "(status = 'active' AND quantity >= 1 AND "
             + "(expiry_date IS NULL OR expiry_date > CURRENT_DATE + INTERVAL '1 day')) "
             + "OR status = 'taken') ORDER BY created_at DESC",
             LOT_OUT, shopId);

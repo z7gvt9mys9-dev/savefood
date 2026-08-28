@@ -38,7 +38,7 @@ data class CreateLotUiState(
     /** True when the kg-unit weight rule is satisfied and the basics are present. */
     val canContinue: Boolean
         get() = form.description.isNotBlank() &&
-            form.quantity.toDoubleOrNull()?.let { it > 0 } == true &&
+            form.quantity.toIntOrNull()?.let { it >= 1 } == true &&
             (form.unit == "кг" || (form.unitWeightKg.toDoubleOrNull()?.let { it > 0 } == true))
 }
 
@@ -73,7 +73,7 @@ class CreateLotViewModel @Inject constructor(
             val unit = s.form.unit.ifBlank { "кг" }
             val body = LotCreateDto(
                 description = s.form.description.trim(),
-                quantity = s.form.quantity.toDouble(),
+                quantity = s.form.quantity.toInt(),
                 unit = unit,
                 unitWeightKg = if (unit == "кг") 1.0 else (s.form.unitWeightKg.toDoubleOrNull() ?: 1.0),
                 expiryDate = s.form.expiryDate.trim().ifBlank { null },

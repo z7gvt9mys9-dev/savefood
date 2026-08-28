@@ -106,8 +106,9 @@ public class PartnerApiController {
             throw new ApiException(400, "Неизвестная категория. Допустимые: "
                 + String.join(", ", ReceiptService.LOT_CATEGORIES));
         }
-        if (payload.quantity() == null || payload.quantity() < 1) {
-            throw new ApiException(400, "quantity должен быть ≥ 1");
+        if (payload.quantity() == null || !Double.isFinite(payload.quantity())
+            || payload.quantity() < 1 || payload.quantity() != Math.rint(payload.quantity())) {
+            throw new ApiException(400, "quantity должен быть целым числом ≥ 1");
         }
         String comment = payload.comment() == null || payload.comment().isBlank()
             ? "Создано через партнёрский API" : payload.comment();

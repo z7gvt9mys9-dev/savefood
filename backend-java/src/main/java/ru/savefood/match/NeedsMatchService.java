@@ -82,7 +82,7 @@ public class NeedsMatchService {
         List<Map<String, Object>> lots = jdbc.queryForList(
             "SELECT l.id, l.description, l.category, l.city, s.name AS shop_name "
             + "FROM lots l JOIN shops s ON s.id = l.shop_id "
-            + "WHERE l.id = ? AND l.status = 'active' AND l.quantity > 0", lotId);
+            + "WHERE l.id = ? AND l.status = 'active' AND l.quantity >= 1", lotId);
         if (lots.isEmpty()) {
             return;
         }
@@ -152,7 +152,7 @@ public class NeedsMatchService {
             "SELECT l.id, l.description, l.category, l.city, "
             + "s.name AS shop_name, s.lat AS s_lat, s.lon AS s_lon "
             + "FROM lots l JOIN shops s ON s.id = l.shop_id "
-            + "WHERE l.id = ? AND l.status = 'active' AND l.quantity > 0", lotId);
+            + "WHERE l.id = ? AND l.status = 'active' AND l.quantity >= 1", lotId);
         if (lots.isEmpty()) {
             return;
         }

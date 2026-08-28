@@ -95,6 +95,21 @@ class ShopMultipartLotCreationTest {
     }
 
     @Test
+    void fractionalMultipartQuantityIsRejectedBeforeAnyUploadOrLotCreation() throws Exception {
+        ShopService service = mock(ShopService.class);
+        ShopRepository repo = mock(ShopRepository.class);
+        when(repo.getShopById(1)).thenReturn(Map.of("kind", "business"));
+        ShopController controller = controller(repo, service);
+
+        assertThatThrownBy(() -> controller.createLotUpload(1, "food", 2.5, "кг", 1,
+            null, null, null, null, null, false, null,
+            List.of(validImage("first.png")), shopUser()))
+            .isInstanceOf(ApiException.class);
+
+        verifyNoInteractions(service);
+    }
+
+    @Test
     void databaseFailureDeletesOnlyCurrentRequestFiles() throws Exception {
         ShopRepository repo = mock(ShopRepository.class);
         when(repo.createLotMultiPhoto(anyInt(), anyString(), anyDouble(), any(), anyList(), any(), any(), any(),

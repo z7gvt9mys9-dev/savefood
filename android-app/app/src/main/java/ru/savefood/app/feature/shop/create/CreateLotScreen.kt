@@ -110,7 +110,8 @@ private fun DataStep(viewModel: CreateLotViewModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
-                value = f.quantity, onValueChange = { v -> viewModel.updateForm { it.copy(quantity = v) } },
+                value = f.quantity,
+                onValueChange = { v -> if (v.all(Char::isDigit)) viewModel.updateForm { it.copy(quantity = v) } },
                 label = { Text(stringResource(R.string.shop_field_quantity)) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),

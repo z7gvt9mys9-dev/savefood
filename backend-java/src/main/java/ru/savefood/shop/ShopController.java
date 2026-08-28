@@ -139,7 +139,7 @@ public class ShopController {
         if (payload.quantity() == null) {
             throw new ApiException(422, "quantity обязателен");
         }
-        requirePositiveFinite(payload.quantity(), "quantity");
+        LotQuantity.requireWholeUnits(payload.quantity(), "quantity");
         int lotId;
         if (privateDonor) {
             String filename = lotPhotoReferences.requireAvailable(shopId, payload.photo());
@@ -189,7 +189,7 @@ public class ShopController {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         Map<String, Object> shop = requireShop(shopId);
 
-        requirePositiveFinite(quantity, "quantity");
+        LotQuantity.requireWholeUnits(quantity, "quantity");
 
         double weight = resolveWeight(unit, unitWeightKg);
         // `files` — новая мультизагрузка; одиночный `file` остаётся как fallback
@@ -248,7 +248,7 @@ public class ShopController {
                                         @Auth CurrentUser user) {
         Map<String, Object> lot = requireLotOwner(lotId, user);
         if (payload.quantity() != null) {
-            requirePositiveFinite(payload.quantity(), "quantity");
+            LotQuantity.requireWholeUnits(payload.quantity(), "quantity");
         }
         String newUnit = payload.unit() != null ? payload.unit() : (String) lot.getOrDefault("unit", "кг");
         Double newWeight = payload.unitWeightKg() != null ? payload.unitWeightKg()
@@ -456,9 +456,7 @@ public class ShopController {
             if (!ReceiptService.LOT_CATEGORIES.contains(draft.category())) {
                 throw new ApiException(400, "Неизвестная категория: " + draft.category());
             }
-            if (draft.quantity() == null || draft.quantity() <= 0) {
-                throw new ApiException(422, "quantity каждого лота должна быть положительной");
-            }
+            LotQuantity.requireWholeUnits(draft.quantity(), "quantity каждого лота");
         }
         List<Integer> lotIds = service.confirmReceiptLots(shopId, receiptId, payload.lots(),
             payload.expiryDate(), address, payload.timeSlot());
