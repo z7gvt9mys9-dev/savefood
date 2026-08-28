@@ -9,12 +9,13 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.logging.Logger;
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
 
 /**
@@ -24,28 +25,30 @@ import org.springframework.stereotype.Service;
  * 16 bytes HMAC-SHA256 signing, last 16 bytes AES-128-CBC) decrypts documents
  * written by either backend.
  *
- * <p>When the key is unset (local dev / CI) every method is a transparent
- * passthrough — one warning is logged so this can never be mistaken for
- * production behaviour. A malformed key fails loudly at startup rather than
- * silently storing plaintext.
+ * <p>A key is mandatory by default. Plaintext passthrough is available only
+ * when explicitly enabled in a {@code dev} or {@code test} profile.
  */
 @Service
 public class KycCrypto {
 
-    private static final Logger log = Logger.getLogger(KycCrypto.class.getName());
     private static final byte VERSION = (byte) 0x80;
     private static final SecureRandom RNG = new SecureRandom();
 
     private final byte[] signingKey;
     private final byte[] encryptionKey;
 
-    public KycCrypto(@Value("${savefood.kyc-encryption-key:}") String key) {
+    public KycCrypto(@Value("${savefood.kyc-encryption-key:}") String key,
+                     @Value("${savefood.kyc-plaintext-enabled:false}") boolean plaintextEnabled,
+                     Environment environment) {
         key = key == null ? "" : key.strip();
         if (key.isEmpty()) {
+            if (!plaintextEnabled || !environment.acceptsProfiles(Profiles.of("dev", "test"))) {
+                throw new IllegalStateException(
+                    "KYC_ENCRYPTION_KEY must be set to a valid Fernet key; plaintext KYC is permitted "
+                    + "only with savefood.kyc-plaintext-enabled=true in the dev or test profile.");
+            }
             this.signingKey = null;
             this.encryptionKey = null;
-            log.warning("[kyc_crypto] KYC_ENCRYPTION_KEY is unset — KYC documents are stored "
-                + "UNENCRYPTED. Set it in production.");
             return;
         }
         byte[] raw;
@@ -69,7 +72,7 @@ public class KycCrypto {
         return encryptionKey != null;
     }
 
-    /** Encrypt a freshly-saved upload in place. No-op (passthrough) without a key. */
+    /** Encrypt a freshly-saved upload in place. Plaintext passthrough is dev/test-only. */
     public void encryptFile(String path) {
         if (!enabled()) {
             return;

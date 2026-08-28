@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.mock.env.MockEnvironment;
 import ru.savefood.admin.AdminController;
 import ru.savefood.audit.AuditService;
 import ru.savefood.esg.EsgService;
@@ -57,7 +58,8 @@ class VolunteerKycDocumentAuthorizationIT extends PostgresIT {
         volunteers = new VolunteerRepository(jdbc);
         VolunteerController controller = new VolunteerController(
             volunteers, mock(VolunteerService.class), mock(RateLimiter.class), mock(UploadService.class),
-            new KycCrypto(""), mock(KycService.class), mock(PhotoModerationService.class),
+            new KycCrypto("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", false, new MockEnvironment()),
+            mock(KycService.class), mock(PhotoModerationService.class),
             mock(WebhookService.class), mock(TelegramService.class), jdbc, mock(AuditService.class),
             true, kycDir.toString(), kycDir.toString());
         mvc = MockMvcBuilders.standaloneSetup(controller)
