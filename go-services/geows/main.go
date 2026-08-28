@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -312,6 +313,7 @@ type notificationSource interface {
 	latestID(context.Context) (int64, error)
 	after(context.Context, int64) ([]notificationRow, error)
 	afterForNeedy(context.Context, int, int64) ([]wsMessage, error)
+	activeUserIDs(context.Context, []int) (map[int]struct{}, error)
 }
 
 type postgresNotificationSource struct {
@@ -363,21 +365,63 @@ func (s postgresNotificationSource) afterForNeedy(ctx context.Context, needyID i
 	return result, rows.Err()
 }
 
+// activeUserIDs revalidates all connected accounts in one query per hub tick.
+// Missing rows (including deleted accounts) and blocked rows are deliberately
+// absent from the result and therefore treated as revoked by the hub.
+func (s postgresNotificationSource) activeUserIDs(ctx context.Context, userIDs []int) (map[int]struct{}, error) {
+	active := make(map[int]struct{}, len(userIDs))
+	if len(userIDs) == 0 {
+		return active, nil
+	}
+	postgresIDs := make([]int32, len(userIDs))
+	for i, id := range userIDs {
+		postgresIDs[i] = int32(id)
+	}
+	rows, err := s.pool.Query(ctx,
+		"SELECT id FROM users WHERE id = ANY($1::int[]) AND NOT is_blocked", postgresIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		active[id] = struct{}{}
+	}
+	return active, rows.Err()
+}
+
+var errClientRevoked = errors.New("websocket account revoked")
+
 type client struct {
 	conn       *websocket.Conn
+	userID     int
 	needyID    int
 	mu         sync.Mutex // protects writes and the per-connection delivery cursor
 	cursor     int64
 	catchingUp bool
 	pending    map[int64]wsMessage
+	revoked    atomic.Bool
 	writeJSON  func(any) error // test seam; nil uses conn.WriteJSON
+	closeConn  func()          // test seam; nil only for connection-free unit clients
 }
 
-func newClient(conn *websocket.Conn, needyID int, cursor int64) *client {
-	return &client{
-		conn: conn, needyID: needyID, cursor: cursor, catchingUp: true,
+func newClient(conn *websocket.Conn, userID, needyID int, cursor int64) *client {
+	cl := &client{
+		conn: conn, userID: userID, needyID: needyID, cursor: cursor, catchingUp: true,
 		pending: make(map[int64]wsMessage),
 	}
+	if conn != nil {
+		cl.closeConn = func() {
+			_ = conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, ""),
+				time.Now().Add(time.Second))
+			_ = conn.Close()
+		}
+	}
+	return cl
 }
 
 func (cl *client) writeLocked(v any) error {
@@ -391,6 +435,9 @@ func (cl *client) writeLocked(v any) error {
 func (cl *client) send(v any) error {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
+	if cl.revoked.Load() {
+		return errClientRevoked
+	}
 	return cl.writeLocked(v)
 }
 
@@ -400,6 +447,9 @@ func (cl *client) send(v any) error {
 func (cl *client) deliver(msg wsMessage) error {
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
+	if cl.revoked.Load() {
+		return errClientRevoked
+	}
 	if msg.ID <= cl.cursor {
 		return nil
 	}
@@ -416,30 +466,66 @@ func (cl *client) deliver(msg wsMessage) error {
 
 func (cl *client) finishCatchUp(replay []wsMessage) error {
 	cl.mu.Lock()
-	defer cl.mu.Unlock()
-	merged := make(map[int64]wsMessage, len(replay)+len(cl.pending))
+	if cl.revoked.Load() {
+		cl.pending = nil
+		cl.mu.Unlock()
+		return errClientRevoked
+	}
 	for _, msg := range replay {
-		merged[msg.ID] = msg
+		cl.pending[msg.ID] = msg
 	}
-	for id, msg := range cl.pending {
-		merged[id] = msg
-	}
-	ids := make([]int64, 0, len(merged))
-	for id := range merged {
-		if id > cl.cursor {
-			ids = append(ids, id)
+	cl.mu.Unlock()
+
+	for {
+		cl.mu.Lock()
+		if cl.revoked.Load() {
+			cl.pending = nil
+			cl.mu.Unlock()
+			return errClientRevoked
 		}
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-	for _, id := range ids {
-		if err := cl.writeLocked(merged[id]); err != nil {
+		ids := make([]int64, 0, len(cl.pending))
+		for id := range cl.pending {
+			if id > cl.cursor {
+				ids = append(ids, id)
+			} else {
+				delete(cl.pending, id)
+			}
+		}
+		if len(ids) == 0 {
+			cl.pending = nil
+			cl.catchingUp = false
+			cl.mu.Unlock()
+			return nil
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		id := ids[0]
+		msg := cl.pending[id]
+		if err := cl.writeLocked(msg); err != nil {
+			cl.mu.Unlock()
 			return err
 		}
 		cl.cursor = id
+		delete(cl.pending, id)
+		cl.mu.Unlock()
 	}
+}
+
+// revoke prevents any copied delivery target or pending replay from writing,
+// then closes the underlying socket. It is intentionally irreversible: an
+// unblocked account must create and authenticate a new connection.
+func (cl *client) revoke() {
+	if !cl.revoked.CompareAndSwap(false, true) {
+		return
+	}
+	// Closing first interrupts a write that is already blocked; gorilla/websocket
+	// permits Close concurrently with its other methods.
+	if cl.closeConn != nil {
+		cl.closeConn()
+	}
+	cl.mu.Lock()
 	cl.pending = nil
 	cl.catchingUp = false
-	return nil
+	cl.mu.Unlock()
 }
 
 func (cl *client) lastDeliveredID() int64 {
@@ -488,13 +574,41 @@ func (h *hub) remove(cl *client) {
 	}
 }
 
+func (h *hub) revoke(cl *client) {
+	cl.revoke()
+	h.remove(cl)
+}
+
 func (h *hub) pollOnce(ctx context.Context) error {
 	h.mu.Lock()
 	idle := len(h.clients) == 0
 	last := h.lastID
+	clients := make([]*client, 0)
+	uniqueUserIDs := make(map[int]struct{})
+	for _, byNeedy := range h.clients {
+		for cl := range byNeedy {
+			clients = append(clients, cl)
+			uniqueUserIDs[cl.userID] = struct{}{}
+		}
+	}
 	h.mu.Unlock()
 	if idle {
 		return nil
+	}
+	userIDs := make([]int, 0, len(uniqueUserIDs))
+	for id := range uniqueUserIDs {
+		userIDs = append(userIDs, id)
+	}
+	active, err := h.source.activeUserIDs(ctx, userIDs)
+	if err != nil {
+		// Fail closed for sensitive delivery: keep the cursor unchanged and
+		// retry account validation on the next bounded poll.
+		return fmt.Errorf("revalidate websocket accounts: %w", err)
+	}
+	for _, cl := range clients {
+		if _, ok := active[cl.userID]; !ok {
+			h.revoke(cl)
+		}
 	}
 	batch, err := h.source.after(ctx, last)
 	if err != nil {
@@ -512,10 +626,7 @@ func (h *hub) pollOnce(ctx context.Context) error {
 		h.mu.Unlock()
 		for _, cl := range targets {
 			if err := cl.deliver(row.msg); err != nil {
-				h.remove(cl)
-				if cl.conn != nil {
-					cl.conn.Close()
-				}
+				h.revoke(cl)
 			}
 		}
 	}
@@ -588,7 +699,7 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 		if frame.SinceID != nil && *frame.SinceID >= 0 {
 			since = *frame.SinceID
 		}
-		cl := newClient(conn, needyID, since)
+		cl := newClient(conn, c.UserID, needyID, since)
 		if !h.add(cl) {
 			closeWith(websocket.ClosePolicyViolation) // connection cap reached
 			return
@@ -605,7 +716,9 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 		if err := cl.finishCatchUp(replay); err != nil {
 			return
 		}
-		_ = cl.send(map[string]any{"type": "ready", "last_id": cl.lastDeliveredID()})
+		if err := cl.send(map[string]any{"type": "ready", "last_id": cl.lastDeliveredID()}); err != nil {
+			return
+		}
 
 		// Reader loop: we never expect more frames, but reading is what
 		// detects the disconnect instantly (the Python version learnt this
