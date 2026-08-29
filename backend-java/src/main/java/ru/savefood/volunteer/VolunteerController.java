@@ -588,9 +588,6 @@ public class VolunteerController {
         if (vol == null) {
             throw new ApiException(404, "Volunteer not found");
         }
-        if (vol.get("team_id") != null) {
-            throw new ApiException(400, "Вы уже состоите в команде — сначала покиньте её");
-        }
         String name = payload.name() == null ? "" : payload.name().strip();
         if (name.length() < 3) {
             throw new ApiException(400, "Название команды — минимум 3 символа");
@@ -605,9 +602,6 @@ public class VolunteerController {
         Map<String, Object> vol = repo.getVolunteerById(volunteerId);
         if (vol == null) {
             throw new ApiException(404, "Volunteer not found");
-        }
-        if (vol.get("team_id") != null) {
-            throw new ApiException(400, "Вы уже состоите в команде — сначала покиньте её");
         }
         String code = payload.code() == null ? "" : payload.code().strip().toUpperCase();
         return nullableTeam(service.joinTeam(volunteerId, code));

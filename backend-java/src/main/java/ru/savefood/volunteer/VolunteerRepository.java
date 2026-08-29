@@ -45,6 +45,13 @@ public class VolunteerRepository {
         return rows.isEmpty() ? null : parseAvailability(rows.get(0));
     }
 
+    /** Atomically assigns the volunteer only if they still have no team. */
+    public boolean assignTeamIfUnassigned(int volId, int teamId) {
+        return jdbc.update(
+            "UPDATE volunteers SET team_id = ? WHERE id = ? AND team_id IS NULL",
+            teamId, volId) == 1;
+    }
+
     public Map<String, Object> updateVolunteer(int volId, String name, String contact, Double lat, Double lon,
                                                String city, Boolean hasThermalBag, Double capacityKg,
                                                String availabilityJson) {

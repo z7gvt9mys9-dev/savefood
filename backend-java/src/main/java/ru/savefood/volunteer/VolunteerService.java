@@ -701,25 +701,23 @@ public class VolunteerService {
         return out;
     }
 
+    @Transactional
     public Map<String, Object> createTeam(int volunteerId, String name) {
-        // Each insert auto-commits; on the (astronomically unlikely) join-code
-        // collision regenerate and retry. The volunteer UPDATE follows the
-        // committed insert (the row was verified to have no team), and leaveTeam
-        // GCs any empty team should that update ever fail.
         Integer teamId = null;
         for (int i = 0; i < 5 && teamId == null; i++) {
-            try {
-                teamId = jdbc.queryForObject(
-                    "INSERT INTO teams (name, join_code) VALUES (?, ?) RETURNING id",
-                    Integer.class, name.length() > 80 ? name.substring(0, 80) : name, JoinCode.generate());
-            } catch (DuplicateKeyException e) {
-                teamId = null;
-            }
+            teamId = jdbc.query(
+                "INSERT INTO teams (name, join_code) VALUES (?, ?) "
+                + "ON CONFLICT (join_code) DO NOTHING RETURNING id",
+                (rs, n) -> rs.getInt("id"),
+                name.length() > 80 ? name.substring(0, 80) : name, JoinCode.generate())
+                .stream().findFirst().orElse(null);
         }
         if (teamId == null) {
             throw new ApiException(500, "Не удалось создать команду, попробуйте ещё раз");
         }
-        jdbc.update("UPDATE volunteers SET team_id = ? WHERE id = ?", teamId, volunteerId);
+        if (!repo.assignTeamIfUnassigned(volunteerId, teamId)) {
+            throw teamMembershipConflict();
+        }
         return teamSummary(teamId);
     }
 
@@ -730,8 +728,14 @@ public class VolunteerService {
         if (teamId == null) {
             throw new ApiException(404, "Команда с таким кодом не найдена");
         }
-        jdbc.update("UPDATE volunteers SET team_id = ? WHERE id = ?", teamId, volunteerId);
+        if (!repo.assignTeamIfUnassigned(volunteerId, teamId)) {
+            throw teamMembershipConflict();
+        }
         return teamSummary(teamId);
+    }
+
+    private static ApiException teamMembershipConflict() {
+        return new ApiException(409, "Вы уже состоите в команде — сначала покиньте её");
     }
 
     @Transactional
