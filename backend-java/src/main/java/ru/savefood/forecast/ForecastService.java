@@ -2,7 +2,8 @@ package ru.savefood.forecast;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
+import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -33,27 +34,29 @@ public class ForecastService {
 
     public ForecastService(JdbcTemplate jdbc, @Value("${savefood.local-tz:Europe/Moscow}") String localTz) {
         this.jdbc = jdbc;
-        ZoneId z;
         try {
-            z = ZoneId.of(localTz);
-        } catch (RuntimeException e) {
-            z = ZoneId.systemDefault();
+            this.zone = ZoneId.of(localTz);
+        } catch (DateTimeException | NullPointerException e) {
+            throw new IllegalStateException("Invalid savefood.local-tz: " + localTz, e);
         }
-        this.zone = z;
     }
 
     public Map<String, Object> shopForecast(int shopId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT EXTRACT(ISODOW FROM l.created_at)::int AS isodow, l.category, "
+            "SELECT EXTRACT(ISODOW FROM l.created_at AT TIME ZONE ?)::int AS isodow, l.category, "
             + "COALESCE(SUM(l.initial_quantity * l.unit_weight_kg), 0) AS kg "
             + "FROM lots l "
             + "WHERE l.shop_id = ? "
             + "AND l.created_at >= CURRENT_TIMESTAMP - make_interval(weeks => ?) "
             + "GROUP BY 1, 2",
-            shopId, BASIS_WEEKS);
+            zone.getId(), shopId, BASIS_WEEKS);
         // «Friday» must mean the shop's local Friday, not the server's UTC one.
-        int todayIsoDow = LocalDate.now(zone).getDayOfWeek().getValue();
+        int todayIsoDow = isoDowAt(Instant.now(), zone);
         return buildForecast(rows, todayIsoDow, BASIS_WEEKS);
+    }
+
+    static int isoDowAt(Instant instant, ZoneId zone) {
+        return instant.atZone(zone).getDayOfWeek().getValue();
     }
 
     static Map<String, Object> buildForecast(List<Map<String, Object>> rows, int todayIsoDow,

@@ -55,7 +55,7 @@ spring:
 savefood:
   # Must match backend/auth.py SECRET_KEY (HS256). >= 32 chars or startup fails.
   jwt-secret: ${SECRET_KEY:}
-  # Timezone for volunteer availability windows — backend §54 / LOCAL_TZ.
+  # Canonical business timezone for volunteer availability and forecast weekdays — LOCAL_TZ.
   local-tz: ${LOCAL_TZ:Europe/Moscow}
   # Legacy delivery proof directory. New proofs use delivery-photo-upload-dir;
   # this remains only so approved migration-era rows can be served through the

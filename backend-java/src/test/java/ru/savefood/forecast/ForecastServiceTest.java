@@ -1,11 +1,26 @@
 package ru.savefood.forecast;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 import java.util.List;
 import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
+@ExtendWith(MockitoExtension.class)
 class ForecastServiceTest {
+
+    @Mock
+    JdbcTemplate jdbc;
 
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> today(Map<String, Object> fc) {
@@ -66,5 +81,73 @@ class ForecastServiceTest {
         assertThat(items).hasSize(1);
         assertThat(items.get(0).get("category")).isEqualTo("Без категории");
         assertThat(items.get(0).get("avg_kg")).isEqualTo(3.0);
+    }
+
+    @Test
+    void groupsFridayUtcInstantAsSaturdayInConfiguredMoscowTimezone() {
+        Instant fridayUtc = Instant.parse("2026-01-02T21:30:00Z");
+
+        assertThat(ForecastService.isoDowAt(fridayUtc, ZoneId.of("Europe/Moscow"))).isEqualTo(6);
+    }
+
+    @Test
+    void mapsInstantsOnEitherSideOfLocalMidnightToTheirLocalWeekdays() {
+        ZoneId moscow = ZoneId.of("Europe/Moscow");
+
+        assertThat(ForecastService.isoDowAt(Instant.parse("2026-01-02T20:59:59Z"), moscow)).isEqualTo(5);
+        assertThat(ForecastService.isoDowAt(Instant.parse("2026-01-02T21:00:00Z"), moscow)).isEqualTo(6);
+    }
+
+    @Test
+    void usesConfiguredTimezoneForSqlGroupingAndJavaDayCalculation() {
+        when(jdbc.queryForList(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of());
+        ForecastService service = new ForecastService(jdbc, "Europe/Moscow");
+
+        service.shopForecast(42);
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> timezone = ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(jdbc).queryForList(sql.capture(), timezone.capture(),
+            org.mockito.ArgumentMatchers.eq(42), org.mockito.ArgumentMatchers.eq(8));
+        assertThat(sql.getValue()).contains("EXTRACT(ISODOW FROM l.created_at AT TIME ZONE ?)");
+        assertThat(timezone.getValue()).isEqualTo("Europe/Moscow");
+        assertThat(ForecastService.isoDowAt(Instant.parse("2026-01-02T21:30:00Z"),
+            ZoneId.of(timezone.getValue()))).isEqualTo(6);
+    }
+
+    @Test
+    void observesDstTimezoneRulesInsteadOfUsingFixedOffset() {
+        ZoneId newYork = ZoneId.of("America/New_York");
+        Instant beforeTransition = Instant.parse("2026-03-08T06:59:59Z");
+        Instant afterTransition = Instant.parse("2026-03-08T07:00:00Z");
+
+        assertThat(beforeTransition.atZone(newYork).getHour()).isEqualTo(1);
+        assertThat(afterTransition.atZone(newYork).getHour()).isEqualTo(3);
+        assertThat(ForecastService.isoDowAt(beforeTransition, newYork)).isEqualTo(7);
+        assertThat(ForecastService.isoDowAt(afterTransition, newYork)).isEqualTo(7);
+    }
+
+    @Test
+    void changingConfiguredTimezoneChangesGroupingConsistently() {
+        Instant instant = Instant.parse("2026-01-02T23:30:00Z");
+
+        assertThat(ForecastService.isoDowAt(instant, ZoneId.of("UTC"))).isEqualTo(5);
+        assertThat(ForecastService.isoDowAt(instant, ZoneId.of("Asia/Tokyo"))).isEqualTo(6);
+    }
+
+    @Test
+    void daytimeTimestampKeepsItsWeekdayAcrossRelevantTimezones() {
+        Instant daytimeUtc = Instant.parse("2026-01-02T12:00:00Z");
+
+        assertThat(ForecastService.isoDowAt(daytimeUtc, ZoneId.of("UTC"))).isEqualTo(5);
+        assertThat(ForecastService.isoDowAt(daytimeUtc, ZoneId.of("Europe/Moscow"))).isEqualTo(5);
+        assertThat(ForecastService.isoDowAt(daytimeUtc, ZoneId.of("America/New_York"))).isEqualTo(5);
+    }
+
+    @Test
+    void rejectsInvalidLocalTimezoneAtConstruction() {
+        assertThatThrownBy(() -> new ForecastService(jdbc, "not/a-timezone"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("savefood.local-tz");
     }
 }
