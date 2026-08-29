@@ -14,6 +14,10 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -142,6 +146,48 @@ class WebhookServiceTest {
         assertEquals(200, status.get());
     }
 
+    @Test
+    void validationFailureLogsOnlySanitizedWebhookDestination() throws Exception {
+        String url = "https://user:password@partner.example:8443/private/secret?token=query-secret#fragment-secret";
+        CapturingHandler logs = captureWebhookLogs();
+        try {
+            service = new WebhookService(hooksJdbc(List.of(hook(1, url))), limits(1, 1, 1, 0),
+                (sentUrl, secret, event, body) -> {
+                    throw new AssertionError("unsafe webhook must not be delivered");
+                }, ignored -> false);
+
+            service.fire(1, "lot.taken", Map.of());
+
+            assertTrue(logs.awaitWarning());
+            assertSanitized(logs.messages(), "https://partner.example:8443", url);
+        } finally {
+            logs.close();
+        }
+    }
+
+    @Test
+    void retryFailureLogsSanitizedDestinationAndDeliversOriginalUrl() throws Exception {
+        String url = "https://user:password@partner.example:8443/private/secret?token=query-secret#fragment-secret";
+        CapturingHandler logs = captureWebhookLogs();
+        CountDownLatch sent = new CountDownLatch(2);
+        try {
+            service = service(hooksJdbc(List.of(hook(1, url))), limits(1, 1, 1, 1),
+                (sentUrl, secret, event, body) -> {
+                    assertEquals(url, sentUrl);
+                    sent.countDown();
+                    throw new java.io.IOException("failed for " + url);
+                });
+
+            service.fire(1, "lot.taken", Map.of());
+
+            assertTrue(sent.await(1, TimeUnit.SECONDS));
+            assertTrue(logs.awaitWarning());
+            assertSanitized(logs.messages(), "https://partner.example:8443", url);
+        } finally {
+            logs.close();
+        }
+    }
+
     private WebhookService service(JdbcTemplate jdbc, WebhookProperties limits,
                                    WebhookService.DeliverySender sender) {
         return new WebhookService(jdbc, limits, sender, ignored -> true);
@@ -154,8 +200,57 @@ class WebhookServiceTest {
     }
 
     private static Map<String, Object> hook(int id) {
-        return Map.of("id", id, "url", "https://partner.example/" + id,
+        return hook(id, "https://partner.example/" + id);
+    }
+
+    private static Map<String, Object> hook(int id, String url) {
+        return Map.of("id", id, "url", url,
             "secret", "whsec_test", "events", "*");
+    }
+
+    private static CapturingHandler captureWebhookLogs() {
+        CapturingHandler handler = new CapturingHandler();
+        Logger.getLogger(WebhookService.class.getName()).addHandler(handler);
+        return handler;
+    }
+
+    private static void assertSanitized(String message, String destination, String rawUrl) {
+        assertTrue(message.contains(destination));
+        assertTrue(!message.contains(rawUrl));
+        assertTrue(!message.contains("query-secret"));
+        assertTrue(!message.contains("fragment-secret"));
+        assertTrue(!message.contains("user:password"));
+        assertTrue(!message.contains("/private/secret"));
+    }
+
+    private static final class CapturingHandler extends Handler {
+        private final CountDownLatch warning = new CountDownLatch(1);
+        private final StringBuilder messages = new StringBuilder();
+
+        @Override
+        public void publish(LogRecord record) {
+            if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
+                synchronized (messages) {
+                    messages.append(record.getMessage());
+                }
+                warning.countDown();
+            }
+        }
+
+        @Override public void flush() { }
+        @Override public void close() {
+            Logger.getLogger(WebhookService.class.getName()).removeHandler(this);
+        }
+
+        boolean awaitWarning() throws InterruptedException {
+            return warning.await(1, TimeUnit.SECONDS);
+        }
+
+        String messages() {
+            synchronized (messages) {
+                return messages.toString();
+            }
+        }
     }
 
     private static WebhookProperties limits(int workers, int queue, int perShop, int retries) {

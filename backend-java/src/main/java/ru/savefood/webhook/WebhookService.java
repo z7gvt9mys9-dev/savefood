@@ -173,9 +173,10 @@ public class WebhookService {
 
     private void deliverWithRetries(int webhookId, String url, String secret, String event, byte[] body) {
         Integer status = null;
+        String destination = sanitizeWebhookUrlForLog(url);
         if (!urlValidator.isSafe(url)) {
             log.warning("[webhook] delivery for webhook id=" + webhookId
-                + " blocked: resolves to an internal/unsafe address");
+                + " to " + destination + " blocked: resolves to an internal/unsafe address");
         } else {
             for (int attempt = 0; attempt <= properties.getMaxRetries(); attempt++) {
                 try {
@@ -186,7 +187,8 @@ public class WebhookService {
                 } catch (Exception e) {
                     if (attempt == properties.getMaxRetries()) {
                         log.warning("[webhook] delivery for webhook id=" + webhookId
-                            + " failed after " + (attempt + 1) + " attempts: " + e.getClass().getSimpleName());
+                            + " to " + destination + " failed after " + (attempt + 1)
+                            + " attempts: " + e.getClass().getSimpleName());
                         break;
                     }
                 }
@@ -230,6 +232,26 @@ public class WebhookService {
 
     private static boolean isRetryableStatus(Integer status) {
         return status != null && (status == 408 || status == 429 || status >= 500);
+    }
+
+    /**
+     * Returns the only form of a partner-controlled webhook URL permitted in logs.
+     * Paths are intentionally omitted because path segments are commonly used for
+     * bearer-style credentials; query, fragment, and userinfo are never retained.
+     */
+    static String sanitizeWebhookUrlForLog(String url) {
+        try {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null || host.isEmpty()) {
+                return "[invalid webhook URL]";
+            }
+            int port = uri.getPort();
+            return scheme + "://" + host + (port == -1 ? "" : ":" + port);
+        } catch (RuntimeException e) {
+            return "[invalid webhook URL]";
+        }
     }
 
     @PreDestroy
