@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
@@ -48,8 +49,13 @@ public class MaintenanceTasks {
     private static final int ANTIFRAUD_CHECK_AFTER_MINUTES = 15;
     private static final int ANTIFRAUD_GRACE_MINUTES = 15;
     private static final double ANTIFRAUD_DRIFT_THRESHOLD_M = 300;
+    private static final int DEFAULT_RESERVATION_TTL_BATCH = 100;
+    private static final int MAX_RESERVATION_TTL_BATCH = 200;
 
     private record AntifraudAction(String kind, int volunteerId, Integer lotId) {
+    }
+
+    private record ReservationExpiryNotification(int needyId, String message) {
     }
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -65,6 +71,7 @@ public class MaintenanceTasks {
     private final String volunteerKycDir;
     private final int kycRetryBatch;
     private final int kycRetentionHours;
+    private final int reservationTtlBatch;
 
     @Autowired
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
@@ -74,7 +81,8 @@ public class MaintenanceTasks {
                             @Value("${savefood.support-chat-id:}") String supportChatId,
                             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
                             @Value("${savefood.kyc-retry-batch:100}") int kycRetryBatch,
-                            @Value("${savefood.kyc-doc-retention-hours:0}") int kycRetentionHours) {
+                            @Value("${savefood.kyc-doc-retention-hours:0}") int kycRetentionHours,
+                            @Value("${savefood.reservation-ttl-batch-size:100}") int reservationTtlBatch) {
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(txManager);
         this.revert = revert;
@@ -86,6 +94,7 @@ public class MaintenanceTasks {
         this.volunteerKycDir = volunteerKycDir;
         this.kycRetryBatch = kycRetryBatch;
         this.kycRetentionHours = kycRetentionHours;
+        this.reservationTtlBatch = Math.max(1, Math.min(reservationTtlBatch, MAX_RESERVATION_TTL_BATCH));
     }
 
     /** Constructor retained for focused tests unrelated to filesystem cleanup. */
@@ -94,7 +103,16 @@ public class MaintenanceTasks {
                             String mode, String supportChatId, String volunteerKycDir,
                             int kycRetryBatch, int kycRetentionHours) {
         this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
-            volunteerKycDir, kycRetryBatch, kycRetentionHours);
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, DEFAULT_RESERVATION_TTL_BATCH);
+    }
+
+    /** Constructor with an explicit reservation batch size for focused tests. */
+    public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
+                            RouteRevertService revert, KycService kyc, TelegramService telegram,
+                            String mode, String supportChatId, String volunteerKycDir,
+                            int kycRetryBatch, int kycRetentionHours, int reservationTtlBatch) {
+        this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, reservationTtlBatch);
     }
 
     // ── expire_tick (every 30 min) ───────────────────────────────────────────
@@ -349,32 +367,45 @@ public class MaintenanceTasks {
         if (!enabled) {
             return;
         }
+        List<ReservationExpiryNotification> deliveries;
         try {
-            tx.executeWithoutResult(s -> {
-                // startRoute locks the lot before assigning its tickets. Take the
-                // same locks in the same order so assignment and expiry cannot
-                // deadlock while TTL returns a reservation to the lot.
-                jdbc.queryForList(
+            deliveries = tx.execute(s -> {
+                // startRoute takes lot -> ticket locks. Claim a bounded set of
+                // affected lots in that same order, skipping work owned by another
+                // expiry/assignment transaction, then lock at most one batch of
+                // their eligible tickets.
+                List<Integer> lotIds = jdbc.query(
                     "SELECT l.id FROM lots l WHERE EXISTS (SELECT 1 FROM tickets t "
                     + "WHERE t.lot_id = l.id AND t.status = 'open' "
                     + "AND t.expires_at IS NOT NULL AND t.expires_at < CURRENT_TIMESTAMP "
                     + "AND t.assigned_volunteer_id IS NULL AND t.assigned_volunteer IS NULL) "
-                    + "ORDER BY l.id FOR UPDATE");
-
-                // UPDATE ... RETURNING is the winner election. PostgreSQL
-                // rechecks the predicate after a conflicting writer commits, so
-                // an assignment or another TTL worker can make this a no-op.
+                    + "ORDER BY l.id LIMIT ? FOR UPDATE OF l SKIP LOCKED",
+                    (rs, rowNum) -> rs.getInt("id"), reservationTtlBatch);
+                if (lotIds.isEmpty()) {
+                    return List.of();
+                }
+                String lotPlaceholders = String.join(",", java.util.Collections.nCopies(lotIds.size(), "?"));
                 List<Map<String, Object>> expired = jdbc.queryForList(
-                    "UPDATE tickets SET status = 'cancelled' WHERE status = 'open' "
+                    "SELECT id, needy_id, lot_id, quantity, self_pickup FROM tickets "
+                    + "WHERE lot_id IN (" + lotPlaceholders + ") AND status = 'open' "
                     + "AND expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP "
                     + "AND assigned_volunteer_id IS NULL AND assigned_volunteer IS NULL "
-                    + "RETURNING id, needy_id, lot_id, quantity, self_pickup");
+                    + "ORDER BY expires_at, id LIMIT " + reservationTtlBatch
+                    + " FOR UPDATE SKIP LOCKED", lotIds.toArray());
+                List<ReservationExpiryNotification> pendingDeliveries = new ArrayList<>(expired.size());
                 for (Map<String, Object> t : expired) {
                     int id = ((Number) t.get("id")).intValue();
                     Integer needyId = t.get("needy_id") == null ? null : ((Number) t.get("needy_id")).intValue();
                     Integer lotId = t.get("lot_id") == null ? null : ((Number) t.get("lot_id")).intValue();
                     Number quantity = (Number) t.get("quantity");
                     boolean selfPickup = Boolean.TRUE.equals(t.get("self_pickup"));
+
+                    int cancelled = jdbc.update("UPDATE tickets SET status = 'cancelled' WHERE id = ? "
+                        + "AND status = 'open' AND assigned_volunteer_id IS NULL "
+                        + "AND assigned_volunteer IS NULL", id);
+                    if (cancelled != 1) {
+                        continue;
+                    }
 
                     if (lotId != null) {
                         jdbc.update("UPDATE lots SET quantity = quantity + ? WHERE id = ? AND status = 'active'",
@@ -389,16 +420,23 @@ public class MaintenanceTasks {
                     jdbc.update("INSERT INTO notifications (needy_id, type, payload, created_at, read) "
                         + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", needyId, ntype, msg);
                     if (needyId != null) {
-                        try {
-                            telegram.notifyNeedy(needyId, "◷ " + msg);
-                        } catch (Exception ignore) {
-                            // best-effort
-                        }
+                        pendingDeliveries.add(new ReservationExpiryNotification(needyId, "◷ " + msg));
                     }
                 }
+                return pendingDeliveries;
             });
         } catch (RuntimeException e) {
             log.warning("[background] reservation_ttl tick failed: " + e.getMessage());
+            return;
+        }
+        // TransactionTemplate returns only after the database commit succeeds.
+        // Telegram is best-effort and cannot extend database lock lifetime.
+        for (ReservationExpiryNotification delivery : deliveries) {
+            try {
+                telegram.notifyNeedy(delivery.needyId(), delivery.message());
+            } catch (Exception ignore) {
+                // best-effort; expiry, inventory and in-app notification stay committed
+            }
         }
     }
 

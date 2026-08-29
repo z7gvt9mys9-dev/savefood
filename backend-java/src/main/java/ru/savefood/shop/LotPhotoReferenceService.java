@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -23,23 +24,45 @@ public class LotPhotoReferenceService {
     private final UploadService uploads;
     private final LotUploadCleanup cleanup;
     private final Path uploadDir;
+    private final LotPhotoStagingProperties properties;
 
+    @Autowired
     public LotPhotoReferenceService(ShopRepository repo, UploadService uploads, LotUploadCleanup cleanup,
-                                    @Value("${savefood.shop-upload-dir}") String uploadDir) {
+                                    @Value("${savefood.shop-upload-dir}") String uploadDir,
+                                    LotPhotoStagingProperties properties) {
         this.repo = repo;
         this.uploads = uploads;
         this.cleanup = cleanup;
         this.uploadDir = Paths.get(uploadDir).toAbsolutePath().normalize();
+        this.properties = properties;
+    }
+
+    /** Test/standalone compatibility with the production defaults. */
+    public LotPhotoReferenceService(ShopRepository repo, UploadService uploads, LotUploadCleanup cleanup,
+                                    String uploadDir) {
+        this(repo, uploads, cleanup, uploadDir, new LotPhotoStagingProperties());
     }
 
     /** Validates/re-encodes an image and returns its server-managed lot-photo reference. */
     @Transactional
     public String stage(int shopId, MultipartFile file) {
         UploadService.PreparedUpload prepared = uploads.prepare(file);
+        long byteSize = prepared.content().length;
+        if (byteSize > properties.getMaxPendingBytes()) {
+            throw quotaExceeded();
+        }
+        repo.lockLotPhotoStaging(shopId);
+        ShopRepository.PendingLotPhotoUsage usage = repo.pendingLotPhotoUsage(shopId);
+        long pendingCount = usage == null ? 0 : usage.count();
+        long pendingBytes = usage == null ? 0 : usage.bytes();
+        if (pendingCount >= properties.getMaxPendingCount()
+                || pendingBytes > properties.getMaxPendingBytes() - byteSize) {
+            throw quotaExceeded();
+        }
         String filename = null;
         try {
             filename = uploads.savePrepared(prepared, uploadDir.toString());
-            repo.stageLotPhotoUpload(shopId, filename);
+            repo.stageLotPhotoUpload(shopId, filename, byteSize, properties.getTtl().toMillis());
             return "/uploads/" + filename;
         } catch (RuntimeException e) {
             if (e instanceof UploadService.UploadWriteException failedWrite) {
@@ -50,6 +73,10 @@ public class LotPhotoReferenceService {
             }
             throw e;
         }
+    }
+
+    public int uploadRatePerMinute() {
+        return properties.getUploadRatePerMinute();
     }
 
     /** Rejects everything except an existing, unclaimed upload staged by this shop. */
@@ -69,5 +96,9 @@ public class LotPhotoReferenceService {
 
     private static ApiException invalidReference() {
         return new ApiException(400, "Фотография лота недействительна или уже использована");
+    }
+
+    private static ApiException quotaExceeded() {
+        return new ApiException(429, "Лимит ожидающих фотографий лота исчерпан");
     }
 }

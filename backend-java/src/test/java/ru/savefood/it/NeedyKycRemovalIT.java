@@ -45,7 +45,8 @@ class NeedyKycRemovalIT extends PostgresIT {
         assertThat(List.of(status("needy", pending), status("needy", approved), status("needy", rejected)))
             .containsOnly("active");
         assertThat(jdbc.queryForList(
-            "SELECT document_ref FROM needy_kyc_document_cleanup ORDER BY document_ref", String.class))
+            "SELECT file_ref FROM sensitive_file_cleanup WHERE storage_type = 'needy_kyc' ORDER BY file_ref",
+            String.class))
             .containsExactly("/needy_uploads/approved.enc", "/needy_uploads/pending.enc");
         assertThat(columnExists("needy", "kyc_verdict")).isFalse();
         assertThat(columnExists("needy_profile", "document")).isFalse();

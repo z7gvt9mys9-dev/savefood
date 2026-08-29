@@ -90,6 +90,7 @@ savefood:
   # Python worker is stopped (its BACKGROUND_TASKS=off), so exactly one scheduler
   # runs the ticks against the shared DB.
   background-tasks: ${BACKGROUND_TASKS_JAVA:off}
+  reservation-ttl-batch-size: ${RESERVATION_TTL_BATCH_SIZE:100}
   kyc-retry-batch: ${KYC_RETRY_BATCH:100}
   kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
   webhook:
@@ -127,6 +128,12 @@ savefood:
   # only through the auth-checked receipt endpoint). Default at the Python
   # backend/shop dirs so files stay reachable during the migration.
   shop-upload-dir: ${SHOP_UPLOAD_DIR:../backend/shop/uploads}
+  lot-photo-staging:
+    ttl: ${LOT_PHOTO_STAGING_TTL:45m}
+    max-pending-count: ${LOT_PHOTO_STAGING_MAX_PENDING_COUNT:10}
+    max-pending-bytes: ${LOT_PHOTO_STAGING_MAX_PENDING_BYTES:26214400}
+    cleanup-batch-size: ${LOT_PHOTO_STAGING_CLEANUP_BATCH_SIZE:100}
+    upload-rate-per-minute: ${LOT_PHOTO_STAGING_UPLOAD_RATE_PER_MINUTE:20}
   receipt-upload-dir: ${RECEIPT_UPLOAD_DIR:../backend/shop/receipt_uploads}
   # Receipt OCR (Gemini Vision). When the key is absent the OCR endpoint returns
   # 503, exactly like the Python service with no GEMINI_API_KEY.

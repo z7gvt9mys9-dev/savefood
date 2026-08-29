@@ -166,6 +166,8 @@ public class ShopController {
                                               @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
+        rateLimiter.check("shops:lot_photos", Integer.toString(shopId),
+            lotPhotoReferences.uploadRatePerMinute());
         return Map.of("photo", lotPhotoReferences.stage(shopId, file));
     }
 

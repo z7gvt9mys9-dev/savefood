@@ -7,8 +7,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,11 +29,20 @@ public class LotUploadCleanup {
 
     private final JdbcTemplate jdbc;
     private final Path uploadDir;
+    private final LotPhotoStagingProperties stagingProperties;
 
+    @Autowired
     public LotUploadCleanup(JdbcTemplate jdbc,
-                            @Value("${savefood.shop-upload-dir}") String uploadDir) {
+                            @Value("${savefood.shop-upload-dir}") String uploadDir,
+                            LotPhotoStagingProperties stagingProperties) {
         this.jdbc = jdbc;
         this.uploadDir = Paths.get(uploadDir).toAbsolutePath().normalize();
+        this.stagingProperties = stagingProperties;
+    }
+
+    /** Test/standalone compatibility with the production defaults. */
+    public LotUploadCleanup(JdbcTemplate jdbc, String uploadDir) {
+        this(jdbc, uploadDir, new LotPhotoStagingProperties());
     }
 
     /** Attempt deletion immediately; retain only failures for a durable retry. */
@@ -77,6 +88,48 @@ public class LotUploadCleanup {
                     + "last_attempt_at = CURRENT_TIMESTAMP, last_error = 'delete failed', "
                     + "next_attempt_at = CURRENT_TIMESTAMP + make_interval(mins => LEAST(1440, (attempts + 1) * 15)) "
                     + "WHERE id = ? AND completed_at IS NULL", id);
+            }
+        }
+    }
+
+    /**
+     * Locks a bounded set of expired, still-unclaimed references. A concurrent
+     * claim either commits first and makes the row ineligible, or waits until
+     * the file and row are both gone and then fails its guarded update.
+     */
+    @Scheduled(fixedDelayString = "${savefood.lot-photo-staging.cleanup-delay-ms:300000}",
+               initialDelayString = "${savefood.lot-photo-staging.cleanup-initial-delay-ms:60000}")
+    @Transactional
+    public void cleanupExpiredStagedPhotos() {
+        List<Map<String, Object>> rows;
+        try {
+            rows = jdbc.queryForList("SELECT filename, shop_id, created_at, expires_at "
+                + "FROM shop_lot_photo_uploads WHERE lot_id IS NULL "
+                + "AND expires_at <= clock_timestamp() "
+                + "AND cleanup_next_attempt_at <= clock_timestamp() "
+                + "ORDER BY cleanup_next_attempt_at, expires_at, filename "
+                + "LIMIT ? FOR UPDATE SKIP LOCKED", stagingProperties.getCleanupBatchSize());
+        } catch (RuntimeException e) {
+            log.warning("[staged-lot-photo-cleanup] unable to load stale references: " + e.getMessage());
+            return;
+        }
+        for (Map<String, Object> row : rows) {
+            String filename = (String) row.get("filename");
+            int shopId = ((Number) row.get("shop_id")).intValue();
+            Object createdAt = row.get("created_at");
+            Object expiresAt = row.get("expires_at");
+            if (delete(filename)) {
+                jdbc.update("DELETE FROM shop_lot_photo_uploads WHERE filename = ? AND shop_id = ? "
+                    + "AND created_at = ? AND expires_at = ? AND lot_id IS NULL",
+                    filename, shopId, createdAt, expiresAt);
+            } else {
+                jdbc.update("UPDATE shop_lot_photo_uploads "
+                    + "SET cleanup_attempts = cleanup_attempts + 1, cleanup_last_error = 'delete failed', "
+                    + "cleanup_next_attempt_at = CURRENT_TIMESTAMP + "
+                    + "make_interval(mins => LEAST(1440, (cleanup_attempts + 1) * 15)) "
+                    + "WHERE filename = ? AND shop_id = ? AND created_at = ? AND expires_at = ? "
+                    + "AND lot_id IS NULL",
+                    filename, shopId, createdAt, expiresAt);
             }
         }
     }

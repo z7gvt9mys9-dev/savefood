@@ -149,7 +149,7 @@ class WebhookServiceTest {
     @Test
     void validationFailureLogsOnlySanitizedWebhookDestination() throws Exception {
         String url = "https://user:password@partner.example:8443/private/secret?token=query-secret#fragment-secret";
-        CapturingHandler logs = captureWebhookLogs();
+        CapturingHandler logs = captureWebhookLogs("https://partner.example:8443");
         try {
             service = new WebhookService(hooksJdbc(List.of(hook(1, url))), limits(1, 1, 1, 0),
                 (sentUrl, secret, event, body) -> {
@@ -168,7 +168,7 @@ class WebhookServiceTest {
     @Test
     void retryFailureLogsSanitizedDestinationAndDeliversOriginalUrl() throws Exception {
         String url = "https://user:password@partner.example:8443/private/secret?token=query-secret#fragment-secret";
-        CapturingHandler logs = captureWebhookLogs();
+        CapturingHandler logs = captureWebhookLogs("https://partner.example:8443");
         CountDownLatch sent = new CountDownLatch(2);
         try {
             service = service(hooksJdbc(List.of(hook(1, url))), limits(1, 1, 1, 1),
@@ -208,8 +208,8 @@ class WebhookServiceTest {
             "secret", "whsec_test", "events", "*");
     }
 
-    private static CapturingHandler captureWebhookLogs() {
-        CapturingHandler handler = new CapturingHandler();
+    private static CapturingHandler captureWebhookLogs(String expectedDestination) {
+        CapturingHandler handler = new CapturingHandler(expectedDestination);
         Logger.getLogger(WebhookService.class.getName()).addHandler(handler);
         return handler;
     }
@@ -226,10 +226,16 @@ class WebhookServiceTest {
     private static final class CapturingHandler extends Handler {
         private final CountDownLatch warning = new CountDownLatch(1);
         private final StringBuilder messages = new StringBuilder();
+        private final String expectedDestination;
+
+        CapturingHandler(String expectedDestination) {
+            this.expectedDestination = expectedDestination;
+        }
 
         @Override
         public void publish(LogRecord record) {
-            if (record.getLevel().intValue() >= Level.WARNING.intValue()) {
+            if (record.getLevel().intValue() >= Level.WARNING.intValue()
+                    && record.getMessage().contains(expectedDestination)) {
                 synchronized (messages) {
                     messages.append(record.getMessage());
                 }

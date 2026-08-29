@@ -52,24 +52,45 @@ public class ShopRepository {
 
     // ── Staged lot-photo references ──────────────────────────────────────────
 
+    private static final int LOT_PHOTO_STAGING_LOCK = 1_397_116_752;
+
+    public record PendingLotPhotoUsage(long count, long bytes) {
+    }
+
+    /** Serializes quota decisions for one shop until the surrounding transaction ends. */
+    public void lockLotPhotoStaging(int shopId) {
+        jdbc.query("SELECT pg_advisory_xact_lock(?, ?)", rs -> null,
+            LOT_PHOTO_STAGING_LOCK, shopId);
+    }
+
+    public PendingLotPhotoUsage pendingLotPhotoUsage(int shopId) {
+        return jdbc.queryForObject("SELECT COUNT(*), COALESCE(SUM(byte_size), 0) "
+                + "FROM shop_lot_photo_uploads WHERE shop_id = ? AND lot_id IS NULL",
+            (rs, rowNum) -> new PendingLotPhotoUsage(rs.getLong(1), rs.getLong(2)), shopId);
+    }
+
     /** Records a validated image produced by the shop lot-photo upload endpoint. */
-    public void stageLotPhotoUpload(int shopId, String filename) {
-        jdbc.update("INSERT INTO shop_lot_photo_uploads (filename, shop_id) VALUES (?, ?)",
-            filename, shopId);
+    public void stageLotPhotoUpload(int shopId, String filename, long byteSize, long ttlMillis) {
+        jdbc.update("INSERT INTO shop_lot_photo_uploads "
+                + "(filename, shop_id, byte_size, expires_at) "
+                + "VALUES (?, ?, ?, clock_timestamp() + (? * INTERVAL '1 millisecond'))",
+            filename, shopId, byteSize, ttlMillis);
     }
 
     /** Fast-fail check; {@link #claimLotPhotoUpload} remains authoritative. */
     public boolean hasAvailableLotPhotoUpload(int shopId, String filename) {
         return Boolean.TRUE.equals(jdbc.query(
             "SELECT EXISTS (SELECT 1 FROM shop_lot_photo_uploads "
-                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL)",
+                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL "
+                + "AND expires_at > clock_timestamp())",
             rs -> rs.next() && rs.getBoolean(1), shopId, filename));
     }
 
     /** Atomically binds a staged upload to exactly one lot owned by its uploader. */
     public boolean claimLotPhotoUpload(int shopId, String filename, int lotId) {
         return jdbc.update("UPDATE shop_lot_photo_uploads SET lot_id = ?, claimed_at = CURRENT_TIMESTAMP "
-                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL",
+                + "WHERE shop_id = ? AND filename = ? AND lot_id IS NULL "
+                + "AND expires_at > clock_timestamp()",
             lotId, shopId, filename) == 1;
     }
 

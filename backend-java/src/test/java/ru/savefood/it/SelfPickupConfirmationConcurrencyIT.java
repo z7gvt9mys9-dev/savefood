@@ -143,24 +143,24 @@ class SelfPickupConfirmationConcurrencyIT extends PostgresIT {
         assertThat(confirmed.await(5, TimeUnit.SECONDS)).isTrue();
         Thread.sleep(2_200);
         Future<?> ttl = executor.submit(maintenance::reservationTtlTick);
-        assertBlocked(ttl);
+        // Expiry skips the lot held by the winning confirmation transaction.
+        ttl.get(5, TimeUnit.SECONDS);
         allowCommit.countDown();
 
         assertThat(confirmation.get(5, TimeUnit.SECONDS)).isTrue();
-        ttl.get(5, TimeUnit.SECONDS);
         assertFulfilledOnce(reservation);
         assertThat(expirationNotificationCount(reservation.needyId())).isZero();
     }
 
     @Test
-    void expiryThatWinsMakesConfirmationFailWhileTtlIsStillUncommitted() throws Exception {
+    void expiryThatWinsMakesConfirmationFailWhileTelegramIsStillPending() throws Exception {
         Reservation reservation = selfPickupReservation();
         expire(reservation);
         CountDownLatch ttlWon = new CountDownLatch(1);
-        CountDownLatch allowCommit = new CountDownLatch(1);
+        CountDownLatch releaseTelegram = new CountDownLatch(1);
         doAnswer(invocation -> {
             ttlWon.countDown();
-            await(allowCommit);
+            await(releaseTelegram);
             return null;
         }).when(telegram).notifyNeedy(anyInt(), anyString());
 
@@ -168,7 +168,7 @@ class SelfPickupConfirmationConcurrencyIT extends PostgresIT {
         assertThat(ttlWon.await(5, TimeUnit.SECONDS)).isTrue();
         Future<Boolean> confirmation = executor.submit(() -> attemptConfirmation(shopService, reservation));
         assertThat(confirmation.get(5, TimeUnit.SECONDS)).isFalse();
-        allowCommit.countDown();
+        releaseTelegram.countDown();
 
         ttl.get(5, TimeUnit.SECONDS);
         assertThat(status("tickets", reservation.ticketId())).isEqualTo("cancelled");

@@ -3,6 +3,7 @@ package ru.savefood.shop;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -37,7 +38,7 @@ class LotPhotoReferenceServiceTest {
         assertThat(reference).matches("/uploads/[a-f0-9]{32}\\.(png|jpg|jpeg)");
         assertThat(references.requireAvailable(1, reference)).isEqualTo(filename);
         assertThat(Files.isRegularFile(uploadDir.resolve(filename))).isTrue();
-        verify(repo).stageLotPhotoUpload(1, filename);
+        verify(repo).stageLotPhotoUpload(eq(1), eq(filename), anyLong(), anyLong());
     }
 
     @Test
@@ -69,7 +70,31 @@ class LotPhotoReferenceServiceTest {
             "not an image".getBytes());
 
         assertThatThrownBy(() -> references(repo).stage(1, malformed)).isInstanceOf(ApiException.class);
-        verify(repo, never()).stageLotPhotoUpload(eq(1), org.mockito.ArgumentMatchers.anyString());
+        verify(repo, never()).stageLotPhotoUpload(eq(1), org.mockito.ArgumentMatchers.anyString(),
+            anyLong(), anyLong());
+        assertThat(uploadDir).isEmptyDirectory();
+    }
+
+    @Test
+    void pendingCountLimitRejectsBeforeWritingAFile() throws Exception {
+        ShopRepository repo = mock(ShopRepository.class);
+        when(repo.pendingLotPhotoUsage(1)).thenReturn(new ShopRepository.PendingLotPhotoUsage(10, 1));
+
+        assertThatThrownBy(() -> references(repo).stage(1, validImage()))
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).getStatus()).isEqualTo(429);
+        assertThat(uploadDir).isEmptyDirectory();
+    }
+
+    @Test
+    void pendingByteLimitRejectsBeforeWritingAFile() throws Exception {
+        ShopRepository repo = mock(ShopRepository.class);
+        when(repo.pendingLotPhotoUsage(1)).thenReturn(
+            new ShopRepository.PendingLotPhotoUsage(1, 25L * 1024 * 1024));
+
+        assertThatThrownBy(() -> references(repo).stage(1, validImage()))
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).getStatus()).isEqualTo(429);
         assertThat(uploadDir).isEmptyDirectory();
     }
 
