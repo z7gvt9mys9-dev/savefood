@@ -50,6 +50,8 @@ class VolunteerKycGenerationTest {
         verify(fixture.repo).replaceVolunteerKycDocument(
             eq(7), eq("/volunteer_kyc/b.pdf"), generation.capture());
         UUID.fromString(generation.getValue());
+        verify(fixture.sensitiveFiles).deleteOnRollback(
+            Storage.VOLUNTEER_KYC, "/volunteer_kyc/b.pdf");
         verify(fixture.kyc).startVolunteerKycCheck(7,
             uploadDir.resolve("b.pdf").toString(), "Volunteer", generation.getValue());
         verify(fixture.sensitiveFiles).trackAndDeleteAfterCommit(

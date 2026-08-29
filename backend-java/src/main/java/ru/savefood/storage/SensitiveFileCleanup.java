@@ -13,8 +13,11 @@ import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /** Durable, exact-reference deletion for private KYC and delivery-proof files. */
 @Service
@@ -53,19 +56,40 @@ public class SensitiveFileCleanup {
     private final JdbcTemplate jdbc;
     private final Map<Storage, Path> roots;
     private final FileDeleter deleter;
+    private final TransactionTemplate cleanupTransaction;
 
     @Autowired
     public SensitiveFileCleanup(JdbcTemplate jdbc,
             @Value("${savefood.needy-upload-dir:../backend/needy/uploads}") String needyDir,
             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
             @Value("${savefood.delivery-photo-upload-dir:../backend/volunteer/delivery_photos}") String deliveryPhotoDir,
-            @Value("${savefood.volunteer-upload-dir:../backend/volunteer/uploads}") String legacyDeliveryPhotoDir) {
+            @Value("${savefood.volunteer-upload-dir:../backend/volunteer/uploads}") String legacyDeliveryPhotoDir,
+            PlatformTransactionManager transactionManager) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
-            Files::deleteIfExists);
+            Files::deleteIfExists, requiresNew(transactionManager));
+    }
+
+    public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
+            String deliveryPhotoDir, String legacyDeliveryPhotoDir) {
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+            Files::deleteIfExists, null);
+    }
+
+    public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
+            String deliveryPhotoDir, String legacyDeliveryPhotoDir,
+            PlatformTransactionManager transactionManager) {
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+            Files::deleteIfExists, requiresNew(transactionManager));
     }
 
     SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter) {
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir, deleter, null);
+    }
+
+    SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
+            String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter,
+            TransactionTemplate cleanupTransaction) {
         this.jdbc = jdbc;
         this.roots = Map.of(
             Storage.NEEDY_KYC, root(needyDir),
@@ -73,6 +97,27 @@ public class SensitiveFileCleanup {
             Storage.DELIVERY_PHOTO, root(deliveryPhotoDir),
             Storage.LEGACY_DELIVERY_PHOTO, root(legacyDeliveryPhotoDir));
         this.deleter = deleter;
+        this.cleanupTransaction = cleanupTransaction;
+    }
+
+    /** Retains an exact, newly-created sensitive file only if the transaction commits. */
+    public boolean deleteOnRollback(Storage storage, String fileRef) {
+        requireSafePath(storage, fileRef);
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            return false;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Transaction synchronization is not active");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                    deleteOrQueueNow(storage, fileRef);
+                }
+            }
+        });
+        return true;
     }
 
     /**
@@ -109,6 +154,15 @@ public class SensitiveFileCleanup {
             } else {
                 queue.run();
             }
+        }
+    }
+
+    private void deleteOrQueueNow(Storage storage, String fileRef) {
+        Path path = requireSafePath(storage, fileRef);
+        try {
+            deleter.deleteIfExists(path);
+        } catch (Exception e) {
+            queueFailure(storage, fileRef, message(e));
         }
     }
 
@@ -160,11 +214,16 @@ public class SensitiveFileCleanup {
 
     private void queueFailure(Storage storage, String fileRef, String error) {
         try {
-            jdbc.update(
+            Runnable insert = () -> jdbc.update(
                 "INSERT INTO sensitive_file_cleanup (storage_type, file_ref, last_error) VALUES (?, ?, ?) "
                     + "ON CONFLICT (storage_type, file_ref) DO UPDATE SET completed_at = NULL, "
                     + "next_attempt_at = CURRENT_TIMESTAMP, last_error = EXCLUDED.last_error",
                 storage.databaseValue, fileRef, truncate(error));
+            if (cleanupTransaction == null) {
+                insert.run();
+            } else {
+                cleanupTransaction.executeWithoutResult(ignored -> insert.run());
+            }
         } catch (RuntimeException e) {
             log.severe("[sensitive-file-cleanup] failed file could not be queued: "
                 + fileRef + ": " + message(e));
@@ -234,5 +293,14 @@ public class SensitiveFileCleanup {
 
     private static String truncate(String value) {
         return value.substring(0, Math.min(1000, value.length()));
+    }
+
+    private static TransactionTemplate requiresNew(PlatformTransactionManager transactionManager) {
+        if (transactionManager == null) {
+            return null;
+        }
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 }

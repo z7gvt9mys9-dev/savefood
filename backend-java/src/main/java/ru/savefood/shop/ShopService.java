@@ -139,6 +139,7 @@ public class ShopService {
             if (preparedPhotos != null) {
                 for (UploadService.PreparedUpload prepared : preparedPhotos) {
                     String filename = uploads.savePrepared(prepared, uploadDir);
+                    lotUploadCleanup.deleteOnRollback(filename);
                     created.add(filename);
                     photoUrls.add("/uploads/" + filename);
                 }

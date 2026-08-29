@@ -153,8 +153,9 @@ public class VolunteerController {
             throw new ApiException(404, "Volunteer not found");
         }
         String filename = uploads.validateAndSave(file, kycUploadDir, true);
-        Path path = Paths.get(kycUploadDir, filename);
         String document = "/volunteer_kyc/" + filename;
+        sensitiveFiles.deleteOnRollback(Storage.VOLUNTEER_KYC, document);
+        Path path = Paths.get(kycUploadDir, filename);
         String generation = UUID.randomUUID().toString();
         VolunteerRepository.KycDocumentReplacement replacement;
         // Encrypt the identity document at rest immediately (§58): on disk only ciphertext.

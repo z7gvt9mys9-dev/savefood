@@ -10,9 +10,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -30,19 +33,66 @@ public class LotUploadCleanup {
     private final JdbcTemplate jdbc;
     private final Path uploadDir;
     private final LotPhotoStagingProperties stagingProperties;
+    private final TransactionTemplate cleanupTransaction;
 
     @Autowired
     public LotUploadCleanup(JdbcTemplate jdbc,
                             @Value("${savefood.shop-upload-dir}") String uploadDir,
+                            LotPhotoStagingProperties stagingProperties,
+                            PlatformTransactionManager transactionManager) {
+        this(jdbc, uploadDir, stagingProperties, requiresNew(transactionManager));
+    }
+
+    public LotUploadCleanup(JdbcTemplate jdbc, String uploadDir,
                             LotPhotoStagingProperties stagingProperties) {
+        this(jdbc, uploadDir, stagingProperties, (TransactionTemplate) null);
+    }
+
+    public LotUploadCleanup(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
+                            String uploadDir, LotPhotoStagingProperties stagingProperties) {
+        this(jdbc, uploadDir, stagingProperties, requiresNew(transactionManager));
+    }
+
+    private LotUploadCleanup(JdbcTemplate jdbc, String uploadDir,
+                             LotPhotoStagingProperties stagingProperties,
+                             TransactionTemplate cleanupTransaction) {
         this.jdbc = jdbc;
         this.uploadDir = Paths.get(uploadDir).toAbsolutePath().normalize();
         this.stagingProperties = stagingProperties;
+        this.cleanupTransaction = cleanupTransaction;
     }
 
     /** Test/standalone compatibility with the production defaults. */
     public LotUploadCleanup(JdbcTemplate jdbc, String uploadDir) {
-        this(jdbc, uploadDir, new LotPhotoStagingProperties());
+        this(jdbc, uploadDir, new LotPhotoStagingProperties(), (TransactionTemplate) null);
+    }
+
+    /**
+     * Marks a request-local file as owned by the current transaction. The file
+     * is retained only after a successful commit, including when this method is
+     * participating in an outer transaction.
+     *
+     * @return whether an active transaction was present and cleanup was registered
+     */
+    public boolean deleteOnRollback(String filename) {
+        if (safePath(filename) == null) {
+            throw new IllegalArgumentException("Invalid generated upload filename");
+        }
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            return false;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            throw new IllegalStateException("Transaction synchronization is not active");
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != TransactionSynchronization.STATUS_COMMITTED && !delete(filename)) {
+                    queueFailure(filename);
+                }
+            }
+        });
+        return true;
     }
 
     /** Attempt deletion immediately; retain only failures for a durable retry. */
@@ -149,9 +199,16 @@ public class LotUploadCleanup {
 
     private void queueFailure(String filename) {
         try {
-            jdbc.update("INSERT INTO shop_upload_cleanup (filename, last_error) VALUES (?, 'delete failed') "
-                + "ON CONFLICT (filename) DO UPDATE SET completed_at = NULL, next_attempt_at = CURRENT_TIMESTAMP, "
-                + "last_error = EXCLUDED.last_error", filename);
+            Runnable insert = () -> jdbc.update(
+                "INSERT INTO shop_upload_cleanup (filename, last_error) VALUES (?, 'delete failed') "
+                    + "ON CONFLICT (filename) DO UPDATE SET completed_at = NULL, "
+                    + "next_attempt_at = CURRENT_TIMESTAMP, last_error = EXCLUDED.last_error",
+                filename);
+            if (cleanupTransaction == null) {
+                insert.run();
+            } else {
+                cleanupTransaction.executeWithoutResult(ignored -> insert.run());
+            }
         } catch (RuntimeException e) {
             log.severe("[shop-upload-cleanup] orphan could not be queued for retry: " + filename + ": "
                 + e.getMessage());
@@ -164,5 +221,14 @@ public class LotUploadCleanup {
         }
         Path candidate = uploadDir.resolve(filename).normalize();
         return candidate.getParent() != null && candidate.getParent().equals(uploadDir) ? candidate : null;
+    }
+
+    private static TransactionTemplate requiresNew(PlatformTransactionManager transactionManager) {
+        if (transactionManager == null) {
+            return null;
+        }
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return template;
     }
 }

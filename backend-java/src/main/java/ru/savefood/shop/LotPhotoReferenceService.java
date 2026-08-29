@@ -62,6 +62,7 @@ public class LotPhotoReferenceService {
         String filename = null;
         try {
             filename = uploads.savePrepared(prepared, uploadDir.toString());
+            cleanup.deleteOnRollback(filename);
             repo.stageLotPhotoUpload(shopId, filename, byteSize, properties.getTtl().toMillis());
             return "/uploads/" + filename;
         } catch (RuntimeException e) {
