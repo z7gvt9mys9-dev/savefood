@@ -172,7 +172,35 @@ public class NeedyRepository {
         List<Map<String, Object>> profile =
             jdbc.queryForList("SELECT * FROM needy_profile WHERE needy_id = ?", needyId);
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("account", n.get(0));
+        Map<String, Object> account = new LinkedHashMap<>(n.get(0));
+        List<Map<String, Object>> users = jdbc.queryForList(
+            "SELECT id, username, role, related_id, created_at, is_blocked, "
+                + "telegram_chat_id, google_id, yandex_id "
+                + "FROM users WHERE role = 'needy' AND related_id = ? ORDER BY id LIMIT 1",
+            needyId);
+        Map<String, Object> user = users.isEmpty() ? null : users.get(0);
+        account.put("user_id", user == null ? null : user.get("id"));
+        account.put("username", user == null ? null : user.get("username"));
+        account.put("account_created_at", user == null ? null : user.get("created_at"));
+        account.put("is_blocked", user == null ? null : user.get("is_blocked"));
+        out.put("account", account);
+        Map<String, Object> links = new LinkedHashMap<>();
+        links.put("telegram_chat_id", user == null ? null : user.get("telegram_chat_id"));
+        links.put("google_id", user == null ? null : user.get("google_id"));
+        links.put("yandex_id", user == null ? null : user.get("yandex_id"));
+        out.put("account_links", links);
+        int userId = user == null ? -1 : ((Number) user.get("id")).intValue();
+        out.put("push_subscriptions", sanitizedPushSubscriptions(jdbc.queryForList(
+            "SELECT id, endpoint, created_at FROM push_subscriptions WHERE user_id = ? ORDER BY id", userId)));
+        out.put("fcm_registrations", sanitizedFcmRegistrations(jdbc.queryForList(
+            "SELECT id, token, created_at FROM fcm_tokens WHERE user_id = ? "
+                + "AND role = 'needy' AND related_id = ? ORDER BY id", userId, needyId)));
+        out.put("refresh_sessions", jdbc.queryForList(
+            "SELECT session_id, created_at, expires_at, consumed_at, revoked_at, "
+                + "CASE WHEN revoked_at IS NOT NULL THEN 'revoked' "
+                + "WHEN consumed_at IS NOT NULL THEN 'consumed' "
+                + "WHEN expires_at <= CURRENT_TIMESTAMP THEN 'expired' ELSE 'active' END AS status "
+                + "FROM refresh_sessions WHERE user_id = ? ORDER BY created_at", userId));
         out.put("profile", profile.isEmpty() ? null : profile.get(0));
         out.put("tickets",
             jdbc.queryForList("SELECT * FROM tickets WHERE needy_id = ? ORDER BY created_at", needyId));
@@ -187,6 +215,42 @@ public class NeedyRepository {
             + "FROM ticket_messages tm JOIN tickets t ON t.id = tm.ticket_id "
             + "WHERE t.needy_id = ? ORDER BY tm.id", needyId));
         return out;
+    }
+
+    /** Keep device registrations visible to their owner without disclosing delivery credentials. */
+    private static List<Map<String, Object>> sanitizedPushSubscriptions(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> subscription = new LinkedHashMap<>();
+            subscription.put("id", row.get("id"));
+            subscription.put("type", "web_push");
+            subscription.put("endpoint_redacted", redactIdentifier((String) row.get("endpoint")));
+            subscription.put("created_at", row.get("created_at"));
+            out.add(subscription);
+        }
+        return out;
+    }
+
+    /** FCM tokens identify a recipient device, but must not be usable as raw registration credentials. */
+    private static List<Map<String, Object>> sanitizedFcmRegistrations(List<Map<String, Object>> rows) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            Map<String, Object> registration = new LinkedHashMap<>();
+            registration.put("id", row.get("id"));
+            registration.put("type", "fcm");
+            registration.put("token_redacted", redactIdentifier((String) row.get("token")));
+            registration.put("created_at", row.get("created_at"));
+            out.add(registration);
+        }
+        return out;
+    }
+
+    private static String redactIdentifier(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        int suffixLength = Math.min(6, value.length());
+        return "…" + value.substring(value.length() - suffixLength);
     }
 
     // ── Row mappers (exact response_model shapes) ────────────────────────────────
