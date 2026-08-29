@@ -13,6 +13,7 @@ import PushToggle from '../../components/PushToggle';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
 import TicketChat from '../../components/TicketChat';
 import MonoIcon from '../../components/MonoIcon';
+import { volunteerMapUrl } from './mapRequest';
 import './Volunteer.css';
 
 const CAT_KEYS = {
@@ -283,7 +284,6 @@ const VolunteerDashboard = () => {
   };
 
   useEffect(() => {
-    fetchMapData();
     if (volunteerId) {
       fetchActiveRoute();
       authFetch(`${API_URL}/volunteers/${volunteerId}/history`, { headers: authHeader })
@@ -299,6 +299,12 @@ const VolunteerDashboard = () => {
       refreshVolunteerInfo();
     }
   }, [volunteerId]);
+
+  useEffect(() => {
+    const city = volunteerInfo?.city?.trim();
+    if (city) fetchMapData(city);
+    else setMapData({ shops: [], tickets: [] });
+  }, [volunteerInfo?.city]);
 
   const [kycBusy, setKycBusy] = useState(false);
   const uploadKycDocument = async (file) => {
@@ -474,9 +480,10 @@ const VolunteerDashboard = () => {
     } catch { alert(t('common.connection_error')); }
   };
 
-  const fetchMapData = async () => {
+  const fetchMapData = async (city = volunteerInfo?.city?.trim()) => {
+    if (!city) return;
     try {
-      const res = await authFetch(`${API_URL}/volunteers/map`, { headers: authHeader });
+      const res = await authFetch(volunteerMapUrl(API_URL, city), { headers: authHeader });
       if (res.ok) {
         const data = await res.json();
         setMapData({

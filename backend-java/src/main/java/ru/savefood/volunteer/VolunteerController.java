@@ -306,9 +306,18 @@ public class VolunteerController {
     // ── Map / profile ─────────────────────────────────────────────────────────────
 
     @GetMapping("/volunteers/map")
-    public Map<String, Object> getMap(@Auth CurrentUser user) {
+    public Map<String, Object> getMap(@RequestParam String city,
+                                      @RequestParam(defaultValue = "100") int limit,
+                                      @Auth CurrentUser user) {
         if (!user.isAdmin() && !"volunteer".equals(user.role())) {
             throw new ApiException(403, "Forbidden");
+        }
+        String requestedCity = city == null ? "" : city.trim();
+        if (requestedCity.isEmpty()) {
+            throw new ApiException(400, "city is required");
+        }
+        if (limit < 1) {
+            throw new ApiException(400, "limit must be positive");
         }
         // Map pins include where vulnerable recipients live (albeit coarsened),
         // so a pending/rejected volunteer must not be able to enumerate them.
@@ -321,8 +330,15 @@ public class VolunteerController {
                 throw new ApiException(403,
                     "Карта заявок доступна после подтверждения аккаунта волонтёра");
             }
+            String volunteerCity = volunteer.get("city") == null ? "" : volunteer.get("city").toString().trim();
+            if (volunteerCity.isEmpty()) {
+                throw new ApiException(400, "Укажите город в профиле волонтёра");
+            }
+            if (!volunteerCity.equals(requestedCity)) {
+                throw new ApiException(403, "Карта доступна только для города волонтёра");
+            }
         }
-        return service.mapPoints();
+        return service.mapPoints(requestedCity, limit);
     }
 
     @GetMapping("/volunteers/{volunteerId}")

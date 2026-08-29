@@ -33,7 +33,7 @@ class VolunteerRepository @Inject constructor(
     suspend fun currentVolunteerId(): Int? = sessionStore.sessionFlow.first()?.relatedId
 
     // --- Available ---
-    suspend fun getMap(): ApiResult<VolunteerMapDto> = safeApiCall { api.getMap() }
+    suspend fun getMap(city: String): ApiResult<VolunteerMapDto> = safeApiCall { api.getMap(city) }
 
     suspend fun getLots(search: String? = null): ApiResult<List<LotDto>> =
         safeApiCall { api.getLots(search = search) }

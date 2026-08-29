@@ -64,7 +64,7 @@ class ReservationLifecycleIT extends PostgresIT {
         needyService.createTicket(needy, "овощи", "адрес", 43.24, 76.90, null, requestedLot,
             null, null, null, false);
 
-        Map<String, Object> map = volunteerService.mapPoints();
+        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
         List<Map<String, Object>> shops = (List<Map<String, Object>>) map.get("shops");
         List<Map<String, Object>> lots = (List<Map<String, Object>>) shops.get(0).get("lots");
 

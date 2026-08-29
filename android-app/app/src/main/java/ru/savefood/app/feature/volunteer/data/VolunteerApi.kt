@@ -19,7 +19,7 @@ interface VolunteerApi {
 
     // --- Available (map + lots) ---
     @GET("volunteers/map")
-    suspend fun getMap(): VolunteerMapDto
+    suspend fun getMap(@Query("city") city: String): VolunteerMapDto
 
     @GET("lots")
     suspend fun getLots(

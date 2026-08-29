@@ -41,7 +41,23 @@ class AvailableViewModel @Inject constructor(
             // The volunteer map is deliberately narrower than the public /lots
             // catalogue: it contains only lots for which a recipient requested
             // delivery.  Do not fetch /lots here, or unrequested lots reappear.
-            when (val mapRes = repo.getMap()) {
+            val volunteerId = repo.currentVolunteerId()
+            if (volunteerId == null) {
+                _state.update { it.copy(loading = false, error = "Нет сессии") }
+                return@launch
+            }
+            val city = when (val profile = repo.getVolunteer(volunteerId)) {
+                is ApiResult.Success -> profile.data.city?.trim().orEmpty()
+                is ApiResult.Error -> {
+                    _state.update { it.copy(loading = false, error = profile.message) }
+                    return@launch
+                }
+            }
+            if (city.isEmpty()) {
+                _state.update { it.copy(loading = false, error = "Укажите город в профиле волонтёра") }
+                return@launch
+            }
+            when (val mapRes = repo.getMap(city)) {
                 is ApiResult.Success -> {
                     val map = mapRes.data
                     _state.update {

@@ -59,6 +59,7 @@ public class VolunteerService {
     static final int PING_MISMATCH_METERS = 1000;
     static final int MAX_DELIVERY_ATTEMPTS = 3;
     static final int ROUTE_HARD_CAP = 20;
+    static final int MAP_MAX_RESULTS = 100;
 
     static final double COARSE_GRID_DEG = 0.005;
 
@@ -742,27 +743,26 @@ public class VolunteerService {
 
     // ── reads (map, history, rating, stats, thanks) ──────────────────────────────
 
-    /** Volunteer map: only lots reserved by a recipient for delivery, plus their open requests. */
-    public Map<String, Object> mapPoints() {
+    /**
+     * Volunteer map for one city. Both collections are capped and every ticket
+     * query is constrained to the same bounded set of lots.
+     */
+    public Map<String, Object> mapPoints(String city, int requestedLimit) {
+        int limit = Math.min(requestedLimit, MAP_MAX_RESULTS);
+        String mapLots = "WITH map_lots AS ("
+            + "SELECT s.id AS shop_id, s.name, s.lat, s.lon, s.kind, l.id AS lot_id, l.description, "
+            + "l.quantity, l.photo, l.category, COUNT(t.id) AS open_delivery_tickets "
+            + "FROM shops s JOIN lots l ON s.id = l.shop_id "
+            + "JOIN tickets t ON t.lot_id = l.id "
+            + "WHERE s.city = ? AND s.lat BETWEEN -90 AND 90 AND s.lon BETWEEN -180 AND 180 "
+            + "AND l.status = 'active' "
+            + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day') "
+            + "AND t.status = 'open' AND t.lat BETWEEN -90 AND 90 AND t.lon BETWEEN -180 AND 180 "
+            + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) "
+            + "GROUP BY s.id, s.name, s.lat, s.lon, s.kind, l.id, l.description, l.quantity, l.photo, l.category "
+            + "ORDER BY l.id LIMIT ?) ";
         Map<Integer, Map<String, Object>> shopsMap = new LinkedHashMap<>();
-        for (Map<String, Object> r : jdbc.queryForList(
-                "SELECT s.id as shop_id, s.name, s.lat, s.lon, s.kind, l.id as lot_id, l.description, "
-                + "l.quantity, l.photo, l.category, "
-                + "(SELECT COUNT(*) FROM tickets t WHERE t.lot_id = l.id AND t.status = 'open' "
-                + "AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
-                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE)) AS open_delivery_tickets "
-                + "FROM shops s JOIN lots l ON s.id = l.shop_id "
-                + "WHERE l.status = 'active' "
-                + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day') "
-                // A volunteer can only start a route when at least one recipient has
-                // requested delivery for this lot.  Showing every active lot here
-                // made the volunteer map look like the public recipient catalogue.
-                + "AND EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
-                + "AND t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
-                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE))")) {
-            if (!Geo.isValidCoordinates(asDouble(r.get("lat")), asDouble(r.get("lon")))) {
-                continue;
-            }
+        for (Map<String, Object> r : jdbc.queryForList(mapLots + "SELECT * FROM map_lots", city, limit)) {
             int sid = ((Number) r.get("shop_id")).intValue();
             Map<String, Object> shop = shopsMap.computeIfAbsent(sid, k -> {
                 Map<String, Object> s = new LinkedHashMap<>();
@@ -792,20 +792,14 @@ public class VolunteerService {
         }
 
         List<Map<String, Object>> tickets = new ArrayList<>();
-        for (Map<String, Object> r : jdbc.queryForList(
-            "SELECT t.*, l.description AS lot_description, l.quantity AS lot_quantity, l.photo AS lot_photo, "
-                + "l.category AS lot_category, l.status AS lot_status, s.id AS shop_id, s.name AS shop_name, "
-                + "s.lat AS shop_lat, s.lon AS shop_lon, s.kind AS shop_kind "
-                + "FROM tickets t JOIN lots l ON l.id = t.lot_id JOIN shops s ON s.id = l.shop_id "
-                + "WHERE t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
-                + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) AND l.status = 'active' "
-                + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day')")) {
-            if (!Geo.isValidCoordinates(asDouble(r.get("lat")), asDouble(r.get("lon")))) {
-                continue;
-            }
-            if (!Geo.isValidCoordinates(asDouble(r.get("shop_lat")), asDouble(r.get("shop_lon")))) {
-                continue;
-            }
+        for (Map<String, Object> r : jdbc.queryForList(mapLots
+            + "SELECT t.*, l.description AS lot_description, l.quantity AS lot_quantity, l.photo AS lot_photo, "
+            + "l.category AS lot_category, l.status AS lot_status, s.id AS shop_id, s.name AS shop_name, "
+            + "s.lat AS shop_lat, s.lon AS shop_lon, s.kind AS shop_kind "
+            + "FROM tickets t JOIN map_lots ml ON ml.lot_id = t.lot_id "
+            + "JOIN lots l ON l.id = t.lot_id JOIN shops s ON s.id = l.shop_id "
+            + "WHERE t.status = 'open' AND t.lat BETWEEN -90 AND 90 AND t.lon BETWEEN -180 AND 180 "
+            + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) ORDER BY t.id LIMIT ?", city, limit, limit)) {
             Map<String, Object> t = new LinkedHashMap<>();
             t.put("ticket_id", r.get("id"));
             t.put("lot_id", r.get("lot_id"));
