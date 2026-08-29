@@ -9,6 +9,7 @@ import ru.savefood.ai.AiService;
 import ru.savefood.auth.TelegramLoginService;
 import ru.savefood.chat.ChatService;
 import ru.savefood.push.PushDispatchService;
+import ru.savefood.security.CurrentUser;
 import ru.savefood.util.Html;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -264,7 +265,9 @@ public class TelegramBotService {
         if (user != null && !Boolean.TRUE.equals(user.get("is_blocked"))) {
             String role = (String) user.get("role");
             Integer relatedId = user.get("related_id") instanceof Number n ? n.intValue() : null;
-            if (relatedId != null && relayToCounterpart(chatId, role, relatedId, text)) {
+            Integer userId = user.get("id") instanceof Number n ? n.intValue() : null;
+            if (relatedId != null && userId != null && relayToCounterpart(chatId,
+                    new CurrentUser(userId, (String) user.get("username"), role, relatedId), text)) {
                 return;
             }
         }
@@ -278,7 +281,9 @@ public class TelegramBotService {
      *
      * @return true when the message was relayed
      */
-    private boolean relayToCounterpart(String chatId, String role, int relatedId, String text) {
+    private boolean relayToCounterpart(String chatId, CurrentUser user, String text) {
+        String role = user.role();
+        int relatedId = user.relatedId();
         Map<String, Object> row;
         boolean toNeedy;
         if ("volunteer".equals(role)) {
@@ -302,9 +307,8 @@ public class TelegramBotService {
             return false;
         }
         int ticketId = ((Number) row.get("ticket_id")).intValue();
-        int counterpartId = ((Number) row.get("counterpart_id")).intValue();
-
-        chat.addMessage(ticketId, role, relatedId, text);
+        ChatService.AddedMessage added = chat.addMessage(ticketId, user, text);
+        int counterpartId = added.counterpartId();
         String safe = Html.escape(text);
         try {
             if (toNeedy) {

@@ -4,8 +4,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.web.ApiException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Port of backend/chat.py — the in-app ticket chat (§53): volunteer↔recipient
@@ -18,9 +21,11 @@ import org.springframework.stereotype.Service;
 public class ChatService {
 
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate tx;
 
-    public ChatService(JdbcTemplate jdbc) {
+    public ChatService(JdbcTemplate jdbc, PlatformTransactionManager txManager) {
         this.jdbc = jdbc;
+        this.tx = new TransactionTemplate(txManager);
     }
 
     /** The ticket's chat participants + status, or null if no ticket. */
@@ -52,11 +57,49 @@ public class ChatService {
             + "WHERE ticket_id = ? AND id > ? ORDER BY id ASC", ticketId, afterId);
     }
 
-    public Map<String, Object> addMessage(int ticketId, String senderRole, int senderId, String body) {
-        return jdbc.queryForList(
-            "INSERT INTO ticket_messages (ticket_id, sender_role, sender_id, body) VALUES (?, ?, ?, ?) "
-            + "RETURNING id, sender_role, sender_id, body, created_at",
-            ticketId, senderRole, senderId, body).get(0);
+    /**
+     * Lock the ticket and revalidate the live chat contract in the same transaction
+     * that inserts the message. Ticket closure/reassignment updates therefore win
+     * either before this check (and reject the message) or after this insert commits.
+     */
+    public AddedMessage addMessage(int ticketId, CurrentUser user, String body) {
+        return tx.execute(ignored -> {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT id, needy_id, assigned_volunteer_id, status FROM tickets "
+                + "WHERE id = ? FOR UPDATE", ticketId);
+            if (rows.isEmpty()) {
+                throw new ApiException(404, "Ticket not found");
+            }
+            Map<String, Object> ctx = rows.get(0);
+            String role = participantRole(user, ctx);
+            if (role == null) {
+                throw new ApiException(403, "Forbidden");
+            }
+            if ("admin".equals(role)) {
+                throw new ApiException(403, "Администратор не участвует в чате");
+            }
+            if (!"assigned".equals(ctx.get("status"))) {
+                throw new ApiException(400, "Чат доступен, пока заявка в работе у волонтёра");
+            }
+            Integer assignedVolunteerId = intOrNull(ctx.get("assigned_volunteer_id"));
+            if (assignedVolunteerId == null) {
+                throw new ApiException(400, "На заявку ещё не назначен волонтёр");
+            }
+            int needyId = ((Number) ctx.get("needy_id")).intValue();
+            int senderId = "needy".equals(role) ? needyId : assignedVolunteerId;
+            Map<String, Object> message = jdbc.queryForList(
+                "INSERT INTO ticket_messages (ticket_id, sender_role, sender_id, body) "
+                + "VALUES (?, ?, ?, ?) RETURNING id, sender_role, sender_id, body, created_at",
+                ticketId, role, senderId, body).get(0);
+            return new AddedMessage(message, role, needyId, assignedVolunteerId);
+        });
+    }
+
+    public record AddedMessage(Map<String, Object> message, String senderRole,
+                               int needyId, int assignedVolunteerId) {
+        public int counterpartId() {
+            return "needy".equals(senderRole) ? assignedVolunteerId : needyId;
+        }
     }
 
     private static Integer intOrNull(Object o) {

@@ -60,43 +60,24 @@ public class ChatController {
         if (payload.body() == null || payload.body().isEmpty() || payload.body().length() > MAX_BODY) {
             throw new ApiException(422, "body: длина должна быть от 1 до " + MAX_BODY + " символов");
         }
-        Map<String, Object> ctx = ticketContext(ticketId);
-        String role = chat.participantRole(user, ctx);
-        if (role == null) {
-            throw new ApiException(403, "Forbidden");
-        }
-        // Admins observe; the live conversation is between the two real parties.
-        if ("admin".equals(role)) {
-            throw new ApiException(403, "Администратор не участвует в чате");
-        }
-        if (!"assigned".equals(ctx.get("status"))) {
-            throw new ApiException(400, "Чат доступен, пока заявка в работе у волонтёра");
-        }
-        Object assignedVolunteer = ctx.get("assigned_volunteer_id");
-        if (assignedVolunteer == null) {
-            throw new ApiException(400, "На заявку ещё не назначен волонтёр");
-        }
-        int senderId = "needy".equals(role)
-            ? ((Number) ctx.get("needy_id")).intValue()
-            : ((Number) assignedVolunteer).intValue();
-        Map<String, Object> msg = chat.addMessage(ticketId, role, senderId, payload.body());
+        ChatService.AddedMessage added = chat.addMessage(ticketId, user, payload.body());
 
         // Best-effort mirrors so the counterpart sees it without the page open.
         String safe = Html.escape(payload.body());
         try {
-            if ("needy".equals(role)) {
-                int volId = ((Number) assignedVolunteer).intValue();
+            if ("needy".equals(added.senderRole())) {
+                int volId = added.assignedVolunteerId();
                 telegram.notifyVolunteer(volId, "◇ Получатель: " + safe);
                 push.notifyRole("volunteer", volId, "Сообщение от получателя: " + payload.body(), "/volunteer");
             } else {
-                int needyId = ((Number) ctx.get("needy_id")).intValue();
+                int needyId = added.needyId();
                 telegram.notifyNeedy(needyId, "◇ Волонтёр: " + safe);
                 push.notifyRole("needy", needyId, "Сообщение от волонтёра: " + payload.body(), "/needy");
             }
         } catch (RuntimeException ignore) {
             // best-effort, like the Python try/except: pass
         }
-        return msg;
+        return added.message();
     }
 
     private Map<String, Object> requireParticipant(int ticketId, CurrentUser user) {
