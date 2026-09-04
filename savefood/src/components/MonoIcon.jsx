@@ -1,6 +1,5 @@
 import React from 'react';
 import './MonoIcon.css';
-
 const ICONS = {
   award: <><circle cx="12" cy="9" r="5" /><path d="m8.5 13-1 7 4.5-2 4.5 2-1-7" /></>,
   bag: <><path d="M5 8h14l-1 12H6L5 8Z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></>,
@@ -38,7 +37,6 @@ const ICONS = {
   warning: <><path d="M12 3 22 20H2L12 3Z" /><path d="M12 9v5m0 3v.2" /></>,
   wait: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
 };
-
 const MonoIcon = ({ name, className = '', title }) => (
   <svg
     className={`mono-icon${className ? ` ${className}` : ''}`}
@@ -51,5 +49,4 @@ const MonoIcon = ({ name, className = '', title }) => (
     {ICONS[name] || ICONS.info}
   </svg>
 );
-
 export default MonoIcon;

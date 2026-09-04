@@ -1,12 +1,10 @@
 package ru.savefood.it;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -25,15 +23,12 @@ import ru.savefood.web.RateLimiter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
 /** PostgreSQL row-lock regression coverage for chat send versus ticket closure. */
 class ChatConcurrencyIT extends PostgresIT {
-
     private ChatController controller;
     private TelegramService telegram;
     private PushDispatchService push;
     private ExecutorService executor;
-
     @BeforeEach
     void wire() {
         ChatService chat = new ChatService(jdbc, txManager);
@@ -42,18 +37,15 @@ class ChatConcurrencyIT extends PostgresIT {
         controller = new ChatController(chat, new RateLimiter(), telegram, push);
         executor = Executors.newFixedThreadPool(2);
     }
-
     @AfterEach
     void stopExecutor() {
         executor.shutdownNow();
     }
-
     @Test
     void messageThatWinsBeforeCancellationPersists() throws Exception {
         Fixture fixture = assignedTicket();
         CountDownLatch inserted = new CountDownLatch(1);
         CountDownLatch allowMessageCommit = new CountDownLatch(1);
-
         Future<Map<String, Object>> message = executor.submit(() -> tx.execute(ignored -> {
             Map<String, Object> result = post(fixture.ticketId(), fixture.needyUser(), "до отмены");
             inserted.countDown();
@@ -61,7 +53,6 @@ class ChatConcurrencyIT extends PostgresIT {
             return result;
         }));
         assertThat(inserted.await(5, TimeUnit.SECONDS)).isTrue();
-
         CountDownLatch cancellationStarted = new CountDownLatch(1);
         Future<?> cancellation = executor.submit(() -> {
             cancellationStarted.countDown();
@@ -70,52 +61,42 @@ class ChatConcurrencyIT extends PostgresIT {
         });
         assertThat(cancellationStarted.await(5, TimeUnit.SECONDS)).isTrue();
         allowMessageCommit.countDown();
-
         assertThat(message.get(5, TimeUnit.SECONDS)).containsEntry("body", "до отмены");
         cancellation.get(5, TimeUnit.SECONDS);
         assertThat(messageCount(fixture.ticketId())).isOne();
         assertThat(status("tickets", fixture.ticketId())).isEqualTo("cancelled");
     }
-
     @Test
     void cancellationThatWinsRejectsMessageWithoutNotifications() throws Exception {
         assertClosureWins("cancelled", true);
     }
-
     @Test
     void fulfillmentThatWinsRejectsMessageWithoutNotifications() throws Exception {
         assertClosureWins("fulfilled", false);
     }
-
     @Test
     void volunteerReassignmentThatWinsRejectsStaleSender() throws Exception {
         Fixture fixture = assignedTicket();
         int replacement = insertVolunteer("Новый волонтёр");
         ApiException failure = assignmentChangeWins(fixture,
             "UPDATE tickets SET assigned_volunteer_id = ? WHERE id = ?", replacement);
-
         assertThat(failure.getStatus()).isEqualTo(403);
         assertThat(messageCount(fixture.ticketId())).isZero();
         verifyNoMessageNotifications();
     }
-
     @Test
     void volunteerRemovalThatWinsRejectsStaleSender() throws Exception {
         Fixture fixture = assignedTicket();
         ApiException failure = assignmentChangeWins(fixture,
             "UPDATE tickets SET assigned_volunteer_id = NULL WHERE id = ?");
-
         assertThat(failure.getStatus()).isEqualTo(403);
         assertThat(messageCount(fixture.ticketId())).isZero();
         verifyNoMessageNotifications();
     }
-
     @Test
     void activeAssignedChatStillPersistsAndNotifiesCounterpart() {
         Fixture fixture = assignedTicket();
-
         Map<String, Object> message = post(fixture.ticketId(), fixture.needyUser(), "активный чат");
-
         assertThat(message).containsEntry("sender_role", "needy")
             .containsEntry("sender_id", fixture.needyId())
             .containsEntry("body", "активный чат");
@@ -124,21 +105,17 @@ class ChatConcurrencyIT extends PostgresIT {
         verify(push).notifyRole("volunteer", fixture.volunteerId(),
             "Сообщение от получателя: активный чат", "/volunteer");
     }
-
     @Test
     void messagesSentBeforeClosureRemainReadable() {
         Fixture fixture = assignedTicket();
         post(fixture.ticketId(), fixture.needyUser(), "история");
         jdbc.update("UPDATE tickets SET status = 'fulfilled', fulfilled_at = NOW() WHERE id = ?",
             fixture.ticketId());
-
         List<Map<String, Object>> history = controller.getMessages(
             fixture.ticketId(), 0, fixture.needyUser());
-
         assertThat(history).singleElement().satisfies(message ->
             assertThat(message).containsEntry("body", "история"));
     }
-
     private void assertClosureWins(String closedStatus, boolean clearAssignment) throws Exception {
         Fixture fixture = assignedTicket();
         CountDownLatch closed = new CountDownLatch(1);
@@ -152,7 +129,6 @@ class ChatConcurrencyIT extends PostgresIT {
             await(allowCloseCommit);
         }));
         assertThat(closed.await(5, TimeUnit.SECONDS)).isTrue();
-
         CountDownLatch messageStarted = new CountDownLatch(1);
         Future<ApiException> message = executor.submit(() -> {
             messageStarted.countDown();
@@ -165,13 +141,11 @@ class ChatConcurrencyIT extends PostgresIT {
         });
         assertThat(messageStarted.await(5, TimeUnit.SECONDS)).isTrue();
         allowCloseCommit.countDown();
-
         closure.get(5, TimeUnit.SECONDS);
         assertThat(message.get(5, TimeUnit.SECONDS).getStatus()).isEqualTo(400);
         assertThat(messageCount(fixture.ticketId())).isZero();
         verifyNoMessageNotifications();
     }
-
     private ApiException assignmentChangeWins(Fixture fixture, String sql, Object... values)
             throws Exception {
         CountDownLatch changed = new CountDownLatch(1);
@@ -185,7 +159,6 @@ class ChatConcurrencyIT extends PostgresIT {
             await(allowChangeCommit);
         }));
         assertThat(changed.await(5, TimeUnit.SECONDS)).isTrue();
-
         CountDownLatch messageStarted = new CountDownLatch(1);
         Future<ApiException> message = executor.submit(() -> {
             messageStarted.countDown();
@@ -198,11 +171,9 @@ class ChatConcurrencyIT extends PostgresIT {
         });
         assertThat(messageStarted.await(5, TimeUnit.SECONDS)).isTrue();
         allowChangeCommit.countDown();
-
         assignmentChange.get(5, TimeUnit.SECONDS);
         return message.get(5, TimeUnit.SECONDS);
     }
-
     private Fixture assignedTicket() {
         int needyId = insertNeedy("Получатель");
         int volunteerId = insertVolunteer("Волонтёр");
@@ -213,22 +184,18 @@ class ChatConcurrencyIT extends PostgresIT {
             Integer.class, needyId, volunteerId);
         return new Fixture(ticketId, needyId, volunteerId);
     }
-
     private Map<String, Object> post(int ticketId, CurrentUser user, String body) {
         return controller.postMessage(ticketId, new MessageIn(body), user, null);
     }
-
     private int messageCount(int ticketId) {
         return jdbc.queryForObject(
             "SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = ?", Integer.class, ticketId);
     }
-
     private void verifyNoMessageNotifications() {
         verify(telegram, never()).notifyNeedy(anyInt(), anyString());
         verify(telegram, never()).notifyVolunteer(anyInt(), anyString());
         verify(push, never()).notifyRole(anyString(), anyInt(), anyString(), anyString());
     }
-
     private static void await(CountDownLatch latch) {
         try {
             if (!latch.await(5, TimeUnit.SECONDS)) {
@@ -239,12 +206,10 @@ class ChatConcurrencyIT extends PostgresIT {
             throw new AssertionError("Interrupted while coordinating chat race", e);
         }
     }
-
     private record Fixture(int ticketId, int needyId, int volunteerId) {
         CurrentUser needyUser() {
             return new CurrentUser(101, "needy", "needy", needyId);
         }
-
         CurrentUser volunteerUser() {
             return new CurrentUser(102, "volunteer", "volunteer", volunteerId);
         }

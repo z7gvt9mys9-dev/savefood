@@ -2,24 +2,20 @@ import React, { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import './Style/AboutPage.css';
-
 const AboutPage = () => {
   const { hash } = useLocation();
   const { t } = useTranslation();
-
   const steps = [
     { num: t('about.step1_num'), title: t('about.step1_title'), text: t('about.step1_text') },
     { num: t('about.step2_num'), title: t('about.step2_title'), text: t('about.step2_text') },
     { num: t('about.step3_num'), title: t('about.step3_title'), text: t('about.step3_text') },
   ];
-
   const stats = [
     { value: '0', label: t('about.stat1_label') },
     { value: '0', label: t('about.stat2_label') },
     { value: '0', label: t('about.stat3_label') },
     { value: '0', label: t('about.stat4_label') },
   ];
-
   useEffect(() => {
     if (!hash) return;
     const id = hash.slice(1);
@@ -32,17 +28,12 @@ const AboutPage = () => {
     }, 120);
     return () => clearTimeout(timer);
   }, [hash]);
-
   return (
     <div className="about-page">
-
-      {/* Hero */}
       <section className="about-hero">
         <h1>{t('about.title')}</h1>
         <p className="about-lead">{t('about.lead')}</p>
       </section>
-
-      {/* Миссия */}
       <section className="about-section">
         <div className="about-grid-2">
           <div>
@@ -58,8 +49,6 @@ const AboutPage = () => {
           </div>
         </div>
       </section>
-
-      {/* Как работает */}
       <section className="about-section about-section--dark">
         <h2>{t('about.how_title')}</h2>
         <div className="steps-row">
@@ -72,8 +61,6 @@ const AboutPage = () => {
           ))}
         </div>
       </section>
-
-      {/* Статистика */}
       <section className="about-section">
         <h2>{t('about.stats_platform')}</h2>
         <div className="about-stats">
@@ -85,8 +72,6 @@ const AboutPage = () => {
           ))}
         </div>
       </section>
-
-      {/* Кто участвует */}
       <section className="about-section about-section--dark">
         <h2>{t('about.who_title')}</h2>
         <div className="roles-grid">
@@ -107,14 +92,10 @@ const AboutPage = () => {
           </div>
         </div>
       </section>
-
-      {/* Конфиденциальность */}
       <section className="about-section">
         <h2>{t('about.privacy_title')}</h2>
         <p className="about-privacy">{t('about.privacy_text')}</p>
       </section>
-
-      {/* FAQ */}
       <section id="faq" className="about-section">
         <h2>{t('about.faq_title')}</h2>
         <div className="faq-list">
@@ -136,8 +117,6 @@ const AboutPage = () => {
           </div>
         </div>
       </section>
-
-      {/* Контакты */}
       <section id="contacts" className="about-section about-section--dark">
         <h2>{t('about.contacts_title')}</h2>
         <div className="contacts-grid">
@@ -155,16 +134,12 @@ const AboutPage = () => {
           </div>
         </div>
       </section>
-
-      {/* CTA */}
       <section className="about-cta-section">
         <h2>{t('about.join_title')}</h2>
         <p>{t('about.join_text')}</p>
         <Link to="/auth" className="btn btn-primary about-cta-btn">{t('about.join_btn')}</Link>
       </section>
-
     </div>
   );
 };
-
 export default AboutPage;

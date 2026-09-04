@@ -5,7 +5,6 @@
   top: 0;
   z-index: 1000;
 }
-
 .header-container {
   max-width: 1200px;
   margin: 0 auto;
@@ -16,12 +15,10 @@
   justify-content: space-between;
   position: relative;
 }
-
 .logo-link {
   text-decoration: none;
   flex-shrink: 0;
 }
-
 .logo-text {
   font-size: 1.3rem;
   font-weight: 800;
@@ -29,8 +26,6 @@
   letter-spacing: 3px;
   color: #fff;
 }
-
-/* ─── Nav ─── */
 .nav-links {
   display: flex;
   list-style: none;
@@ -39,7 +34,6 @@
   align-items: center;
   gap: 32px;
 }
-
 .nav-links a {
   text-decoration: none;
   color: #888;
@@ -51,7 +45,6 @@
   position: relative;
   padding-bottom: 3px;
 }
-
 .nav-links a::after {
   content: '';
   position: absolute;
@@ -64,25 +57,19 @@
   transform-origin: left center;
   transition: transform 0.25s ease;
 }
-
 .nav-links a:hover { color: #fff; }
-
 .nav-links a:hover::after {
   transform: scaleX(1);
 }
-
 .nav-links a.active {
   color: #fff;
 }
-
 .nav-links a.active::after {
   transform: scaleX(1);
 }
-
 .nav-profile {
   color: #fff !important;
 }
-
 .btn-login {
   color: #fff !important;
   border: 1px solid #fff;
@@ -94,15 +81,12 @@
   background: #fff;
   color: #000 !important;
 }
-
-/* ─── Language switcher ─── */
 .lang-switcher {
   display: flex;
   gap: 4px;
   align-items: center;
   border-bottom: none !important;
 }
-
 .lang-btn {
   background: none;
   border: 1px solid #333;
@@ -115,10 +99,8 @@
   transition: border-color 0.2s, color 0.2s;
   border-radius: 2px;
 }
-
 .lang-btn:hover { border-color: #888; color: #ccc; }
 .lang-btn.active { border-color: #fff; color: #fff; }
-
 .btn-logout {
   background: none;
   border: 1px solid #444;
@@ -132,8 +114,6 @@
   transition: border-color 0.2s, color 0.2s;
 }
 .btn-logout:hover { border-color: #e74c3c; color: #e74c3c; }
-
-/* ─── Burger ─── */
 .burger {
   display: none;
   flex-direction: column;
@@ -146,7 +126,6 @@
   padding: 0;
   z-index: 1100;
 }
-
 .burger span {
   display: block;
   width: 100%;
@@ -155,12 +134,9 @@
   transition: transform 0.25s, opacity 0.25s;
   transform-origin: center;
 }
-
 .burger.active span:nth-child(1) { transform: translateY(8px) rotate(45deg); }
 .burger.active span:nth-child(2) { opacity: 0; }
 .burger.active span:nth-child(3) { transform: translateY(-8px) rotate(-45deg); }
-
-/* ─── Backdrop ─── */
 .nav-backdrop {
   display: none;
   position: fixed;
@@ -168,13 +144,9 @@
   background: rgba(0,0,0,0.6);
   z-index: 998;
 }
-
-/* ─── Mobile ─── */
 @media (max-width: 768px) {
   .burger { display: flex; }
-
   .nav-backdrop { display: block; }
-
   .nav {
     position: fixed;
     top: 0;
@@ -188,15 +160,12 @@
     transition: transform 0.35s ease;
     z-index: 1050;
   }
-
   .nav.open { transform: translateX(0); }
-
   .nav-links {
     flex-direction: column;
     align-items: flex-start;
     gap: 0;
   }
-
   .nav-links li {
     width: 100%;
     border-bottom: 1px solid #1e1e1e;
@@ -204,16 +173,13 @@
     transform: translateX(16px);
     transition: opacity 0.25s ease, transform 0.25s ease;
   }
-
   .nav.open .nav-links li { opacity: 1; transform: translateX(0); }
   .nav.open .nav-links li:nth-child(1) { transition-delay: 0.12s; }
   .nav.open .nav-links li:nth-child(2) { transition-delay: 0.18s; }
   .nav.open .nav-links li:nth-child(3) { transition-delay: 0.24s; }
   .nav.open .nav-links li:nth-child(4) { transition-delay: 0.30s; }
   .nav.open .nav-links li:nth-child(5) { transition-delay: 0.36s; }
-
   .nav-links li:last-child { border-bottom: none; }
-
   .nav-links a {
     display: block;
     padding: 16px 0;
@@ -221,7 +187,6 @@
     width: 100%;
     text-align: left;
   }
-
   .btn-logout {
     display: block;
     padding: 16px 0;
@@ -236,9 +201,7 @@
     text-transform: uppercase;
     letter-spacing: 1px;
   }
-
   .btn-logout:hover { color: #e74c3c; background: none; border: none; }
-
   .btn-login {
     border: none;
     padding: 16px 0;

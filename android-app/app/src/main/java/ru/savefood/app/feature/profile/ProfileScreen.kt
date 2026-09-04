@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.profile
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +15,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import ru.savefood.app.R
 import ru.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
-
 @Composable
 fun ProfileScreen(
     roleLabel: String,

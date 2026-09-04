@@ -1,5 +1,4 @@
 package ru.savefood.kyc;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -26,27 +25,9 @@ import ru.savefood.volunteer.VolunteerRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Hybrid Auto-KYC (§58) for volunteer identity documents. One Gemini Vision call
- * reads the document; deterministic scoring auto-approves a confident
- * {@code likely_ok}, while {@code likely_fraud}, {@code review} and
- * {@code unchecked} stay {@code pending} for a human moderator.
- *
- * <p>The document is decrypted in memory only ({@link KycCrypto}); on disk it
- * stays encrypted at rest while pending and is deleted when a moderator decides
- * (§5). The best-effort Telegram ping + in-app notification row + audit entry are
- * written here.
- */
 @Service
 public class KycService {
-
     private static final Logger log = Logger.getLogger(KycService.class.getName());
-
-    // Decision bands. Above OK ⇒ auto-approve; the rest is handed to a volunteer moderator.
-    // Widening the middle band trades moderator workload for fewer wrong automatic
-    // decisions; narrowing it does the opposite. Configurable so that trade-off can
-    // be tuned per deployment without a rebuild.
     private final double okThreshold;
     private final double fraudThreshold;
     private static final String VERDICT_OK = "likely_ok";
@@ -57,13 +38,11 @@ public class KycService {
     private static final Map<String, String> MIME_BY_EXT = Map.of(
         ".jpg", "image/jpeg", ".jpeg", "image/jpeg", ".png", "image/png",
         ".webp", "image/webp", ".pdf", "application/pdf");
-
     private static final String SYSTEM_PROMPT = """
         Ты — система верификации личности волонтёров платформы SaveFood (Казахстан).
         Волонтёр загрузил документ, удостоверяющий личность (удостоверение личности РК,
         паспорт, водительское удостоверение и т.п.). Цель — убедиться, что это настоящий
         документ реального человека, а не чужое/поддельное/случайное фото.
-
         Верни СТРОГО один JSON-объект:
         {
           "is_document": true|false,
@@ -76,11 +55,9 @@ public class KycService {
           "tampering_reason": "пояснение или null",
           "summary": "1-2 предложения для модератора на русском"
         }
-
         Имя волонтёра в анкете будет передано отдельной строкой. Сравнивай имена мягко:
         учитывай инициалы, порядок слов, транслитерацию (ru/kk/en).
         """;
-
     private final JdbcTemplate jdbc;
     private final VolunteerRepository volunteerRepo;
     private final AuditService audit;
@@ -95,7 +72,6 @@ public class KycService {
         t.setDaemon(true);
         return t;
     });
-
     public KycService(JdbcTemplate jdbc, VolunteerRepository volunteerRepo,
                       AuditService audit, KycCrypto crypto, TelegramService telegram,
                       @Value("${savefood.gemini-api-key:}") String apiKey,
@@ -112,26 +88,20 @@ public class KycService {
         this.okThreshold = okThreshold;
         this.fraudThreshold = fraudThreshold;
     }
-
     /** Synchronous re-check for the moderator's «второе мнение» (§38.2), volunteer path. */
     public void recheckVolunteer(int volId, String documentPath, String applicantName,
                                  String generation) {
         runVolunteerKycCheck(volId, documentPath, applicantName, generation, null);
     }
-
-    // ── Volunteer identity KYC (§58) ─────────────────────────────────────────
-
     /** Fire-and-forget entry point, the analogue of {@code start_volunteer_kyc_check}. */
     public void startVolunteerKycCheck(int volId, String documentPath, String applicantName,
                                        String generation) {
         pool.submit(() -> runVolunteerKycCheck(volId, documentPath, applicantName, generation));
     }
-
     void runVolunteerKycCheck(int volId, String documentPath, String applicantName,
                               String generation) {
         runVolunteerKycCheck(volId, documentPath, applicantName, generation, STATUS_PENDING);
     }
-
     private void runVolunteerKycCheck(int volId, String documentPath, String applicantName,
                                       String generation, String expectedStatus) {
         try {
@@ -154,21 +124,17 @@ public class KycService {
             Scored result = scoreVolunteer(parsed);
             applyVolunteerKycResult(
                 volId, generation, result.score, result.verdict, result.notes, expectedStatus);
-            // Hybrid: likely_fraud / review / unchecked stay 'pending' for a human
-            // moderator — the AI never rejects an identity document on its own.
             log.info("[kyc] volunteer " + volId + ": " + result.verdict + " (" + result.score + ")");
         } catch (Exception e) {
             log.warning("[kyc] volunteer check for " + volId + " failed: " + e.getMessage());
         }
     }
-
     /** Applies a scored result through the generation guard; exposed for focused tests. */
     boolean applyVolunteerKycResult(int volId, String generation, double score,
                                     String verdict, String notes) {
         return applyVolunteerKycResult(
             volId, generation, score, verdict, notes, STATUS_PENDING);
     }
-
     private boolean applyVolunteerKycResult(int volId, String generation, double score,
                                             String verdict, String notes, String expectedStatus) {
         if (!volunteerRepo.saveVolunteerKyc(
@@ -181,7 +147,6 @@ public class KycService {
         }
         return true;
     }
-
     /** Deterministic scoring of the AI's structured answer for an identity doc. */
     private Scored scoreVolunteer(JsonNode parsed) {
         if (!parsed.path("is_document").asBoolean(false) || !parsed.path("is_id_document").asBoolean(false)) {
@@ -210,7 +175,6 @@ public class KycService {
         }
         return finalize(score, notes, parsed);
     }
-
     private boolean autoApproveVolunteer(int volId, String generation, double score) {
         if (!volunteerRepo.autoApproveVolunteerKyc(volId, generation)) {
             log.info("[kyc] volunteer " + volId
@@ -226,12 +190,10 @@ public class KycService {
         try {
             telegram.notifyVolunteer(volId, "✓ " + msg);
         } catch (RuntimeException ignore) {
-            // best-effort, like the Python try/except: pass
         }
         log.info("[kyc] volunteer " + volId + " auto-approved (score " + score + ")");
         return true;
     }
-
     private JsonNode analyze(byte[] content, String mime, String applicantName, String systemPrompt) {
         if (apiKey == null || apiKey.isBlank() || content == null || content.length == 0) {
             return null;
@@ -250,7 +212,6 @@ public class KycService {
                             + (applicantName == null || applicantName.isBlank() ? "не указано" : applicantName))))),
                 "generationConfig", Map.of(
                     "responseMimeType", "application/json", "maxOutputTokens", 1000));
-
             HttpRequest req = HttpRequest.newBuilder(URI.create(
                     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
                 .timeout(Duration.ofSeconds(60))
@@ -280,7 +241,6 @@ public class KycService {
             return null;
         }
     }
-
     private Scored finalize(double score, List<String> notes, JsonNode parsed) {
         score = Math.max(0.0, Math.min(1.0, Math.round(score * 100.0) / 100.0));
         String verdict = score >= okThreshold ? VERDICT_OK
@@ -292,12 +252,10 @@ public class KycService {
         String note = (prefix + summary + (tail.isBlank() ? "" : " — " + tail)).strip();
         return new Scored(score, verdict, truncate(note));
     }
-
     private static String extension(String path) {
         int dot = path.lastIndexOf('.');
         return dot < 0 ? "" : path.substring(dot).toLowerCase();
     }
-
     private static String stripFence(String text) {
         if (text.startsWith("```")) {
             text = text.replaceAll("^`+", "").replaceAll("`+$", "");
@@ -307,11 +265,9 @@ public class KycService {
         }
         return text.strip();
     }
-
     private static String truncate(String s) {
         return s.length() > 1000 ? s.substring(0, 1000) : s;
     }
-
     private record Scored(double score, String verdict, String notes) {
     }
 }

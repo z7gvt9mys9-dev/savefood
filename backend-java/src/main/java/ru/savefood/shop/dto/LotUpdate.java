@@ -1,7 +1,5 @@
 package ru.savefood.shop.dto;
-
 import java.time.LocalDate;
-
 /** PATCH /lots/{id} body (schemas.py LotUpdate) — every field optional. */
 public record LotUpdate(
     String description,

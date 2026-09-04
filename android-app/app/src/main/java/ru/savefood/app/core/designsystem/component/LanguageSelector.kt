@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,16 +23,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ru.savefood.app.R
 import ru.savefood.app.core.ui.AppLanguage
-
-/**
- * Profile card to switch the app language at runtime. Picking a chip applies the
- * locale via [AppLanguage.apply], which recreates the activity; the new value is
- * re-derived from [AppLanguage.current] on the next composition.
- */
 @Composable
 fun LanguageSelectorCard(modifier: Modifier = Modifier) {
     var current by remember { mutableStateOf(AppLanguage.current()) }
-
     SaveFoodCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(

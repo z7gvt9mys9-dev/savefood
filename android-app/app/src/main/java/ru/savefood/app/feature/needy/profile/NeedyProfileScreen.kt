@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.profile
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -48,35 +47,28 @@ import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.feature.needy.data.NeedyProfileUpdateDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
-
 @Composable
 fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
     }
-
     val savedMsg = stringResource(R.string.needy_profile_saved)
     val exportDoneMsg = stringResource(R.string.needy_profile_export_done)
     val exportFailedMsg = stringResource(R.string.needy_profile_export_failed)
-
     val exportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri ->
         if (uri == null) viewModel.discardExport()
         else viewModel.saveExport(uri, exportDoneMsg, exportFailedMsg)
     }
-
     LaunchedEffect(state.exportedJson) {
         if (state.exportedJson != null) exportPicker.launch("savefood-account-export.json")
     }
-
-    // Editable form fields, seeded from the loaded profile.
     val p = state.profile
     var familySize by remember(p) { mutableStateOf(p?.familySize?.toString().orEmpty()) }
     var preferences by remember(p) { mutableStateOf(p?.preferences.orEmpty()) }
@@ -99,7 +91,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
             locationError = true
         }
     }
-
     LaunchedEffect(locationPermission.isGranted, fetchAfterPermission) {
         if (locationPermission.isGranted && fetchAfterPermission) {
             fetchAfterPermission = false
@@ -114,9 +105,7 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
             )
         }
     }
-
     var deleteDialog by remember { mutableStateOf(false) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.loading && p == null -> ProfileSkeleton()
@@ -135,8 +124,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.needy_profile_title))
-
-            // --- Personal / family ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.needy_profile_section_personal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -158,8 +145,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
-
-            // --- Address ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.needy_profile_section_address), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -174,8 +159,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                             address = value
                             addressChanged = value != p?.address.orEmpty()
                             if (addressChanged) {
-                                // Never retain a coordinate belonging to an old
-                                // address when the recipient edits it manually.
                                 profileLat = null
                                 profileLon = null
                                 locationChanged = false
@@ -246,7 +229,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
-
             SaveFoodButton(
                 text = stringResource(R.string.needy_profile_save),
                 loading = state.saving,
@@ -271,8 +253,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-
-            // --- Privacy / geo-push / export / delete ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.needy_profile_section_privacy), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -308,9 +288,7 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
-
                 LanguageSelectorCard()
-
                 SaveFoodOutlinedButton(
                     text = stringResource(R.string.common_logout),
                     leadingIcon = Icons.AutoMirrored.Filled.Logout,
@@ -321,7 +299,6 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     if (deleteDialog) {
         ConfirmDialog(
             title = stringResource(R.string.needy_profile_delete_confirm_title),

@@ -1,5 +1,4 @@
 package ru.savefood.volunteer;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
@@ -11,59 +10,26 @@ import ru.savefood.photo.DeliveryPhotoStorage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Releases a route's lot and resolves its tickets when a route is torn down
- * (finish / admin reset / timeout / anti-fraud).
- *
- * <p>First question: <b>did the volunteer already pick the food up?</b> The shop
- * point carries that answer ({@code done}), and the two cases are genuinely
- * different:
- * <ul>
- *   <li><b>Picked up</b> — the food is in the volunteer's car. Putting the lot
- *       back to 'active' would advertise stock the shop does not have, and would
- *       close the shop's «Подтвердить передачу» window for good (that handler
- *       requires 'taken'). So the lot stays 'taken' and only the undelivered
- *       tickets are cancelled.</li>
- *   <li><b>Not picked up</b> — the food never left the shelf, so the lot goes
- *       back on the витрина. Then branch on whether the revert actually hit:
- *       revert hit → reopen the assigned tickets to 'open'; revert missed (lot
- *       meanwhile confirmed/expired/removed) → cancel them, so they don't strand
- *       'open' on a dead lot.</li>
- * </ul>
- * Must run inside the caller's transaction (the reset endpoint is @Transactional).
- */
 @Service
 public class RouteRevertService {
-
-    // COALESCE(initial_quantity, quantity) degrades safely for legacy NULL lots;
-    // GREATEST(...,0) clamps in case of any data drift.
     private static final String LOT_REVERT_SQL =
         "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL, "
         + "quantity = GREATEST(COALESCE(initial_quantity, quantity) - COALESCE("
         + "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = lots.id "
         + "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) "
         + "WHERE id = ? AND status = 'taken'";
-
     private final JdbcTemplate jdbc;
     private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();
-
     @Autowired
     public RouteRevertService(JdbcTemplate jdbc, DeliveryPhotoStorage deliveryPhotos) {
         this.jdbc = jdbc;
         this.deliveryPhotos = deliveryPhotos;
     }
-
     /** Kept for focused JDBC tests that do not need filesystem cleanup. */
     public RouteRevertService(JdbcTemplate jdbc) {
         this(jdbc, null);
     }
-
-    /**
-     * True once the volunteer confirmed pickup at the shop — the food has
-     * physically left the shelf and the lot must not go back onto the витрина.
-     */
     static boolean pickedUp(String pointsJson, ObjectMapper mapper) {
         if (pointsJson == null || pointsJson.isBlank()) {
             return false;
@@ -80,20 +46,12 @@ public class RouteRevertService {
                 }
             }
         } catch (Exception e) {
-            // malformed points → treat as "not picked up", the conservative branch
         }
         return false;
     }
-
     public void revertRouteLot(Integer lotId, String pointsJson) {
         Timestamp now = Timestamp.from(Instant.now());
         List<Integer> ticketIds = ticketIds(pointsJson);
-
-        // The food already left the shop: putting the lot back on the витрина
-        // would advertise stock that is physically in the volunteer's car, and it
-        // would also slam shut the shop's «Подтвердить передачу» window (that
-        // handler requires status='taken'). Leave the lot 'taken' and only resolve
-        // the undelivered tickets.
         if (pickedUp(pointsJson, mapper)) {
             for (Integer tid : ticketIds) {
                 discardCourierProof(tid);
@@ -103,15 +61,12 @@ public class RouteRevertService {
             }
             return;
         }
-
         boolean lotGone = false;
         if (lotId != null) {
             int rows = jdbc.update(LOT_REVERT_SQL, lotId);
             lotGone = rows == 0;
         }
-
         if (!lotGone) {
-            // Lot is back on the витрина — reopen its tickets for another volunteer.
             for (Integer tid : ticketIds) {
                 discardCourierProof(tid);
                 jdbc.update(
@@ -121,9 +76,6 @@ public class RouteRevertService {
             }
             return;
         }
-
-        // Lot is gone (confirmed/expired/removed): cancel the tickets and notify,
-        // freeing the recipient's one-active-ticket slot (audit Q4 / §57).
         for (Integer tid : ticketIds) {
             discardCourierProof(tid);
             cancelAssignedTicket(tid, now,
@@ -131,7 +83,6 @@ public class RouteRevertService {
                 + "Выберите другой лот — недельный лимит не потрачен.");
         }
     }
-
     /** Cancel one still-assigned ticket and tell its recipient why. */
     private void cancelAssignedTicket(Integer ticketId, Timestamp now, String message) {
         List<Integer> needyIds = jdbc.query(
@@ -145,12 +96,6 @@ public class RouteRevertService {
                 needyIds.get(0), "ticket_cancelled", message, now);
         }
     }
-
-    /**
-     * A proof captured before QR confirmation is valid only for this still
-     * assigned route stop. Route teardown must scrub it before reopening or
-     * cancelling the ticket; otherwise a later volunteer could inherit it.
-     */
     private void discardCourierProof(Integer ticketId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT delivery_photo FROM tickets WHERE id = ? AND status = 'assigned' FOR UPDATE", ticketId);
@@ -170,7 +115,6 @@ public class RouteRevertService {
             deliveryPhotos.deleteAfterCommit(photo);
         }
     }
-
     private List<Integer> ticketIds(String pointsJson) {
         List<Integer> ids = new ArrayList<>();
         if (pointsJson == null || pointsJson.isBlank()) {
@@ -189,7 +133,6 @@ public class RouteRevertService {
                 }
             }
         } catch (Exception e) {
-            // malformed points JSON → no tickets to resolve, like the Python except
         }
         return ids;
     }

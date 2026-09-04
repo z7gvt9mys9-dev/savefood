@@ -1,5 +1,4 @@
 package ru.savefood.app.core.network
-
 import android.util.Log
 import java.util.Base64
 import javax.inject.Inject
@@ -21,7 +20,6 @@ import ru.savefood.app.core.datastore.SessionStore
 import ru.savefood.app.core.datastore.TokenPair
 import ru.savefood.app.core.network.dto.RefreshRequest
 import ru.savefood.app.core.network.dto.RefreshResponse
-
 /** Refreshes access JWTs with an independent rotating refresh credential. */
 @Singleton
 class TokenRefreshManager @Inject constructor(
@@ -36,26 +34,18 @@ class TokenRefreshManager @Inject constructor(
         clearTokenPair = sessionStore::clearIfRefreshToken,
         refreshToken = refresher::refresh,
     )
-
     /** Called by the interceptor before attaching Authorization. */
     fun tokenForRequest(): String? = runBlocking { coordinator.tokenForRequest() }
-
     /** Called by the authenticator after a 401, using the token actually rejected. */
     fun tokenAfterUnauthorized(rejectedToken: String): String? =
         runBlocking { coordinator.tokenAfterUnauthorized(rejectedToken) }
 }
-
 internal sealed interface RefreshAttempt {
     data class Success(val tokenPair: TokenPair) : RefreshAttempt
     data object AuthenticationRejected : RefreshAttempt
     data object InvalidResponse : RefreshAttempt
     data object TransientFailure : RefreshAttempt
 }
-
-/**
- * Single-flight refresh coordinator. All callers re-read storage after taking
- * the mutex, so waiters reuse the winner's token rather than refreshing again.
- */
 internal class TokenRefreshCoordinator(
     private val currentTokenPair: suspend () -> TokenPair?,
     private val replaceTokenPair: suspend (expectedRefresh: String, replacement: TokenPair) -> Boolean,
@@ -65,26 +55,21 @@ internal class TokenRefreshCoordinator(
     private val refreshMarginSeconds: Long = DEFAULT_REFRESH_MARGIN_SECONDS,
 ) {
     private val refreshMutex = Mutex()
-
     suspend fun tokenForRequest(): String? {
         val observed = currentTokenPair() ?: return null
         if (!needsRefresh(observed.accessToken)) return observed.accessToken
         return refreshMutex.withLock { refreshLocked(observed.refreshToken) }
     }
-
     suspend fun tokenAfterUnauthorized(rejectedToken: String): String? =
         refreshMutex.withLock {
             val current = currentTokenPair() ?: return@withLock null
             if (current.accessToken != rejectedToken) return@withLock current.accessToken
             refreshLocked(current.refreshToken)
         }
-
     private suspend fun refreshLocked(observedRefreshToken: String): String? {
         val current = currentTokenPair() ?: return null
         if (current.refreshToken != observedRefreshToken) return current.accessToken
-
         val expiresAt = JwtExpiry.expiresAt(current.accessToken)
-
         return when (val attempt = refreshToken(current.refreshToken)) {
             is RefreshAttempt.Success -> {
                 val replacementExpiry = JwtExpiry.expiresAt(attempt.tokenPair.accessToken)
@@ -108,23 +93,18 @@ internal class TokenRefreshCoordinator(
                 null
             }
             RefreshAttempt.TransientFailure -> {
-                // A temporary network/server failure does not destroy a session
-                // while its existing token is still accepted by the backend.
                 if (expiresAt != null && expiresAt > nowEpochSeconds()) current.accessToken else null
             }
         }
     }
-
     private fun needsRefresh(token: String): Boolean {
         val expiresAt = JwtExpiry.expiresAt(token) ?: return true
         return expiresAt <= nowEpochSeconds() + refreshMarginSeconds
     }
-
     companion object {
         internal const val DEFAULT_REFRESH_MARGIN_SECONDS = 5 * 60L
     }
 }
-
 internal object JwtExpiry {
     fun expiresAt(token: String): Long? = runCatching {
         val parts = token.split('.')
@@ -132,17 +112,14 @@ internal object JwtExpiry {
         val payload = String(Base64.getUrlDecoder().decode(pad(parts[1])), Charsets.UTF_8)
         Json.parseToJsonElement(payload).jsonObject["exp"]?.jsonPrimitive?.longOrNull
     }.getOrNull()
-
     private fun pad(value: String): String = value + "=".repeat((4 - value.length % 4) % 4)
 }
-
 internal class HttpTokenRefresher(
     baseUrl: String,
     private val json: Json,
     private val client: OkHttpClient = OkHttpClient.Builder().build(),
 ) {
     private val refreshUrl = "${baseUrl.trimEnd('/')}/auth/refresh"
-
     fun refresh(token: String): RefreshAttempt {
         val request = Request.Builder()
             .url(refreshUrl)
@@ -178,7 +155,6 @@ internal class HttpTokenRefresher(
         }.onFailure { Log.w(TAG, "Token refresh failed", it) }
             .getOrDefault(RefreshAttempt.TransientFailure)
     }
-
     private companion object {
         const val TAG = "TokenRefreshManager"
     }

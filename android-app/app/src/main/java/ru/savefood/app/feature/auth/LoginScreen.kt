@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.auth
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,13 +27,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.savefood.app.R
 import ru.savefood.app.core.designsystem.component.SaveFoodButton
-
 @Composable
 fun LoginScreen(
     viewModel: AuthViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-
     Scaffold { innerPadding ->
         Column(
             modifier = Modifier
@@ -56,7 +53,6 @@ fun LoginScreen(
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(top = 4.dp, bottom = 32.dp),
             )
-
             OutlinedTextField(
                 value = state.username,
                 onValueChange = viewModel::onUsernameChange,
@@ -80,7 +76,6 @@ fun LoginScreen(
                     .fillMaxWidth()
                     .padding(top = 12.dp),
             )
-
             if (state.error != null) {
                 Text(
                     text = state.error!!,
@@ -92,7 +87,6 @@ fun LoginScreen(
                         .padding(top = 12.dp),
                 )
             }
-
             SaveFoodButton(
                 text = stringResource(R.string.auth_sign_in),
                 onClick = viewModel::login,

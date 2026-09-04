@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.ui
-
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -8,7 +7,6 @@ import androidx.compose.ui.res.stringResource
 import ru.savefood.app.R
 import ru.savefood.app.core.designsystem.component.BadgeTone
 import ru.savefood.app.core.designsystem.component.StatusBadge
-
 /** Lot lifecycle status → localized badge (text + semantic tone). */
 @Composable
 fun LotStatusBadge(status: String?) {
@@ -23,7 +21,6 @@ fun LotStatusBadge(status: String?) {
     }
     StatusBadge(text = stringResource(labelRes), tone = tone)
 }
-
 /** Generic confirm/cancel dialog reused across the shop role. */
 @Composable
 fun ShopConfirmDialog(

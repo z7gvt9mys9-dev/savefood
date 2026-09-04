@@ -1,31 +1,26 @@
-/* General styles and Variables */
 :root {
   --primary: #ffffff;
   --secondary: #ffffff;
-  --light: #1a1a1a; 
+  --light: #1a1a1a;
   --dark: #000000;
   --white: #ffffff;
   --transition: all 0.3s ease;
 }
-
 .home-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   line-height: 1.6;
   color: var(--white);
   background-color: var(--dark);
 }
-
 .container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 20px;
 }
-
 section {
   padding: 80px 0;
   border-bottom: 1px solid #222;
 }
-
 h2 {
   font-size: 2.5rem;
   text-align: center;
@@ -34,10 +29,9 @@ h2 {
   text-transform: uppercase;
   letter-spacing: 2px;
 }
-
 .btn {
   padding: 12px 24px;
-  border-radius: 0; 
+  border-radius: 0;
   border: 1px solid var(--white);
   cursor: pointer;
   font-weight: 600;
@@ -48,98 +42,82 @@ h2 {
   background-color: transparent;
   color: var(--white);
 }
-
 .btn-primary {
   background-color: var(--white);
   color: var(--dark);
 }
-
 .btn-secondary, .btn-outline {
   background-color: transparent;
   color: var(--white);
 }
-
 .btn-card {
   background-color: var(--white);
   color: var(--dark);
   width: 100%;
   margin-top: auto;
 }
-
 .btn-primary:hover, .btn-card:hover {
   background-color: #cccccc;
   color: var(--dark);
 }
-
 .btn-secondary:hover, .btn-outline:hover {
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--white);
   border-color: var(--white);
 }
-
 .hero {
   background: var(--dark);
   text-align: center;
   padding: 150px 0;
 }
-
 .hero h1 {
   font-size: 4rem;
   margin-bottom: 20px;
   color: var(--white);
   font-weight: 800;
 }
-
 .hero .subtitle {
   font-size: 1.2rem;
   max-width: 600px;
   margin: 0 auto 50px;
   color: #888;
 }
-
 .hero-ctas {
   display: flex;
   justify-content: center;
   gap: 16px;
   flex-wrap: nowrap;
 }
-
 .hero-ctas .btn {
   flex: 1;
   max-width: 200px;
   text-align: center;
 }
-
 @media (max-width: 600px) {
   .hero-ctas { flex-wrap: wrap; }
   .hero-ctas .btn { max-width: none; width: 100%; }
 }
-
 .metrics {
   background-color: var(--dark);
 }
-
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1px; /* Grid lines look */
+  gap: 1px;
   background-color: #222;
   border: 1px solid #222;
 }
-
 .metric-card {
   text-align: center;
   padding: 40px;
   background: var(--dark);
 }
-
 .metric-value {
   font-size: 2.5rem;
   font-weight: bold;
   color: var(--white);
   margin-bottom: 10px;
 }
-
 .metric-label {
   font-weight: 600;
   margin-bottom: 5px;
@@ -148,18 +126,15 @@ h2 {
   font-size: 0.8rem;
   letter-spacing: 1px;
 }
-
 .metric-sub {
   font-size: 0.8rem;
   color: #666;
 }
-
 .roles-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 40px;
 }
-
 .role-card {
   background: var(--dark);
   padding: 40px;
@@ -168,24 +143,20 @@ h2 {
   flex-direction: column;
   transition: var(--transition);
 }
-
 .role-card:hover {
   border-color: var(--white);
 }
-
 .role-card h3 {
   font-size: 1.5rem;
   margin-bottom: 25px;
   color: var(--white);
   text-transform: uppercase;
 }
-
 .role-card ul {
   list-style: none;
   padding: 0;
   margin-bottom: 40px;
 }
-
 .role-card li {
   margin-bottom: 15px;
   padding-left: 20px;
@@ -193,28 +164,23 @@ h2 {
   color: #ccc;
   font-size: 0.95rem;
 }
-
 .role-card li::before {
   content: '—';
   position: absolute;
   left: 0;
   color: var(--white);
 }
-
 .how-it-works {
   background-color: var(--dark);
 }
-
 .steps-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 60px;
 }
-
 .step-card {
   text-align: left;
 }
-
 .step-number {
   font-size: 3rem;
   font-weight: 800;
@@ -222,23 +188,19 @@ h2 {
   margin-bottom: 10px;
   line-height: 1;
 }
-
 .step-card h4 {
   font-size: 1.25rem;
   margin-bottom: 15px;
   color: var(--white);
   text-transform: uppercase;
 }
-
 .step-card p {
   color: #666;
   font-size: 0.9rem;
 }
-
 .faq {
   background-color: var(--dark);
 }
-
 .faq .faq-list {
   display: flex;
   flex-direction: column;
@@ -246,7 +208,6 @@ h2 {
   max-width: 800px;
   margin: 0 auto;
 }
-
 .faq .faq-item {
   background: #0a0a0a;
   border: 1px solid #555;
@@ -254,11 +215,9 @@ h2 {
   overflow: hidden;
   transition: border-color 0.2s;
 }
-
 .faq .faq-item.open {
   border-color: #aaa;
 }
-
 .faq .faq-question {
   display: flex;
   align-items: center;
@@ -268,7 +227,6 @@ h2 {
   user-select: none;
   gap: 12px;
 }
-
 .faq .faq-question h4 {
   margin: 0;
   font-size: 0.9rem;
@@ -277,7 +235,6 @@ h2 {
   text-align: left;
   flex: 1;
 }
-
 .faq .faq-toggle {
   flex-shrink: 0;
   width: 22px;
@@ -294,13 +251,11 @@ h2 {
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s;
 }
-
 .faq .faq-item.open .faq-toggle {
   background: #fff;
   color: #000;
   border-color: #fff;
 }
-
 .faq .faq-answer {
   max-height: 0;
   overflow: hidden;
@@ -308,13 +263,11 @@ h2 {
   transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.35s ease;
   padding: 0 20px;
 }
-
 .faq .faq-item.open .faq-answer {
   max-height: 200px;
   opacity: 1;
   padding: 0 20px 14px;
 }
-
 .faq .faq-answer p {
   margin: 0;
   font-size: 0.82rem;
@@ -322,7 +275,6 @@ h2 {
   line-height: 1.6;
   text-align: left;
 }
-
 @media (max-width: 768px) {
   .hero h1 { font-size: 2.5rem; }
   section { padding: 60px 0; }

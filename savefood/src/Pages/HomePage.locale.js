@@ -186,7 +186,6 @@ const EN_TEXT = {
   'Продолжить': 'Continue',
   'Это демонстрация дизайна — данные никуда не отправляются.': 'This is a design demo — no data is sent anywhere.',
 };
-
 const EN_ATTRIBUTES = {
   'SaveFood — на главную': 'SaveFood — home',
   'Основная навигация': 'Main navigation',
@@ -212,19 +211,14 @@ const EN_ATTRIBUTES = {
   'Участники сообщества': 'Community members',
   'Закрыть': 'Close',
 };
-
 const ATTRIBUTES_TO_TRANSLATE = ['aria-label', 'placeholder', 'data-demo-action'];
-
 export const normalizeLandingLanguage = (language) => (
   String(language || 'ru').toLowerCase().startsWith('en') ? 'en' : 'ru'
 );
-
 export function localizeLandingMarkup(markup, language) {
   if (normalizeLandingLanguage(language) !== 'en' || typeof document === 'undefined') return markup;
-
   const template = document.createElement('template');
   template.innerHTML = markup;
-
   template.content.querySelectorAll('*').forEach((element) => {
     Array.from(element.childNodes).forEach((node) => {
       if (node.nodeType !== 3) return;
@@ -236,25 +230,20 @@ export function localizeLandingMarkup(markup, language) {
       const trailing = source.match(/\s*$/)?.[0] || '';
       node.nodeValue = `${leading}${translation}${trailing}`;
     });
-
     ATTRIBUTES_TO_TRANSLATE.forEach((attribute) => {
       const source = element.getAttribute(attribute);
       if (source && EN_ATTRIBUTES[source]) element.setAttribute(attribute, EN_ATTRIBUTES[source]);
     });
   });
-
   return template.innerHTML;
 }
-
 export function personalizeLandingMarkup(markup, user, copy) {
   if (!user?.role || typeof document === 'undefined') return markup;
-
   const template = document.createElement('template');
   template.innerHTML = markup;
   const header = template.content.querySelector('.header-actions');
   const loginButton = header?.querySelector('[data-auth-mode="login"]');
   const registerButton = header?.querySelector('[data-auth-mode="register"]');
-
   if (loginButton) {
     loginButton.removeAttribute('data-auth-mode');
     loginButton.setAttribute('data-account-action', 'dashboard');
@@ -262,7 +251,6 @@ export function personalizeLandingMarkup(markup, user, copy) {
     loginButton.setAttribute('aria-label', copy.profileLabel);
     loginButton.setAttribute('title', copy.profileLabel);
     loginButton.textContent = '';
-
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     icon.setAttribute('viewBox', '0 0 24 24');
     icon.setAttribute('aria-hidden', 'true');
@@ -284,10 +272,8 @@ export function personalizeLandingMarkup(markup, user, copy) {
     registerButton.setAttribute('data-account-action', 'logout');
     registerButton.textContent = copy.logout;
   }
-
   return template.innerHTML;
 }
-
 export const LANDING_COPY = {
   ru: {
     dialogLoginEyebrow: 'С возвращением',
@@ -330,7 +316,6 @@ export const LANDING_COPY = {
     locale: 'en-US',
   },
 };
-
 export const LANDING_LOTS = {
   ru: {
     bread: ['Хлеб и выпечка', 'Забрать сегодня, 19:00–20:30'],

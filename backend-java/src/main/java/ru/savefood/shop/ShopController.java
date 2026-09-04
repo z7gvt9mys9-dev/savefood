@@ -1,5 +1,4 @@
 package ru.savefood.shop;
-
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,20 +51,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
-/**
- * Java port of backend/shop/routes.py — the shop/donor surface (lots, receipts,
- * notifications, billing, ESG, self-pickup). Authenticated routes take an
- * {@code @Auth CurrentUser} (the analogue of {@code Depends(get_current_user)})
- * and call {@link Authz#ensureOwnerOrAdmin} for per-shop ownership;
- * {@code POST /shops/register} is public and rate-limited.
- */
 @RestController
 public class ShopController {
-
     private static final Pattern SF_CODE =
         Pattern.compile("SF-(\\d+)(?:-([A-Za-z0-9_-]+))?", Pattern.CASE_INSENSITIVE);
-
     private final ShopRepository repo;
     private final ShopService service;
     private final BillingService billing;
@@ -80,7 +69,6 @@ public class ShopController {
     private final ObjectMapper mapper = new ObjectMapper();
     private final String uploadDir;
     private final String receiptDir;
-
     public ShopController(ShopRepository repo, ShopService service, BillingService billing,
                           ReceiptService receiptService, ForecastService forecast, EsgService esg,
                           WebhookService webhooks, NeedsMatchService needsMatch,
@@ -102,9 +90,6 @@ public class ShopController {
         this.uploadDir = uploadDir;
         this.receiptDir = receiptDir;
     }
-
-    // ── Registration ────────────────────────────────────────────────────────────
-
     @PostMapping("/shops/register")
     public Map<String, Object> registerShop(@RequestBody ShopCreate payload, HttpServletRequest request) {
         rateLimiter.check("shops:register", ClientIp.of(request), 5);
@@ -121,15 +106,11 @@ public class ShopController {
             payload.lon(), payload.city(), kind, payload.username(), payload.password());
         return Map.of("id", shopId);
     }
-
-    // ── Lots ──────────────────────────────────────────────────────────────────
-
     @PostMapping("/shops/{shopId}/lots")
     public Map<String, Object> createLot(@PathVariable int shopId, @RequestBody LotCreate payload,
                                          @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         Map<String, Object> shop = requireShop(shopId);
-
         String unit = payload.unit() == null ? "кг" : payload.unit();
         double weight = resolveWeight(unit, payload.unitWeightKg());
         boolean privateDonor = "private".equals(shop.get("kind"));
@@ -156,10 +137,8 @@ public class ShopController {
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }
-
     /** Photos per lot: the multi-upload form caps at this many files. */
     private static final int MAX_LOT_PHOTOS = 5;
-
     /** Stages one validated image for the JSON private-donor lot-create contract. */
     @PostMapping(value = "/shops/{shopId}/lot-photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> uploadLotPhoto(@PathVariable int shopId, @RequestParam MultipartFile file,
@@ -170,7 +149,6 @@ public class ShopController {
             lotPhotoReferences.uploadRatePerMinute());
         return Map.of("photo", lotPhotoReferences.stage(shopId, file));
     }
-
     @PostMapping(value = "/shops/{shopId}/lots/upload",
                  consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> createLotUpload(
@@ -190,12 +168,8 @@ public class ShopController {
             @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         Map<String, Object> shop = requireShop(shopId);
-
         LotQuantity.requireWholeUnits(quantity, "quantity");
-
         double weight = resolveWeight(unit, unitWeightKg);
-        // `files` — новая мультизагрузка; одиночный `file` остаётся как fallback
-        // для старых клиентов (и дублирует первый элемент files).
         List<MultipartFile> incoming = new java.util.ArrayList<>();
         if (files != null) {
             files.stream().filter(ShopController::hasContent).forEach(incoming::add);
@@ -209,33 +183,25 @@ public class ShopController {
         if ("private".equals(shop.get("kind")) && incoming.isEmpty()) {
             throw new ApiException(400, "Для частных доноров фотография лота обязательна");
         }
-        // Validation/re-encoding is deliberately disk-free.  Saving is owned by
-        // the transactional service so quota rejection and an insert failure
-        // cannot leave a partially-written request in the public upload directory.
         List<ru.savefood.upload.UploadService.PreparedUpload> preparedPhotos = new java.util.ArrayList<>();
         for (MultipartFile f : incoming) {
             preparedPhotos.add(uploads.prepare(f));
         }
-        // Keep this validation after safe in-memory staging: a malformed lot must
-        // still leave the directory untouched even after its image parts were read.
         String knownCategory = requireKnownCategory(category);
         int lotId = service.createLotWithPreparedPhotos(shopId, description, quantity, parseDate(expiryDate),
             preparedPhotos, uploadDir, address, timeSlot, knownCategory, comment, requiresCold, unit, weight);
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }
-
     private static boolean hasContent(MultipartFile f) {
         return f != null && f.getOriginalFilename() != null && !f.getOriginalFilename().isEmpty();
     }
-
     @GetMapping("/shops/{shopId}/lots")
     public List<Map<String, Object>> listActiveLots(@PathVariable int shopId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         return repo.getActiveLots(shopId);
     }
-
     @DeleteMapping("/lots/{lotId}")
     public Map<String, Object> deleteLot(@PathVariable int lotId, @Auth CurrentUser user) {
         requireLotOwner(lotId, user);
@@ -244,7 +210,6 @@ public class ShopController {
         }
         return Map.of("ok", true);
     }
-
     @PatchMapping("/lots/{lotId}")
     public Map<String, Object> patchLot(@PathVariable int lotId, @RequestBody LotUpdate payload,
                                         @Auth CurrentUser user) {
@@ -264,9 +229,6 @@ public class ShopController {
             newWeight = 1.0;
         }
         requirePositiveFinite(newWeight, "unit_weight_kg");
-        // Preserve true PATCH semantics: when neither coupled unit field was
-        // supplied, do not send a value reconstructed from the ownership read.
-        // That read may be stale by the time the guarded UPDATE runs.
         Double weightUpdate = payload.unit() == null && payload.unitWeightKg() == null
             ? null : newWeight;
         Map<String, Object> updated = repo.updateLot(lotId, payload.description(), payload.quantity(),
@@ -278,7 +240,6 @@ public class ShopController {
         }
         return updated;
     }
-
     @PostMapping("/lots/{lotId}/confirm_transfer")
     public Map<String, Object> confirmTransfer(@PathVariable int lotId, @Auth CurrentUser user) {
         Map<String, Object> lot = requireLotOwner(lotId, user);
@@ -292,11 +253,9 @@ public class ShopController {
             data.put("quantity", lot.get("quantity"));
             webhooks.fire(((Number) lot.get("shop_id")).intValue(), "lot.confirmed", data);
         } catch (RuntimeException ignored) {
-            // best-effort, like the Python try/except around webhook_service.fire
         }
         return Map.of("ok", true);
     }
-
     @GetMapping("/shops/{shopId}/history")
     public List<Map<String, Object>> getHistory(@PathVariable int shopId,
                                                 @RequestParam(defaultValue = "20") int limit,
@@ -306,9 +265,6 @@ public class ShopController {
         requireShop(shopId);
         return repo.getHistory(shopId, Clamp.clamp(limit, 1, 100), Math.max(0, offset));
     }
-
-    // ── Shop profile ────────────────────────────────────────────────────────────
-
     @GetMapping("/shops/{shopId}")
     public Map<String, Object> getShop(@PathVariable int shopId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
@@ -318,7 +274,6 @@ public class ShopController {
         }
         return shop;
     }
-
     @PatchMapping("/shops/{shopId}")
     public Map<String, Object> patchShop(@PathVariable int shopId, @RequestBody ShopUpdate payload,
                                          @Auth CurrentUser user) {
@@ -334,16 +289,12 @@ public class ShopController {
         }
         return updated;
     }
-
-    // ── Notifications ───────────────────────────────────────────────────────────
-
     @GetMapping("/shops/{shopId}/notifications")
     public List<Map<String, Object>> notifications(@PathVariable int shopId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         return repo.getNotifications(shopId);
     }
-
     @PatchMapping("/shops/notifications/{notificationId}/read")
     public Map<String, Object> markNotificationRead(@PathVariable int notificationId,
                                                     @Auth CurrentUser user) {
@@ -356,9 +307,6 @@ public class ShopController {
         repo.markNotificationRead(notificationId);
         return Map.of("ok", true);
     }
-
-    // ── Receipts (OCR) ──────────────────────────────────────────────────────────
-
     @PostMapping(value = "/shops/{shopId}/receipts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> uploadReceipt(@PathVariable int shopId,
                                              @RequestParam MultipartFile file,
@@ -367,7 +315,6 @@ public class ShopController {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         billing.requireFeature(shopId, "ocr");
-
         String filename = uploads.validateAndSave(file, receiptDir);
         Path path = Paths.get(receiptDir, filename);
         byte[] content;
@@ -376,16 +323,11 @@ public class ShopController {
         } catch (IOException e) {
             throw new ApiException(500, "Could not read uploaded receipt");
         }
-
-        // Cheapest check first: byte-identical photo already uploaded (any shop).
-        // The unique constraint still decides correctness if concurrent requests
-        // both pass this advisory lookup before either insert commits.
         String sha = receiptService.sha256Hex(content);
         if (repo.findReceiptBySha(sha) != null) {
             deleteQuietly(path);
             throw duplicateReceipt();
         }
-
         Map<String, Object> parsed = receiptService.parseReceiptImage(content, file.getContentType());
         if (parsed == null) {
             deleteQuietly(path);
@@ -402,7 +344,6 @@ public class ShopController {
             deleteQuietly(path);
             throw new ApiException(400, "В чеке не найдено продуктовых позиций");
         }
-
         String fp = receiptService.fingerprint(parsed);
         boolean fpDupe = fp != null && repo.fingerprintExists(fp);
         Map<String, Object> fraud = receiptService.evaluateFraud(parsed, fpDupe);
@@ -413,7 +354,6 @@ public class ShopController {
             deleteQuietly(path);
             throw duplicateReceipt();
         }
-
         try {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("receipt_id", receiptId);
@@ -423,16 +363,13 @@ public class ShopController {
             data.put("total", parsed.get("total"));
             webhooks.fire(shopId, "receipt.parsed", data);
         } catch (RuntimeException ignored) {
-            // best-effort, like the Python try/except around webhook_service.fire
         }
         return receiptToOut(repo.getReceiptById(receiptId));
     }
-
     @PostMapping("/shops/{shopId}/receipts/{receiptId}/confirm")
     public Map<String, Object> confirmReceipt(@PathVariable int shopId, @PathVariable int receiptId,
                                               @RequestBody ReceiptConfirm payload, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
-        // Re-gate here: the plan may have been downgraded between upload and confirm.
         billing.requireFeature(shopId, "ocr");
         Map<String, Object> receipt = repo.getReceiptById(receiptId);
         if (receipt == null || ((Number) receipt.get("shop_id")).intValue() != shopId) {
@@ -449,11 +386,9 @@ public class ShopController {
         if (payload.lots() == null || payload.lots().isEmpty()) {
             throw new ApiException(422, "lots: список не может быть пустым");
         }
-
         Map<String, Object> shop = repo.getShopById(shopId);
         String address = payload.address() != null ? payload.address()
             : (shop == null ? null : (String) shop.get("city"));
-        // Validate categories before the quota lock so a bad payload doesn't hold it.
         for (ReceiptLotDraft draft : payload.lots()) {
             if (!ReceiptService.LOT_CATEGORIES.contains(draft.category())) {
                 throw new ApiException(400, "Неизвестная категория: " + draft.category());
@@ -467,7 +402,6 @@ public class ShopController {
         }
         return Map.of("ok", true, "lot_ids", lotIds);
     }
-
     @GetMapping("/shops/{shopId}/receipts")
     public List<Map<String, Object>> listReceipts(@PathVariable int shopId,
                                                   @RequestParam(defaultValue = "20") int limit,
@@ -481,7 +415,6 @@ public class ShopController {
         }
         return out;
     }
-
     @GetMapping("/shops/{shopId}/receipts/{receiptId}/image")
     public ResponseEntity<Resource> getReceiptImage(@PathVariable int shopId,
                                                     @PathVariable int receiptId, @Auth CurrentUser user) {
@@ -503,27 +436,21 @@ public class ShopController {
                 type = MediaType.parseMediaType(probed);
             }
         } catch (IOException ignored) {
-            // fall back to octet-stream
         }
         return ResponseEntity.ok().contentType(type).body(new FileSystemResource(path));
     }
-
-    // ── Forecast / billing / ESG ──────────────────────────────────────────────────
-
     @GetMapping("/shops/{shopId}/forecast")
     public Map<String, Object> getForecast(@PathVariable int shopId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         return forecast.shopForecast(shopId);
     }
-
     @GetMapping("/shops/{shopId}/plan")
     public Map<String, Object> getPlan(@PathVariable int shopId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         requireShop(shopId);
         return billing.planSummary(shopId);
     }
-
     @GetMapping("/shops/{shopId}/esg")
     public Map<String, Object> getEsgReport(@PathVariable int shopId,
                                             @RequestParam(defaultValue = "12") int months,
@@ -533,7 +460,6 @@ public class ShopController {
         billing.requireFeature(shopId, "esg");
         return esg.shopReport(shopId, months);
     }
-
     @GetMapping("/shops/{shopId}/esg/report.csv")
     public ResponseEntity<String> getEsgReportCsv(@PathVariable int shopId,
                                                   @RequestParam(defaultValue = "12") int months,
@@ -545,15 +471,11 @@ public class ShopController {
         String shopName = shop.get("name") != null ? (String) shop.get("name") : "shop-" + shopId;
         String csv = esg.reportToCsv(report, shopName);
         String filename = "savefood_donations_shop" + shopId + "_" + months + "m.csv";
-        // UTF-8 BOM so Excel opens Cyrillic correctly.
         return ResponseEntity.ok()
             .contentType(MediaType.parseMediaType("text/csv; charset=utf-8"))
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
             .body("﻿" + csv);
     }
-
-    // ── Self-pickup ─────────────────────────────────────────────────────────────
-
     @PostMapping("/shops/{shopId}/self_pickup/confirm")
     public Map<String, Object> confirmSelfPickup(@PathVariable int shopId,
                                                  @RequestBody SelfPickupConfirm payload,
@@ -570,9 +492,6 @@ public class ShopController {
         service.confirmSelfPickup(shopId, ticketId, providedSecret);
         return Map.of("ok", true, "ticket_id", ticketId);
     }
-
-    // ── helpers ─────────────────────────────────────────────────────────────────
-
     private Map<String, Object> requireShop(int shopId) {
         Map<String, Object> shop = repo.getShopById(shopId);
         if (shop == null) {
@@ -580,11 +499,9 @@ public class ShopController {
         }
         return shop;
     }
-
     private static ApiException duplicateReceipt() {
         return new ApiException(409, "Этот чек уже загружался (идентичное фото)");
     }
-
     /** Return the lot if the caller owns its shop (or is admin), else 404/403. */
     private Map<String, Object> requireLotOwner(int lotId, CurrentUser user) {
         Map<String, Object> lot = repo.getLotById(lotId);
@@ -594,7 +511,6 @@ public class ShopController {
         Authz.ensureOwnerOrAdmin(user, "shop", ((Number) lot.get("shop_id")).intValue());
         return lot;
     }
-
     /** DB receipt row → ReceiptOut payload (items JSON unpacked, drafts regrouped). */
     private Map<String, Object> receiptToOut(Map<String, Object> row) {
         List<Map<String, Object>> items = readJsonList(row.get("items"));
@@ -616,7 +532,6 @@ public class ShopController {
         out.put("created_at", row.get("created_at"));
         return out;
     }
-
     private List<Map<String, Object>> readJsonList(Object json) {
         if (json == null) {
             return List.of();
@@ -627,7 +542,6 @@ public class ShopController {
             return List.of();
         }
     }
-
     private List<Integer> readJsonIntList(Object json) {
         if (json == null) {
             return List.of();
@@ -638,16 +552,9 @@ public class ShopController {
             return List.of();
         }
     }
-
-    /**
-     * Reject a category outside the shared catalogue. Free text used to be
-     * accepted, which is how the routing scorer ended up matching only some of
-     * the values the UI produces; keeping the column to a known set is what makes
-     * dietary restrictions and ESG weights reliable.
-     */
     private static String requireKnownCategory(String category) {
         if (category == null || category.isBlank()) {
-            return null;  // optional field — a lot may stay uncategorised
+            return null;
         }
         String value = category.strip();
         if (!FoodCategories.isKnown(value)) {
@@ -656,7 +563,6 @@ public class ShopController {
         }
         return value;
     }
-
     private static double resolveWeight(String unit, Double weight) {
         if (!"кг".equals(unit)) {
             if (weight == null || !Double.isFinite(weight) || weight <= 0) {
@@ -667,7 +573,6 @@ public class ShopController {
         }
         return 1.0;
     }
-
     private static LocalDate parseDate(String s) {
         if (s == null || s.isBlank()) {
             return null;
@@ -678,7 +583,6 @@ public class ShopController {
             throw new ApiException(422, "Некорректная дата: " + s);
         }
     }
-
     private static LocalDate toLocalDate(Object v) {
         if (v == null) {
             return null;
@@ -691,25 +595,20 @@ public class ShopController {
         }
         return LocalDate.parse(v.toString().substring(0, 10));
     }
-
     private static Double asDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : null;
     }
-
     private static double asPrimitiveDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : 0.0;
     }
-
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }
-
     private static void validatePassword(String password) {
         if (password.length() < 8 || password.length() > 128) {
             throw new ApiException(422, "password: длина должна быть от 8 до 128 символов");
         }
     }
-
     private static void validateOptionalCoordinates(Double lat, Double lon) {
         if (lat == null && lon == null) {
             return;
@@ -718,18 +617,15 @@ public class ShopController {
             throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
         }
     }
-
     private static void requirePositiveFinite(Double value, String field) {
         if (value == null || !Double.isFinite(value) || value <= 0) {
             throw new ApiException(422, field + ": значение должно быть положительным и конечным");
         }
     }
-
     private static void deleteQuietly(Path path) {
         try {
             Files.deleteIfExists(path);
         } catch (IOException ignored) {
-            // best-effort, like the Python os.remove in a failure branch
         }
     }
 }

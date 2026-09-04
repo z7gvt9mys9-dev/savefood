@@ -1,5 +1,4 @@
 package ru.savefood.auth;
-
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
@@ -20,23 +19,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-/**
- * Java port of backend/auth_routes.py — token issuance for the whole platform.
- * Wire-compatible with the Python endpoints: {@code POST /auth/login}
- * (OAuth2 password flow, form-encoded, rate-limited 5/min/IP),
- * {@code POST /auth/refresh} and {@code GET /auth/me}.
- */
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
-
     private final JdbcTemplate jdbc;
     private final PasswordService passwords;
     private final JwtService jwt;
     private final RefreshTokenService refreshTokens;
     private final RateLimiter rateLimiter;
-
     public AuthController(JdbcTemplate jdbc, PasswordService passwords, JwtService jwt,
                           RefreshTokenService refreshTokens,
                           RateLimiter rateLimiter) {
@@ -46,14 +36,6 @@ public class AuthController {
         this.refreshTokens = refreshTokens;
         this.rateLimiter = rateLimiter;
     }
-
-    /**
-     * OAuth2 password flow: form fields {@code username}/{@code password}.
-     * Accepts both {@code application/x-www-form-urlencoded} and
-     * {@code multipart/form-data} — the React auth form posts a {@code FormData}
-     * (multipart), while the FastAPI original's {@code OAuth2PasswordRequestForm}
-     * took either; restricting to urlencoded broke UI login with a 415.
-     */
     @PostMapping(path = "/login", consumes = {
         MediaType.APPLICATION_FORM_URLENCODED_VALUE,
         MediaType.MULTIPART_FORM_DATA_VALUE
@@ -63,11 +45,9 @@ public class AuthController {
                                      @RequestParam(value = "role", required = false) String expectedRole,
                                      HttpServletRequest request) {
         rateLimiter.check("auth:login", ClientIp.of(request), 5);
-
         if (expectedRole != null && !List.of("shop", "volunteer", "needy", "admin").contains(expectedRole)) {
             throw new ApiException(400, "Unknown account role");
         }
-
         List<Map<String, Object>> rows = jdbc.query(
             expectedRole == null
                 ? "SELECT id, username, hashed_password, role, related_id, is_blocked FROM users WHERE username = ?"
@@ -82,7 +62,6 @@ public class AuthController {
                 u.put("is_blocked", rs.getBoolean("is_blocked"));
                 return u;
             }, expectedRole == null ? new Object[] { username } : new Object[] { username, expectedRole });
-
         Map<String, Object> user = rows.isEmpty() ? null : rows.get(0);
         if (user == null || !passwords.verify(password, (String) user.get("hashed_password"))) {
             throw new ApiException(401, "Incorrect username or password");
@@ -90,13 +69,11 @@ public class AuthController {
         if (Boolean.TRUE.equals(user.get("is_blocked"))) {
             throw new ApiException(403, "Аккаунт заблокирован администратором");
         }
-
         String role = (String) user.get("role");
         Integer relatedId = toInteger(user.get("related_id"));
         String accessToken = jwt.create(((Number) user.get("id")).intValue(),
             (String) user.get("username"), role, relatedId);
         String refreshToken = refreshTokens.issue(((Number) user.get("id")).intValue());
-
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("access_token", accessToken);
         out.put("refresh_token", refreshToken);
@@ -105,7 +82,6 @@ public class AuthController {
         out.put("related_id", relatedId);
         return out;
     }
-
     @PostMapping("/refresh")
     public Map<String, Object> refresh(@RequestBody(required = false) RefreshRequest request) {
         RefreshTokenService.Rotation rotation = request == null
@@ -124,7 +100,6 @@ public class AuthController {
         out.put("token_type", "bearer");
         return out;
     }
-
     @PostMapping("/logout")
     public Map<String, Object> logout(@RequestBody(required = false) RefreshRequest request) {
         if (request != null) {
@@ -132,19 +107,14 @@ public class AuthController {
         }
         return Map.of("ok", true);
     }
-
     @GetMapping("/me")
     public Map<String, Object> me(@Auth CurrentUser user, HttpServletRequest request) {
-        // @Auth has already validated the token; preserve the existing /me shape
-        // while exposing the username as sub and retaining the token expiry.
         String header = request.getHeader("Authorization");
         return jwt.payload(header.substring(7));
     }
-
     private static Integer toInteger(Object value) {
         return value instanceof Number n ? n.intValue() : null;
     }
-
     public record RefreshRequest(@JsonProperty("refresh_token") String refreshToken) {
     }
 }

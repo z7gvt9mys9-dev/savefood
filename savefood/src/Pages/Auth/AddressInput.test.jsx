@@ -2,28 +2,22 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import AddressInput from './AddressInput';
-
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key) => key }),
 }));
-
 describe('AddressInput', () => {
   it('can hide residential unit fields for non-residential addresses', () => {
     render(<AddressInput onChange={vi.fn()} showUnitFields={false} />);
-
     expect(screen.queryByText('address.apartment')).toBeNull();
     expect(screen.queryByText('address.floor')).toBeNull();
     expect(screen.queryByText('address.entrance')).toBeNull();
   });
-
   it('shows residential unit fields by default', () => {
     render(<AddressInput onChange={vi.fn()} />);
-
     expect(screen.getByText('address.apartment')).toBeTruthy();
     expect(screen.getByText('address.floor')).toBeTruthy();
     expect(screen.getByText('address.entrance')).toBeTruthy();
   });
-
   it('clears a selected address point when the street text is edited manually', () => {
     const onChange = vi.fn();
     render(
@@ -35,11 +29,9 @@ describe('AddressInput', () => {
         onChange={onChange}
       />
     );
-
     fireEvent.change(screen.getByPlaceholderText('address.street_placeholder'), {
       target: { value: 'Москва, Арбат, 1' },
     });
-
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
       address: 'Москва, Арбат, 1',
       lat: null,

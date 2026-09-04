@@ -1,5 +1,4 @@
 package ru.savefood.monitoring;
-
 import java.util.LinkedHashMap;
 import java.util.Map;
 import ru.savefood.cache.CacheService;
@@ -11,26 +10,16 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
-
-/**
- * App-level operational endpoints, 1:1 with the ones defined in backend/main.py:
- * {@code GET /metrics} (Prometheus scrape, token-gated), {@code /healthz}
- * (liveness — no dependency checks), {@code /readyz} (readiness — verifies the DB)
- * and {@code /stats} (public landing-page counters, short-TTL cached).
- */
 @RestController
 public class MonitoringController {
-
     private final MetricsService metrics;
     private final JdbcTemplate jdbc;
     private final CacheService cache;
-
     public MonitoringController(MetricsService metrics, JdbcTemplate jdbc, CacheService cache) {
         this.metrics = metrics;
         this.jdbc = jdbc;
         this.cache = cache;
     }
-
     @GetMapping("/metrics")
     public ResponseEntity<String> metrics(
             @RequestHeader(value = "Authorization", required = false) String authorization) {
@@ -39,26 +28,20 @@ public class MonitoringController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_JSON).body("{\"detail\":\"Forbidden\"}");
         }
-        // Prometheus text exposition format (version 0.0.4).
         return ResponseEntity.ok()
             .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
             .body(metrics.render());
     }
-
     private static String bearerToken(String authorization) {
         if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
             return null;
         }
         return authorization.substring(7);
     }
-
     @GetMapping("/healthz")
     public Map<String, String> healthz() {
-        // Liveness: deliberately checks no dependencies so a transient DB blip
-        // doesn't get a healthy app restarted.
         return Map.of("status", "ok");
     }
-
     @GetMapping("/readyz")
     public ResponseEntity<Map<String, String>> readyz() {
         try {
@@ -69,13 +52,10 @@ public class MonitoringController {
         }
         return ResponseEntity.ok(Map.of("status", "ready"));
     }
-
     @GetMapping("/stats")
     public Map<String, Object> stats() {
-        // Public landing-page counters — polled by every visitor, cached briefly.
         return cache.cachedJson("stats:public", CacheService.TTL_STATS, this::computeStats);
     }
-
     private Map<String, Object> computeStats() {
         Map<String, Object> out = new LinkedHashMap<>();
         Double kgSaved = jdbc.queryForObject(
@@ -93,7 +73,6 @@ public class MonitoringController {
         Long expiredLots = jdbc.queryForObject("SELECT COUNT(*) FROM lots WHERE status = 'expired'", Long.class);
         double percentExpired = totalLots != null && totalLots > 0
             ? (expiredLots == null ? 0 : expiredLots) * 100.0 / totalLots : 0.0;
-
         out.put("kg_food_saved", kgSaved == null ? 0 : kgSaved);
         out.put("deliveries_completed", deliveries == null ? 0 : deliveries);
         out.put("active_volunteers", activeVolunteers == null ? 0 : activeVolunteers);

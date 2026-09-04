@@ -3,22 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { API_URL, authFetch } from '../api';
 import './OnboardingChecklist.css';
-
-// Interactive onboarding: a short checklist of real first steps, computed from
-// actual account state (not a fake tour). Disappears once everything is done
-// or after an explicit dismiss (kept in localStorage per user).
-//
-// `items`: [{ id, label, done }] from the parent dashboard's loaded data.
-// `withTelegram`: prepends a "connect Telegram" item; its done-state is
-// fetched here from /auth/links so parents don't have to care.
 const OnboardingChecklist = ({ storageKey, items = [], withTelegram = true }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
   const lsKey = `onboarding_dismissed_${storageKey}_${user?.relatedId ?? ''}`;
-
   const [dismissed, setDismissed] = useState(() => localStorage.getItem(lsKey) === '1');
   const [tgLinked, setTgLinked] = useState(null);
-
   useEffect(() => {
     if (!withTelegram || dismissed) return;
     authFetch(`${API_URL}/auth/links`)
@@ -26,20 +16,16 @@ const OnboardingChecklist = ({ storageKey, items = [], withTelegram = true }) =>
       .then(data => { if (data) setTgLinked(!!data.telegram); })
       .catch(() => {});
   }, [withTelegram, dismissed]);
-
   const allItems = [
     ...(withTelegram ? [{ id: 'telegram', label: t('onboarding.connect_telegram'), done: !!tgLinked }] : []),
     ...items,
   ];
   const doneCount = allItems.filter(i => i.done).length;
-
   if (dismissed || allItems.length === 0 || doneCount === allItems.length) return null;
-
   const dismiss = () => {
     localStorage.setItem(lsKey, '1');
     setDismissed(true);
   };
-
   return (
     <section className="onboarding-card" aria-label={t('onboarding.title')}>
       <div className="onboarding-head">
@@ -76,5 +62,4 @@ const OnboardingChecklist = ({ storageKey, items = [], withTelegram = true }) =>
     </section>
   );
 };
-
 export default OnboardingChecklist;

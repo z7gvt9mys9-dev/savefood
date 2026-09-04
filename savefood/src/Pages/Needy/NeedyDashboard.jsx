@@ -14,31 +14,23 @@ import { useAuth } from '../../context/AuthContext';
 import { API_URL, authFetch, getFreshAccessToken } from '../../api';
 import { hasDeliveryLocation, hasValidCoordinates, isTerminalTicketStatus } from '../../utils/ticket';
 import './Needy.css';
-
 const YMAPS_KEY = import.meta.env.VITE_YANDEX_MAPS_API_KEY || '';
-
-// Yandex balloonContent* renders HTML; escape any interpolated user data.
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[ch]));
-
 const PAGE = 20;
-
 const CAT_KEYS = {
   'Выпечка': 'bakery',
   'Овощи/Фрукты': 'vegetables',
   'Готовая еда': 'prepared',
   'Молочные продукты': 'dairy',
 };
-
 const CATEGORIES = ['Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
-
 const NeedyDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const needyId = user?.relatedId;
-
   const [activeTab, setActiveTab] = useState('map');
   const [activeOrder, setActiveOrder] = useState(null);
   const [lots, setLots] = useState([]);
@@ -59,7 +51,6 @@ const NeedyDashboard = () => {
   const [volunteerLocation, setVolunteerLocation] = useState(null);
   const locationPollRef = useRef(null);
   const ticketPollRef = useRef(null);
-
   const loadLots = useCallback(async (offset = 0, append = false, category = filterCategory, search = filterSearch) => {
     try {
       const params = new URLSearchParams({ limit: PAGE, offset });
@@ -73,7 +64,6 @@ const NeedyDashboard = () => {
       setLotsOffset(offset + arr.length);
     } catch {}
   }, [filterCategory, filterSearch]);
-
   const loadHistory = async (offset = 0, append = false) => {
     if (!needyId) return;
     try {
@@ -87,12 +77,9 @@ const NeedyDashboard = () => {
       setHistoryOffset(offset + arr.length);
     } catch {}
   };
-
   useEffect(() => {
     loadLots(0);
-
     if (!needyId) return;
-
     authFetch(`${API_URL}/needy/${needyId}/profile`, {
       headers: {},
     })
@@ -103,7 +90,6 @@ const NeedyDashboard = () => {
         setAddressNeedsGeocoding(false);
       })
       .catch(() => {});
-
     authFetch(`${API_URL}/needy/${needyId}/notifications`, {
       headers: {},
     })
@@ -113,17 +99,9 @@ const NeedyDashboard = () => {
         const cursor = initial.reduce((max, item) =>
           typeof item.id === 'number' ? Math.max(max, item.id) : max, 0);
         setNotifications(initial);
-        // The first socket is intentionally gated on this REST boundary. Any
-        // row committed after the query snapshot is replayed from this cursor.
         setNotificationBoundary({ needyId, cursor });
       })
-      // A zero boundary lets the authenticated socket recover the complete
-      // notification stream if the initial REST request itself fails.
       .catch(() => setNotificationBoundary({ needyId, cursor: 0 }));
-
-    // Restore the active ticket after a page reload — otherwise the QR code is
-    // gone (delivery can't be confirmed) and the ticket can't be cancelled,
-    // while the weekly "one active ticket" rule blocks creating a new one.
     authFetch(`${API_URL}/needy/${needyId}/tickets`, {
       headers: {},
     })
@@ -145,11 +123,8 @@ const NeedyDashboard = () => {
         });
       })
       .catch(() => {});
-
     loadHistory(0);
   }, [needyId]);
-
-  // WebSocket: live notification stream
   useEffect(() => {
     if (!needyId || notificationBoundary?.needyId !== needyId) return;
     const apiBase = import.meta.env.VITE_API_URL ?? '';
@@ -158,8 +133,6 @@ const NeedyDashboard = () => {
       : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/needy/${needyId}`;
     let ws;
     let reconnectTimer;
-    // Track the highest notification id we've seen so a reconnect can replay
-    // anything that arrived while the socket was down.
     let lastSeenId = notificationBoundary.cursor;
     let disposed = false;
     const connect = async () => {
@@ -173,8 +146,6 @@ const NeedyDashboard = () => {
       if (disposed || !token) return;
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {
-        // Token is sent in the first message instead of the query string so it
-        // never lands in nginx access logs or browser history.
         const handshake = { type: 'auth', token, since_id: lastSeenId };
         ws.send(JSON.stringify(handshake));
       };
@@ -184,7 +155,6 @@ const NeedyDashboard = () => {
           if (data.type === 'ready') return;
           if (typeof data.id === 'number') lastSeenId = Math.max(lastSeenId ?? 0, data.id);
           setNotifications(prev => {
-            // dedupe against the initial REST fetch and replayed-on-reconnect rows
             if (data.id != null && prev.some(x => x.id === data.id)) return prev;
             return [{
               id: data.id ?? Date.now(), type: data.type, payload: data.payload, read: 0, created_at: new Date().toISOString(),
@@ -200,7 +170,6 @@ const NeedyDashboard = () => {
     connect();
     return () => { disposed = true; clearTimeout(reconnectTimer); ws?.close(); };
   }, [needyId, notificationBoundary]);
-
   useEffect(() => {
     if (locationPollRef.current) clearInterval(locationPollRef.current);
     const assignedVolunteerId = activeOrder?.assigned_volunteer_id;
@@ -216,11 +185,6 @@ const NeedyDashboard = () => {
     locationPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(locationPollRef.current);
   }, [activeOrder?.assigned_volunteer_id, activeOrder?.ticketStatus]);
-
-  // Poll the active ticket so the recipient learns when a volunteer is assigned
-  // (assigned_volunteer_id is set server-side when the volunteer takes the route).
-  // This also covers self-pickup: the shop changes that ticket to fulfilled, so
-  // leaving it out would keep an obsolete QR and cancellation button on screen.
   useEffect(() => {
     if (ticketPollRef.current) clearInterval(ticketPollRef.current);
     const ticketId = activeOrder?.ticketId;
@@ -259,7 +223,6 @@ const NeedyDashboard = () => {
     ticketPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(ticketPollRef.current);
   }, [activeOrder?.ticketId, needyId]);
-
   const handleBook = async (lot, selfPickup = false) => {
     if (!needyId) { alert(t('common.auth_required')); return; }
     if (!selfPickup && !hasDeliveryLocation(profile)) {
@@ -290,11 +253,6 @@ const NeedyDashboard = () => {
         return;
       }
       const createdTicket = await res.json();
-
-      // Ticket creation used to return only an id, while the only valid QR
-      // includes a server-generated secret. Read the owner-scoped ticket row
-      // after creation (and use a direct response QR when available) so this
-      // screen never manufactures an invalid `SF-<id>` substitute.
       let ticket = createdTicket;
       try {
         const ticketsRes = await authFetch(`${API_URL}/needy/${needyId}/tickets`, {
@@ -308,10 +266,7 @@ const NeedyDashboard = () => {
           if (storedTicket) ticket = { ...createdTicket, ...storedTicket };
         }
       } catch {
-        // The POST has succeeded. Keep the order state and rely on a later poll
-        // to obtain the QR rather than displaying a fake fallback code.
       }
-
       setActiveOrder({
         ...lot,
         ticketId: createdTicket.id,
@@ -329,7 +284,6 @@ const NeedyDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const handleCancelTicket = async () => {
     if (!activeOrder?.ticketId || !needyId) return;
     if (!window.confirm(t('needy.confirm_cancel'))) return;
@@ -349,7 +303,6 @@ const NeedyDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const renderTicketQr = () => {
     const qrCode = activeOrder?.qrCode;
     if (!qrCode) {
@@ -362,12 +315,10 @@ const NeedyDashboard = () => {
       </div>
     );
   };
-
   useEffect(() => {
     setLotsOffset(0);
     loadLots(0, false, filterCategory, filterSearch);
   }, [filterCategory, filterSearch]);
-
   const handleRateDelivery = async (ticketId, rating, comment) => {
     if (!needyId) return false;
     const stars = rating ?? ratings[ticketId];
@@ -384,7 +335,6 @@ const NeedyDashboard = () => {
     } catch { alert(t('common.connection_error')); }
     return false;
   };
-
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!needyId) { alert(t('common.auth_required')); return; }
@@ -404,10 +354,6 @@ const NeedyDashboard = () => {
           city: profile.city || null,
           lat: profile.lat ?? null,
           lon: profile.lon ?? null,
-          // The server uses this explicit flag to clear the old point when the
-          // street/house text was manually edited. Sending null alone is not
-          // enough for PATCH semantics because omitted fields normally mean
-          // "leave unchanged".
           clear_coordinates: addressNeedsGeocoding,
         }),
       });
@@ -417,7 +363,6 @@ const NeedyDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const toggleGeoPush = async (enabled) => {
     if (!needyId) return;
     setProfile(p => ({ ...p, geo_push_enabled: enabled }));
@@ -431,7 +376,6 @@ const NeedyDashboard = () => {
       setProfile(p => ({ ...p, geo_push_enabled: !enabled }));
     }
   };
-
   const exportData = async () => {
     if (!needyId) return;
     try {
@@ -450,12 +394,10 @@ const NeedyDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const handleLogout = () => {
     logout();
     navigate('/');
   };
-
   const deleteAccount = async () => {
     if (!needyId) return;
     if (!window.confirm(t('needy.delete_confirm'))) return;
@@ -471,7 +413,6 @@ const NeedyDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const renderProfile = () => (
     <div className="tab-content">
       <form className="admin-form" onSubmit={handleSaveProfile}>
@@ -537,10 +478,8 @@ const NeedyDashboard = () => {
         </div>
         <button type="submit" className="btn btn-primary">{t('needy.save_profile')}</button>
       </form>
-
       <AccountLinks dashboardPath="/needy" />
       <PushToggle />
-
       <div className="admin-form" style={{ marginTop: 16 }}>
         <h3>{t('needy.privacy_title')}</h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -548,18 +487,15 @@ const NeedyDashboard = () => {
           <button type="button" className="btn btn-danger" onClick={deleteAccount}>{t('needy.delete_account')}</button>
         </div>
       </div>
-
       <button type="button" className="profile-logout-btn" onClick={handleLogout}>
         {t('profile.logout')}
       </button>
     </div>
   );
-
   const lotsWithCoords = useMemo(() => lots.filter(l => l.shop_lat && l.shop_lon), [lots]);
   const mapCenter = lotsWithCoords.length > 0
     ? [lotsWithCoords[0].shop_lat, lotsWithCoords[0].shop_lon]
     : [55.7522, 37.6156];
-
   const lotsByShop = useMemo(() => {
     const groups = {};
     lots.forEach(lot => {
@@ -569,7 +505,6 @@ const NeedyDashboard = () => {
     });
     return Object.values(groups);
   }, [lots, t]);
-
   const renderMap = () => (
     <>
       <div className="tab-content">
@@ -595,7 +530,6 @@ const NeedyDashboard = () => {
           />
         </div>
       </div>
-
       <div className="map-container">
         <YMaps query={{ apikey: YMAPS_KEY, lang: 'ru_RU' }}>
           <Map
@@ -688,13 +622,11 @@ const NeedyDashboard = () => {
       </div>
     </>
   );
-
   const renderOrder = () => (
     <div className="tab-content">
       {activeOrder ? (
         <div className="order-status-card">
           <h2>{t('needy.order')}</h2>
-
           {activeOrder.selfPickup ? (
             <>
               <div className="self-pickup-banner">
@@ -717,9 +649,6 @@ const NeedyDashboard = () => {
           ) : (
             <>
               {(() => {
-                // 'delivering' once the volunteer pressed «Забрал» at the shop
-                // (volunteer_en_route notification) or live location is streaming;
-                // before that, with a volunteer assigned, they are still collecting.
                 const enRoute = hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) || notifications.some(n =>
                   n.type === 'volunteer_en_route' && (n.payload || '').includes(`тикет ${activeOrder.ticketId}`));
                 const phase = enRoute ? 'delivering' : 'picking';
@@ -730,7 +659,6 @@ const NeedyDashboard = () => {
                   </div>
                 );
               })()}
-
               {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) && (
                 <div style={{ margin: '16px 0', borderRadius: 8, overflow: 'hidden', height: 200 }}>
                   <p style={{ color: '#4CAF50', fontSize: '0.82em', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -752,7 +680,6 @@ const NeedyDashboard = () => {
                   </YMaps>
                 </div>
               )}
-
               <div className="order-details">
                 <p><strong>{t('needy.items_label')}</strong> {activeOrder.description}</p>
                 <p><strong>{t('common.status')}:</strong> {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
@@ -761,7 +688,6 @@ const NeedyDashboard = () => {
                 <p>{t('needy.show_qr_volunteer')}</p>
                 {renderTicketQr()}
               </div>
-
               {activeOrder.assigned_volunteer_id && activeOrder.ticketStatus !== 'fulfilled' && (
                 <div style={{ marginTop: 16 }}>
                   <h4>{t('needy.chat_title')}</h4>
@@ -770,7 +696,6 @@ const NeedyDashboard = () => {
               )}
             </>
           )}
-
           <button className="btn btn-danger" style={{ marginTop: '16px', width: '100%' }} onClick={handleCancelTicket}>
             {t('needy.cancel_ticket')}
           </button>
@@ -780,11 +705,7 @@ const NeedyDashboard = () => {
       )}
     </div>
   );
-
   const unreadCount = notifications.filter(n => !n.read).length;
-
-  // Opening the notifications tab marks everything as read — otherwise the
-  // unread badge only ever grows (the read endpoint was never called).
   useEffect(() => {
     if (activeTab !== 'notifications' || !needyId) return;
     const unread = notifications.filter(n => !n.read);
@@ -797,7 +718,6 @@ const NeedyDashboard = () => {
     });
     setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
   }, [activeTab, needyId]);
-
   const renderNotifications = () => (
     <div className="tab-content">
       <h3>{t('common.notifications')}</h3>
@@ -815,7 +735,6 @@ const NeedyDashboard = () => {
       )}
     </div>
   );
-
   return (
     <div className="dashboard-container">
       <aside className="sidebar">
@@ -830,7 +749,6 @@ const NeedyDashboard = () => {
           <button className={activeTab === 'history' ? 'active' : ''} onClick={() => setActiveTab('history')}>{t('common.history')}</button>
         </nav>
       </aside>
-
       <main className="main-content">
         <header className="content-header">
           <h1>
@@ -886,9 +804,6 @@ const NeedyDashboard = () => {
                           disabled={!(thankNotes[item.id] || '').trim()}
                           onClick={async () => {
                             const note = (thankNotes[item.id] || '').trim();
-                            // After a reload the stars live in item.rating (server),
-                            // not in the session `ratings` state — pass them through,
-                            // and only mark the note as sent if the POST succeeded.
                             const ok = await handleRateDelivery(item.id, ratings[item.id] || item.rating, note);
                             if (ok) {
                               setSentNotes(prev => ({ ...prev, [item.id]: note }));
@@ -915,5 +830,4 @@ const NeedyDashboard = () => {
     </div>
   );
 };
-
 export default NeedyDashboard;

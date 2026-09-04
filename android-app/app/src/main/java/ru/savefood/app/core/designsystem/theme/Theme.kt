@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.theme
-
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -11,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-
 private val LightColors = lightColorScheme(
     primary = Green40,
     onPrimary = Neutral99,
@@ -30,7 +28,6 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Neutral95,
     onSurfaceVariant = Neutral20,
 )
-
 private val DarkColors = darkColorScheme(
     primary = Green80,
     onPrimary = Green20,
@@ -49,9 +46,6 @@ private val DarkColors = darkColorScheme(
     surfaceVariant = Neutral20,
     onSurfaceVariant = Neutral90,
 )
-
-// Status colors aren't part of Material's ColorScheme, so expose them via a
-// CompositionLocal that flips with the theme.
 data class SaveFoodStatusColors(
     val pending: androidx.compose.ui.graphics.Color,
     val active: androidx.compose.ui.graphics.Color,
@@ -59,7 +53,6 @@ data class SaveFoodStatusColors(
     val danger: androidx.compose.ui.graphics.Color,
     val neutral: androidx.compose.ui.graphics.Color,
 )
-
 val LocalStatusColors = staticCompositionLocalOf {
     SaveFoodStatusColors(
         pending = StatusColors.PendingLight,
@@ -69,11 +62,9 @@ val LocalStatusColors = staticCompositionLocalOf {
         neutral = StatusColors.NeutralLight,
     )
 }
-
 @Composable
 fun SaveFoodTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Material You dynamic color on Android 12+; brand palette as fallback.
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit,
 ) {
@@ -84,7 +75,6 @@ fun SaveFoodTheme(
         darkTheme -> DarkColors
         else -> LightColors
     }
-
     val statusColors = if (darkTheme) {
         SaveFoodStatusColors(
             pending = StatusColors.PendingDark,
@@ -102,7 +92,6 @@ fun SaveFoodTheme(
             neutral = StatusColors.NeutralLight,
         )
     }
-
     androidx.compose.runtime.CompositionLocalProvider(LocalStatusColors provides statusColors) {
         MaterialTheme(
             colorScheme = colorScheme,

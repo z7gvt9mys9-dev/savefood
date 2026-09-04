@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Lots tab -->
     <string name="shop_lots_title">Lots</string>
     <string name="shop_lots_tab_active">Active</string>
     <string name="shop_lots_tab_history">History</string>
@@ -35,7 +34,6 @@
     <string name="shop_lot_status_cancelled">Cancelled</string>
     <string name="shop_lot_status_unknown">—</string>
 
-    <!-- Shared lot fields -->
     <string name="shop_field_description">Description</string>
     <string name="shop_field_quantity">Quantity</string>
     <string name="shop_field_unit">Unit</string>
@@ -47,7 +45,6 @@
     <string name="shop_field_comment">Comment</string>
     <string name="shop_field_requires_cold">Needs refrigeration</string>
 
-    <!-- Create tab -->
     <string name="shop_create_step_of">Step %1$d of %2$d</string>
     <string name="shop_create_photo">Photo</string>
     <string name="shop_create_photo_hint">Add a lot photo — from the camera or gallery. A photo is required for private donors.</string>
@@ -62,7 +59,6 @@
     <string name="shop_review_yes">Yes</string>
     <string name="shop_review_no">No</string>
 
-    <!-- Receipts / ESG tab -->
     <string name="shop_esg_title">Receipts &amp; ESG</string>
     <string name="shop_esg_summary">ESG summary</string>
     <string name="shop_esg_kg">kg</string>
@@ -92,7 +88,6 @@
     <string name="shop_receipt_status_confirmed">Confirmed</string>
     <string name="shop_receipt_status_rejected">Rejected</string>
 
-    <!-- Profile tab -->
     <string name="shop_profile_title">Shop profile</string>
     <string name="shop_profile_section_data">Shop details</string>
     <string name="shop_profile_name">Name</string>

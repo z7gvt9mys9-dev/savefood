@@ -1,20 +1,12 @@
 server:
-  # The Python backend served on 8000; the Java service takes the same port so
-  # nginx routing (/admin → backend:8000) is unchanged during the migration.
   port: ${SERVER_PORT:8000}
   tomcat:
-    # Не обрывать соединение, когда тело больше лимита — иначе браузер видит
-    # connection reset («Ошибка подключения к серверу») вместо чистого 413.
     max-swallow-size: -1
 
 sentry:
-  # Error reporting (§39). No DSN ⇒ the SDK stays inert, so this is safe to leave
-  # configured in every environment.
   dsn: ${SENTRY_DSN:}
   environment: ${SENTRY_ENV:production}
-  # Sampling: every error, plus a thin slice of traces for latency context.
   traces-sample-rate: ${SENTRY_TRACES_SAMPLE_RATE:0.05}
-  # Never ship request bodies — they carry addresses, documents and chat text.
   send-default-pii: false
 
 spring:
@@ -22,79 +14,42 @@ spring:
     name: savefood-backend
   servlet:
     multipart:
-      # Spring-дефолт 1MB рвал любую загрузку фото с телефона (фото лота,
-      # удостоверение волонтёра). Пофайловый лимит держим выше UploadService (5MB),
-      # чтобы пользователь получал внятное 413 из него, а не обрыв соединения.
       max-file-size: 15MB
-      # До 5 фотографий лота + текстовые поля формы.
       max-request-size: 60MB
   datasource:
-    # Mirrors backend/database.py env vars (DB_HOST/DB_NAME/DB_USER/DB_PASS/DB_PORT).
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:savefood}
     username: ${DB_USER:postgres}
     password: ${DB_PASS:postgres}
   flyway:
-    # Schema management, replacing the removed alembic chain (0001–0014) and the
-    # Python init_db startup DDL. A database that already has the schema but no
-    # flyway_schema_history (i.e. today's production) is BASELINED at version 1 —
-    # V1__baseline.sql is recorded as applied, not executed. An empty database
-    # executes it. New schema changes ship as V2__…, V3__… in db/migration.
     baseline-on-migrate: true
     baseline-version: 1
     baseline-description: pre-flyway schema (alembic 0001-0014 + init_db DDL)
   jackson:
     serialization:
-      # Emit ISO-8601 timestamps (matching FastAPI/pydantic), not epoch millis.
       write-dates-as-timestamps: false
     default-property-inclusion: always
-    # camelCase DTO fields ⇄ snake_case JSON, matching the pydantic schemas
-    # (shop_id, expiry_date, unit_weight_kg, …). Map responses are unaffected —
-    # their keys are already literal snake_case.
     property-naming-strategy: SNAKE_CASE
 
 savefood:
-  # Must match backend/auth.py SECRET_KEY (HS256). >= 32 chars or startup fails.
   jwt-secret: ${SECRET_KEY:}
-  # Canonical business timezone for volunteer availability and forecast weekdays — LOCAL_TZ.
   local-tz: ${LOCAL_TZ:Europe/Moscow}
-  # Legacy delivery proof directory. New proofs use delivery-photo-upload-dir;
-  # this remains only so approved migration-era rows can be served through the
-  # authorization-checked impact endpoint.
   volunteer-upload-dir: ${VOLUNTEER_UPLOAD_DIR:../backend/volunteer/uploads}
-  # Delivery proof / impact photos stay in this PRIVATE directory. They are
-  # served only after moderation by an application endpoint, never by nginx.
   delivery-photo-upload-dir: ${DELIVERY_PHOTO_UPLOAD_DIR:../backend/volunteer/delivery_photos}
-  # Volunteer identity documents (§58): a SEPARATE dir, never served publicly —
-  # reachable only through the auth-checked flow, encrypted at rest. Defaults at
-  # the Python backend's volunteer kyc dir so files stay reachable in migration.
   volunteer-kyc-upload-dir: ${VOLUNTEER_KYC_UPLOAD_DIR:../backend/volunteer/kyc_uploads}
-  # Only an 'approved' volunteer may claim routes (§58). Toggle off for trusted
-  # deployments / local dev where verification is handled out of band.
   volunteer-kyc-required: ${VOLUNTEER_KYC_REQUIRED:true}
-  # Web Push (VAPID). Both keys present ⇒ /push/public_key + /push/subscribe are
-  # live; absent ⇒ 503, exactly like push_service.py is_configured(). The actual
-  # push fan-out stays on the Python notifier during the migration.
   push:
     vapid-public-key: ${VAPID_PUBLIC_KEY:}
     vapid-private-key: ${VAPID_PRIVATE_KEY:}
-    # Contact URI in the VAPID JWT (RFC 8292). Mirrors VAPID_SUBJECT.
     vapid-subject: ${VAPID_SUBJECT:mailto:support@savefood.local}
-    # FCM (native Android) — independent of Web Push, off by default. Both the
-    # project id and a service-account JSON (inline or file) are required.
     fcm-enabled: ${FCM_ENABLED:false}
     fcm-project-id: ${FCM_PROJECT_ID:}
     fcm-credentials-json: ${FCM_CREDENTIALS_JSON:}
     fcm-credentials-file: ${FCM_CREDENTIALS_FILE:}
-  # Background maintenance ticks (background.py). OFF by default during the
-  # migration: the Python `worker` owns them. Set to `embedded` only after the
-  # Python worker is stopped (its BACKGROUND_TASKS=off), so exactly one scheduler
-  # runs the ticks against the shared DB.
   background-tasks: ${BACKGROUND_TASKS_JAVA:off}
   reservation-ttl-batch-size: ${RESERVATION_TTL_BATCH_SIZE:100}
   kyc-retry-batch: ${KYC_RETRY_BATCH:100}
   kyc-doc-retention-hours: ${KYC_DOC_RETENTION_HOURS:0}
   webhook:
-    # Bound partner delivery so slow endpoints cannot consume arbitrary JVM resources.
     worker-count: ${WEBHOOK_WORKER_COUNT:8}
     queue-capacity: ${WEBHOOK_QUEUE_CAPACITY:100}
     request-timeout: ${WEBHOOK_REQUEST_TIMEOUT:10s}
@@ -102,31 +57,14 @@ savefood:
     initial-backoff: ${WEBHOOK_INITIAL_BACKOFF:100ms}
     max-per-shop: ${WEBHOOK_MAX_PER_SHOP:20}
     max-in-flight-per-shop: ${WEBHOOK_MAX_IN_FLIGHT_PER_SHOP:2}
-  # Telegram support chat that receives timeout / anti-fraud alerts (§8/§27) and
-  # the questions the AI assistant escalates (§16).
   support-chat-id: ${SUPPORT_CHAT_ID:}
   telegram:
-    # Shared secret echoed by Telegram in X-Telegram-Bot-Api-Secret-Token on every
-    # webhook delivery. Unset ⇒ POST /telegram/webhook ignores all updates: an
-    # unauthenticated intake would let anyone forge a message from any chat id and
-    # hijack an account link. Register with
-    #   curl "https://api.telegram.org/bot<TOKEN>/setWebhook\
-    #        ?url=<PUBLIC_URL>/telegram/webhook&secret_token=<SECRET>"
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
-  # GET /metrics is fail-closed when this is absent or blank. Supply its value
-  # only out-of-band and use it as an Authorization: Bearer credential.
   metrics-token: ${METRICS_TOKEN:}
-  # Free-form support assistant model (ai_service.py). Falls back to the OCR model.
   ai-model: ${AI_MODEL:${OCR_MODEL:gemini-2.5-flash}}
-  # Optional VLESS SOCKS5 proxy for the Telegram API (proxy_service.py). With no
-  # URL the proxy is a no-op and Telegram goes out directly. The xray binary must
-  # be supplied out of band (no JVM auto-download): point xray-binary at it.
   proxy:
     vless-url: ${VLESS_URL:}
     xray-binary: ${XRAY_BINARY:./vendor/xray}
-  # Shop lot photos (served publicly at /uploads/…) and receipt photos (served
-  # only through the auth-checked receipt endpoint). Default at the Python
-  # backend/shop dirs so files stay reachable during the migration.
   shop-upload-dir: ${SHOP_UPLOAD_DIR:../backend/shop/uploads}
   lot-photo-staging:
     ttl: ${LOT_PHOTO_STAGING_TTL:45m}
@@ -135,37 +73,19 @@ savefood:
     cleanup-batch-size: ${LOT_PHOTO_STAGING_CLEANUP_BATCH_SIZE:100}
     upload-rate-per-minute: ${LOT_PHOTO_STAGING_UPLOAD_RATE_PER_MINUTE:20}
   receipt-upload-dir: ${RECEIPT_UPLOAD_DIR:../backend/shop/receipt_uploads}
-  # Receipt OCR (Gemini Vision). When the key is absent the OCR endpoint returns
-  # 503, exactly like the Python service with no GEMINI_API_KEY.
   gemini-api-key: ${GEMINI_API_KEY:${GOOGLE_API_KEY:}}
   ocr-model: ${OCR_MODEL:${AI_MODEL:gemini-2.5-flash}}
   receipt-max-age-hours: ${RECEIPT_MAX_AGE_HOURS:48}
-  # Legacy recipient KYC storage. New uploads are disabled; Flyway V5 queues old
-  # references and SensitiveFileCleanup retries file deletion until it succeeds.
   needy-upload-dir: ${NEEDY_UPLOAD_DIR:../backend/needy/uploads}
-  # Fernet key for volunteer KYC document encryption-at-rest (kyc_crypto.py).
-  # Required by default; absent, empty, or malformed values fail startup.
-  # Must match the Python KYC_ENCRYPTION_KEY for existing encrypted documents.
   kyc-encryption-key: ${KYC_ENCRYPTION_KEY:}
-  # Plaintext KYC is disabled by default. It is honored only in dev/test profiles.
   kyc-plaintext-enabled: false
   kyc-model: ${KYC_MODEL:${AI_MODEL:gemini-2.5-flash}}
   kyc:
-    # Auto-KYC decision bands: score ≥ ok ⇒ approve, ≤ fraud ⇒ reject, and the
-    # middle goes to a human via PATCH /admin/volunteers/{id}/moderation.
-    # Widening the middle means fewer wrong automatic calls but more moderator
-    # work; narrowing it does the reverse.
     ok-threshold: ${KYC_OK_THRESHOLD:0.7}
     fraud-threshold: ${KYC_FRAUD_THRESHOLD:0.3}
-  # Delivery photo pre-publication moderation (§36.1). Auto-moderation is opt-in:
-  # confident food auto-approved, clearly inappropriate auto-rejected; otherwise
-  # the photo waits in the admin queue.
   photo-model: ${PHOTO_MODEL:${AI_MODEL:gemini-2.5-flash}}
   photo-auto-moderate: ${PHOTO_AUTO_MODERATE:false}
   photo-auto-approve-score: ${PHOTO_AUTO_APPROVE_SCORE:0.85}
-  # Social login / account linking (oauth_routes.py + telegram_routes.py
-  # /auth/* surface). An unconfigured provider returns 503 on start, exactly
-  # like the Python service, and is reported as false by /auth/oauth/providers.
   oauth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     google-client-secret: ${GOOGLE_CLIENT_SECRET:}
@@ -173,13 +93,9 @@ savefood:
     yandex-client-secret: ${YANDEX_CLIENT_SECRET:}
     telegram-bot-token: ${TELEGRAM_BOT_TOKEN:}
     telegram-bot-name: ${TELEGRAM_BOT_NAME:savefood_bot}
-    # Public URL the user's browser reaches — provider redirect_uri + SPA
-    # redirect target. Mirrors OAUTH_PUBLIC_URL / SITE_URL.
     public-url: ${OAUTH_PUBLIC_URL:${SITE_URL:http://localhost:3000}}
 
 ---
-# Plaintext volunteer KYC is intentionally available only for explicitly opted-in
-# local development and tests. Production and every other profile fail closed.
 spring:
   config:
     activate:

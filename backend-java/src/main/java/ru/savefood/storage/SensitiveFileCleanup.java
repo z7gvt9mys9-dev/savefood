@@ -1,5 +1,4 @@
 package ru.savefood.storage;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -18,25 +17,20 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
 /** Durable, exact-reference deletion for private KYC and delivery-proof files. */
 @Service
 public class SensitiveFileCleanup {
-
     public enum Storage {
         NEEDY_KYC("needy_kyc", "/needy_uploads/"),
         VOLUNTEER_KYC("volunteer_kyc", "/volunteer_kyc/"),
         DELIVERY_PHOTO("delivery_photo", "/delivery_photos/"),
         LEGACY_DELIVERY_PHOTO("legacy_delivery_photo", "/volunteer_uploads/");
-
         private final String databaseValue;
         private final String referencePrefix;
-
         Storage(String databaseValue, String referencePrefix) {
             this.databaseValue = databaseValue;
             this.referencePrefix = referencePrefix;
         }
-
         static Storage fromDatabase(String value) {
             for (Storage storage : values()) {
                 if (storage.databaseValue.equals(value)) {
@@ -46,18 +40,15 @@ public class SensitiveFileCleanup {
             return null;
         }
     }
-
     @FunctionalInterface
     interface FileDeleter {
         void deleteIfExists(Path path) throws Exception;
     }
-
     private static final Logger log = Logger.getLogger(SensitiveFileCleanup.class.getName());
     private final JdbcTemplate jdbc;
     private final Map<Storage, Path> roots;
     private final FileDeleter deleter;
     private final TransactionTemplate cleanupTransaction;
-
     @Autowired
     public SensitiveFileCleanup(JdbcTemplate jdbc,
             @Value("${savefood.needy-upload-dir:../backend/needy/uploads}") String needyDir,
@@ -68,25 +59,21 @@ public class SensitiveFileCleanup {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
             Files::deleteIfExists, requiresNew(transactionManager));
     }
-
     public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
             Files::deleteIfExists, null);
     }
-
     public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir,
             PlatformTransactionManager transactionManager) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
             Files::deleteIfExists, requiresNew(transactionManager));
     }
-
     SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir, deleter, null);
     }
-
     SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter,
             TransactionTemplate cleanupTransaction) {
@@ -99,7 +86,6 @@ public class SensitiveFileCleanup {
         this.deleter = deleter;
         this.cleanupTransaction = cleanupTransaction;
     }
-
     /** Retains an exact, newly-created sensitive file only if the transaction commits. */
     public boolean deleteOnRollback(Storage storage, String fileRef) {
         requireSafePath(storage, fileRef);
@@ -119,11 +105,6 @@ public class SensitiveFileCleanup {
         });
         return true;
     }
-
-    /**
-     * Persist the exact file identity in the caller's transaction, then try the
-     * delete after commit. A queue insert failure aborts reference removal.
-     */
     public void trackAndDeleteAfterCommit(Storage storage, String fileRef) {
         requireSafePath(storage, fileRef);
         Long id = jdbc.queryForObject(
@@ -136,7 +117,6 @@ public class SensitiveFileCleanup {
         }
         afterCommit(() -> process(id, storage, fileRef));
     }
-
     /** Delete an otherwise unreferenced file now, durably queueing only failures. */
     public void deleteOrQueue(Storage storage, String fileRef) {
         Path path = requireSafePath(storage, fileRef);
@@ -156,7 +136,6 @@ public class SensitiveFileCleanup {
             }
         }
     }
-
     private void deleteOrQueueNow(Storage storage, String fileRef) {
         Path path = requireSafePath(storage, fileRef);
         try {
@@ -165,12 +144,10 @@ public class SensitiveFileCleanup {
             queueFailure(storage, fileRef, message(e));
         }
     }
-
     @EventListener(ApplicationReadyEvent.class)
     public void afterStartup() {
         retryPending();
     }
-
     @Scheduled(fixedDelay = 15 * 60_000, initialDelay = 60_000)
     public void retryPending() {
         inventoryLegacyNeedyKyc();
@@ -191,7 +168,6 @@ public class SensitiveFileCleanup {
             process(id, storage, fileRef);
         }
     }
-
     private void process(long id, Storage storage, String fileRef) {
         try {
             deleter.deleteIfExists(requireSafePath(storage, fileRef));
@@ -211,7 +187,6 @@ public class SensitiveFileCleanup {
             log.warning("[sensitive-file-cleanup] retained for retry: " + fileRef);
         }
     }
-
     private void queueFailure(Storage storage, String fileRef, String error) {
         try {
             Runnable insert = () -> jdbc.update(
@@ -230,7 +205,6 @@ public class SensitiveFileCleanup {
             throw e;
         }
     }
-
     private void inventoryLegacyNeedyKyc() {
         Path needyRoot = roots.get(Storage.NEEDY_KYC);
         try (var files = Files.list(needyRoot)) {
@@ -253,7 +227,6 @@ public class SensitiveFileCleanup {
             }
         }
     }
-
     private Path requireSafePath(Storage storage, String fileRef) {
         if (storage == null || fileRef == null || !fileRef.startsWith(storage.referencePrefix)) {
             throw new IllegalArgumentException("Invalid sensitive-file reference");
@@ -269,7 +242,6 @@ public class SensitiveFileCleanup {
         }
         return candidate;
     }
-
     private static void afterCommit(Runnable cleanup) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -282,19 +254,15 @@ public class SensitiveFileCleanup {
             cleanup.run();
         }
     }
-
     private static Path root(String value) {
         return Paths.get(value).toAbsolutePath().normalize();
     }
-
     private static String message(Exception e) {
         return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
     }
-
     private static String truncate(String value) {
         return value.substring(0, Math.min(1000, value.length()));
     }
-
     private static TransactionTemplate requiresNew(PlatformTransactionManager transactionManager) {
         if (transactionManager == null) {
             return null;

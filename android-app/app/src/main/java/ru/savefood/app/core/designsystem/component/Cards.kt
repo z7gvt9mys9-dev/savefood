@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,7 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-
 /** Standard surface card used across lists and detail screens. */
 @Composable
 fun SaveFoodCard(
@@ -36,12 +34,10 @@ fun SaveFoodCard(
         ) { CardBody(content) }
     }
 }
-
 @Composable
 private fun CardBody(content: @Composable () -> Unit) {
     Column(modifier = Modifier.padding(16.dp)) { content() }
 }
-
 /** Section title with optional trailing action label (e.g. "See all"). */
 @Composable
 fun SectionHeader(

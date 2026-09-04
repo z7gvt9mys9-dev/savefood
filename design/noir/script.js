@@ -1,14 +1,10 @@
 (() => {
   "use strict";
-
   const one = (selector, scope = document) => scope.querySelector(selector);
   const all = (selector, scope = document) => [...scope.querySelectorAll(selector)];
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  /* Shared feedback */
   const toast = one("[data-toast]");
   let toastTimer;
-
   const showToast = (message) => {
     if (!toast) return;
     one("span", toast).textContent = message;
@@ -16,12 +12,9 @@
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => toast.classList.remove("is-visible"), 2800);
   };
-
-  /* Header and mobile navigation */
   const header = one("[data-header]");
   const menu = one("[data-menu]");
   const menuToggle = one("[data-menu-toggle]");
-
   const setMenu = (isOpen) => {
     if (!menu || !menuToggle) return;
     menu.classList.toggle("is-open", isOpen);
@@ -29,30 +22,23 @@
     menuToggle.setAttribute("aria-label", isOpen ? "Закрыть меню" : "Открыть меню");
     document.body.classList.toggle("menu-open", isOpen);
   };
-
   menuToggle?.addEventListener("click", () => {
     setMenu(menuToggle.getAttribute("aria-expanded") !== "true");
   });
-
   all("a", menu).forEach((link) => link.addEventListener("click", () => setMenu(false)));
-
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && menuToggle?.getAttribute("aria-expanded") === "true") {
       setMenu(false);
       menuToggle.focus();
     }
   });
-
   const updateHeader = () => header?.classList.toggle("is-scrolled", window.scrollY > 24);
   updateHeader();
   window.addEventListener("scroll", updateHeader, { passive: true });
-
-  /* Active navigation link */
   const navLinks = all('.site-nav a[href^="#"]');
   const navSections = navLinks
     .map((link) => one(link.getAttribute("href")))
     .filter(Boolean);
-
   if ("IntersectionObserver" in window && navSections.length) {
     const navObserver = new IntersectionObserver(
       (entries) => {
@@ -71,8 +57,6 @@
     );
     navSections.forEach((section) => navObserver.observe(section));
   }
-
-  /* On-scroll reveals */
   const reveals = all(".reveal");
   if (reducedMotion || !("IntersectionObserver" in window)) {
     reveals.forEach((element) => element.classList.add("is-visible"));
@@ -89,27 +73,21 @@
     );
     reveals.forEach((element) => revealObserver.observe(element));
   }
-
-  /* Demo counters */
   const counters = all("[data-counter]");
-
   const formatCounter = (value, decimals) =>
     new Intl.NumberFormat("ru-RU", {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     }).format(value);
-
   const runCounter = (element) => {
     if (element.dataset.ran === "true") return;
     element.dataset.ran = "true";
     const target = Number(element.dataset.counter);
     const decimals = Number(element.dataset.decimals || 0);
-
     if (reducedMotion) {
       element.textContent = formatCounter(target, decimals);
       return;
     }
-
     const startedAt = performance.now();
     const duration = 1250;
     const step = (now) => {
@@ -120,7 +98,6 @@
     };
     requestAnimationFrame(step);
   };
-
   if ("IntersectionObserver" in window) {
     const counterObserver = new IntersectionObserver(
       (entries, observer) => {
@@ -136,11 +113,8 @@
   } else {
     counters.forEach(runCounter);
   }
-
-  /* Product role tabs */
   const productTabs = all("[data-product-tab]");
   const productPanels = all("[data-product-panel]");
-
   const activateProductTab = (role, shouldFocus = false) => {
     productTabs.forEach((tab) => {
       const active = tab.dataset.productTab === role;
@@ -152,7 +126,6 @@
       panel.hidden = panel.dataset.productPanel !== role;
     });
   };
-
   productTabs.forEach((tab, index) => {
     tab.addEventListener("click", () => activateProductTab(tab.dataset.productTab));
     tab.addEventListener("keydown", (event) => {
@@ -171,15 +144,12 @@
       activateProductTab(productTabs[nextIndex].dataset.productTab, true);
     });
   });
-
-  /* Product preview actions */
   one('[data-demo-action="lot"]')?.addEventListener("click", (event) => {
     const count = one("[data-lot-count]");
     if (count && count.textContent.trim() === "03") count.textContent = "04";
     event.currentTarget.textContent = "Лот добавлен ✓";
     showToast("Черновик лота добавлен в список");
   });
-
   one('[data-demo-action="route"]')?.addEventListener("click", (event) => {
     const button = event.currentTarget;
     const routeStatus = one(".route-status");
@@ -189,22 +159,16 @@
     if (routeStatus) routeStatus.textContent = "Следующая точка: кафе «Хлеб и точка» · 8 минут";
     showToast("Маршрут закреплён за вами");
   });
-
   one('[data-demo-action="message"]')?.addEventListener("click", () => {
     showToast("Чат с волонтёром открыт в приложении");
   });
-
   all(".demo-pin").forEach((pin) => {
     pin.addEventListener("click", () => showToast(pin.getAttribute("aria-label")));
   });
-
   one(".product-preview__topbar > button")?.addEventListener("click", () => {
     showToast("2 новых уведомления о доставках");
   });
-
-  /* Accessible accordion */
   const faqButtons = all(".faq__list button[aria-controls]");
-
   faqButtons.forEach((button) => {
     button.addEventListener("click", () => {
       const isOpen = button.getAttribute("aria-expanded") === "true";
@@ -213,7 +177,6 @@
         item.setAttribute("aria-expanded", "false");
         if (answer) answer.hidden = true;
       });
-
       if (!isOpen) {
         const answer = one(`#${button.getAttribute("aria-controls")}`);
         button.setAttribute("aria-expanded", "true");
@@ -221,8 +184,6 @@
       }
     });
   });
-
-  /* Auth dialog */
   const authDialog = one("[data-auth-dialog]");
   const closeAuthButton = one("[data-close-auth]");
   const authRoleButtons = all("[data-auth-role]");
@@ -233,20 +194,17 @@
   const authSubmit = one(".auth-submit");
   const passwordInput = one('input[name="password"]', authForm);
   let authMode = "register";
-
   const roleAliases = {
     shop: "shop",
     volunteer: "volunteer",
     receiver: "receiver",
   };
-
   const setAuthRole = (role) => {
     const selectedRole = roleAliases[role] || "shop";
     authRoleButtons.forEach((button) => {
       button.setAttribute("aria-pressed", String(button.dataset.authRole === selectedRole));
     });
   };
-
   const setAuthMode = (mode) => {
     authMode = mode === "login" ? "login" : "register";
     authModeButtons.forEach((button) => {
@@ -269,7 +227,6 @@
         : 'Войти <span aria-hidden="true">↗</span>';
     }
   };
-
   const openAuth = (role) => {
     if (!authDialog) return;
     if (role) {
@@ -280,22 +237,18 @@
     else authDialog.setAttribute("open", "");
     document.body.classList.add("dialog-open");
   };
-
   const closeAuth = () => {
     if (!authDialog) return;
     if (typeof authDialog.close === "function") authDialog.close();
     else authDialog.removeAttribute("open");
     document.body.classList.remove("dialog-open");
   };
-
   all("[data-open-auth]").forEach((button) => {
     button.addEventListener("click", () => openAuth());
   });
-
   all("[data-role]").forEach((button) => {
     button.addEventListener("click", () => openAuth(button.dataset.role));
   });
-
   closeAuthButton?.addEventListener("click", closeAuth);
   authDialog?.addEventListener("cancel", (event) => {
     event.preventDefault();
@@ -310,15 +263,12 @@
       event.clientY > rect.bottom;
     if (outside) closeAuth();
   });
-
   authRoleButtons.forEach((button) => {
     button.addEventListener("click", () => setAuthRole(button.dataset.authRole));
   });
-
   authModeButtons.forEach((button) => {
     button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
   });
-
   authForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!authForm.reportValidity()) return;
@@ -327,10 +277,7 @@
     setAuthRole("shop");
     showToast(authMode === "register" ? "Демо-аккаунт создан" : "Демо-вход выполнен");
   });
-
   setAuthMode("register");
-
-  /* Current time and footer year */
   const clock = one("[data-clock]");
   const updateClock = () => {
     if (clock) {
@@ -344,7 +291,6 @@
   };
   updateClock();
   window.setInterval(updateClock, 1000);
-
   all("[data-year]").forEach((element) => {
     element.textContent = String(new Date().getFullYear());
   });

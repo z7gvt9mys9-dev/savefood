@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.data
-
 import android.content.Context
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -16,11 +15,6 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-
-/**
- * Data access for the recipient role. Wraps [NeedyApi] in [ApiResult] and pulls
- * the current `needy_id` from the session (it equals JWT related_id).
- */
 @Singleton
 class NeedyRepository @Inject constructor(
     private val api: NeedyApi,
@@ -29,54 +23,40 @@ class NeedyRepository @Inject constructor(
 ) {
     /** Current recipient id (== session.relatedId), or null when not a needy session. */
     suspend fun currentNeedyId(): Int? = sessionStore.sessionFlow.first()?.relatedId
-
     suspend fun getTickets(needyId: Int): ApiResult<List<TicketDto>> =
         safeApiCall { api.getTickets(needyId) }
-
     suspend fun getHistory(needyId: Int, limit: Int = 20, offset: Int = 0): ApiResult<List<TicketDto>> =
         safeApiCall { api.getHistory(needyId, limit, offset) }
-
     suspend fun createTicket(needyId: Int, body: TicketCreateDto): ApiResult<Int> =
         safeApiCall { api.createTicket(needyId, body).id }
-
     suspend fun deleteTicket(needyId: Int, ticketId: Int): ApiResult<Unit> =
         safeApiCall { api.deleteTicket(needyId, ticketId); Unit }
-
     suspend fun rateTicket(needyId: Int, ticketId: Int, rating: Int, comment: String?): ApiResult<Unit> =
         safeApiCall { api.rateTicket(needyId, ticketId, rating, comment?.takeIf { it.isNotBlank() }); Unit }
-
     suspend fun uploadImpactPhoto(needyId: Int, ticketId: Int, uri: Uri): ApiResult<Unit> =
         safeApiCall {
             val part = uri.toImagePart("file")
             api.uploadImpactPhoto(needyId, ticketId, part)
             Unit
         }
-
     suspend fun getLots(
         limit: Int = 50,
         offset: Int = 0,
         category: String? = null,
         search: String? = null,
     ): ApiResult<List<LotDto>> = safeApiCall { api.getLots(limit, offset, category, search) }
-
     suspend fun getVolunteerLocation(volunteerId: Int): ApiResult<VolunteerLocationDto> =
         safeApiCall { api.getVolunteerLocation(volunteerId) }
-
     suspend fun getProfile(needyId: Int): ApiResult<NeedyProfileDto> =
         safeApiCall { api.getProfile(needyId) }
-
     suspend fun saveProfile(needyId: Int, body: NeedyProfileUpdateDto, exists: Boolean): ApiResult<NeedyProfileDto> =
         safeApiCall { if (exists) api.patchProfile(needyId, body) else api.createProfile(needyId, body) }
-
     suspend fun setGeoPush(needyId: Int, enabled: Boolean): ApiResult<Unit> =
         safeApiCall { api.setGeoPush(needyId, GeoPushUpdateDto(enabled)); Unit }
-
     suspend fun exportAccount(needyId: Int): ApiResult<String> =
         safeApiCall { api.exportAccount(needyId).string() }
-
     suspend fun deleteAccount(needyId: Int): ApiResult<Unit> =
         safeApiCall { api.deleteAccount(needyId).also { it.close() }; Unit }
-
     /** Copies the content [Uri] into a cache file and builds a multipart image part. */
     private suspend fun Uri.toImagePart(name: String): MultipartBody.Part = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
@@ -93,7 +73,6 @@ class NeedyRepository @Inject constructor(
         val reqBody = tmp.asRequestBody(mime.toMediaTypeOrNull())
         MultipartBody.Part.createFormData(name, tmp.name, reqBody)
     }
-
     companion object {
         /** Prefix a server-relative media path with the API base URL. */
         fun absoluteUrl(path: String?): String? {

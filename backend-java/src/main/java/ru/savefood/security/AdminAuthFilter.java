@@ -1,5 +1,4 @@
 package ru.savefood.security;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -10,33 +9,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
-
-/**
- * Enforces admin access for every {@code /admin/*} request, reproducing the
- * Python dependency chain {@code get_current_user → require_admin}:
- * <ol>
- *   <li>missing/invalid Bearer token → 401 "Could not validate credentials"</li>
- *   <li>user is blocked → 403 "Аккаунт заблокирован администратором"</li>
- *   <li>role != admin → 403 "Admin access required"</li>
- * </ol>
- * On success the validated {@link CurrentUser} is stashed as a request attribute
- * for {@link AdminArgumentResolver}. Failures are written as FastAPI-style
- * {@code {"detail": ...}} JSON directly here (deterministic, independent of MVC
- * exception handling).
- */
 public class AdminAuthFilter extends OncePerRequestFilter {
-
     public static final String ATTR = "savefood.currentUser";
-
     private final JwtService jwtService;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-
     public AdminAuthFilter(JwtService jwtService, JdbcTemplate jdbc) {
         this.jwtService = jwtService;
         this.jdbc = jdbc;
     }
-
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain chain) throws ServletException, IOException {
@@ -71,7 +52,6 @@ public class AdminAuthFilter extends OncePerRequestFilter {
         request.setAttribute(ATTR, user);
         chain.doFilter(request, response);
     }
-
     private void deny(HttpServletResponse response, int status, String detail) throws IOException {
         response.setStatus(status);
         response.setContentType("application/json");

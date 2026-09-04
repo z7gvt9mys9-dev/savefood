@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.profile
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,24 +44,20 @@ import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.core.device.qr.QrScannerScreen
 import ru.savefood.app.feature.shop.data.NotificationDto
 import ru.savefood.app.feature.shop.data.PlanDto
-
 @Composable
 fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var scanning by remember { mutableStateOf(false) }
-
     val savedMsg = stringResource(R.string.shop_profile_saved)
     val pickupMsg = stringResource(R.string.shop_pickup_confirmed)
     val markReadErr = stringResource(R.string.common_error_generic)
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
     }
-
     if (scanning) {
         Box(modifier = Modifier.fillMaxSize()) {
             QrScannerScreen(
@@ -75,12 +70,10 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
         }
         return
     }
-
     val shop = state.shop
     var name by remember(shop) { mutableStateOf(shop?.name.orEmpty()) }
     var contact by remember(shop) { mutableStateOf(shop?.contact.orEmpty()) }
     var city by remember(shop) { mutableStateOf(shop?.city.orEmpty()) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.loading && shop == null -> ProfileSkeleton()
@@ -96,7 +89,6 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.shop_profile_title))
-
             if (state.partialError) {
                 Text(
                     text = stringResource(R.string.common_partial_load_error),
@@ -104,8 +96,6 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-
-            // --- Shop data ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -130,18 +120,13 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
-
             SaveFoodButton(
                 text = stringResource(R.string.common_save),
                 loading = state.saving,
                 onClick = { viewModel.save(name, contact, city, savedMsg) },
                 modifier = Modifier.fillMaxWidth(),
             )
-
-            // --- Plan ---
             state.plan?.let { PlanCard(it) }
-
-            // --- Self-pickup ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -163,8 +148,6 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                     )
                 }
             }
-
-            // --- Notifications ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -185,9 +168,7 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
                     }
                 }
             }
-
                 LanguageSelectorCard()
-
                 SaveFoodOutlinedButton(
                     text = stringResource(R.string.common_logout),
                     leadingIcon = Icons.AutoMirrored.Filled.Logout,
@@ -199,7 +180,6 @@ fun ShopProfileScreen(viewModel: ShopProfileViewModel = hiltViewModel()) {
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
-
 @Composable
 private fun PlanCard(plan: PlanDto) {
     SaveFoodCard {
@@ -240,7 +220,6 @@ private fun PlanCard(plan: PlanDto) {
         }
     }
 }
-
 @Composable
 private fun NotificationRow(note: NotificationDto, onRead: () -> Unit) {
     Row(

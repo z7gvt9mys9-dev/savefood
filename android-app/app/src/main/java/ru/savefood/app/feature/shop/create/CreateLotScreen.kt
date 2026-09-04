@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.create
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -52,30 +51,21 @@ import ru.savefood.app.core.device.camera.CameraPreview
 import ru.savefood.app.core.device.camera.captureToFile
 import ru.savefood.app.core.device.camera.rememberCameraPermissionState
 import ru.savefood.app.core.device.camera.rememberImageCapture
-
-/**
- * "Create" tab: a 3-step lot wizard — data → photo (camera/gallery) → review.
- * The new lot appears in the "Lots" tab (RoleShell owns the navController, so
- * there is no programmatic tab switch here).
- */
 @Composable
 fun CreateLotScreen(viewModel: CreateLotViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val createdMsg = stringResource(R.string.shop_create_success)
-
     LaunchedEffect(state.error) {
         state.error?.let {
             snackbar.showSnackbar(it)
             viewModel.clearError()
         }
     }
-
     if (state.createdId != null) {
         CreatedState(onCreateAnother = { viewModel.reset() })
         return
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             SectionHeader(
@@ -94,7 +84,6 @@ fun CreateLotScreen(viewModel: CreateLotViewModel = hiltViewModel()) {
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
-
 @Composable
 private fun DataStep(viewModel: CreateLotViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -171,16 +160,13 @@ private fun DataStep(viewModel: CreateLotViewModel) {
         )
     }
 }
-
 @Composable
 private fun PhotoStep(viewModel: CreateLotViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var useCamera by remember { mutableStateOf(false) }
-
     val galleryPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) { viewModel.setPhoto(uri); useCamera = false } }
-
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -190,7 +176,6 @@ private fun PhotoStep(viewModel: CreateLotViewModel) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-
         if (useCamera) {
             CameraCaptureBlock(
                 onCaptured = { uri -> viewModel.setPhoto(uri); useCamera = false },
@@ -219,7 +204,6 @@ private fun PhotoStep(viewModel: CreateLotViewModel) {
                 )
             }
         }
-
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             SaveFoodOutlinedButton(
                 text = stringResource(R.string.common_back),
@@ -234,14 +218,12 @@ private fun PhotoStep(viewModel: CreateLotViewModel) {
         }
     }
 }
-
 @Composable
 private fun CameraCaptureBlock(onCaptured: (android.net.Uri) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val granted by rememberCameraPermissionState()
     val imageCapture = rememberImageCapture()
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (granted) {
             Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
@@ -267,7 +249,6 @@ private fun CameraCaptureBlock(onCaptured: (android.net.Uri) -> Unit) {
         }
     }
 }
-
 @Composable
 private fun ReviewStep(viewModel: CreateLotViewModel, createdMsg: String) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -313,7 +294,6 @@ private fun ReviewStep(viewModel: CreateLotViewModel, createdMsg: String) {
         }
     }
 }
-
 @Composable
 private fun ReviewRow(label: String, value: String) {
     Column {
@@ -321,7 +301,6 @@ private fun ReviewRow(label: String, value: String) {
         Text(value.ifBlank { "—" }, style = MaterialTheme.typography.bodyLarge)
     }
 }
-
 @Composable
 private fun CreatedState(onCreateAnother: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {

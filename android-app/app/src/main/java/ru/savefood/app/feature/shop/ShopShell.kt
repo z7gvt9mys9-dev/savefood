@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop
-
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.AddBox
@@ -13,7 +12,6 @@ import ru.savefood.app.feature.shop.create.CreateLotScreen
 import ru.savefood.app.feature.shop.lots.LotsScreen
 import ru.savefood.app.feature.shop.profile.ShopProfileScreen
 import ru.savefood.app.feature.shop.receipts.ReceiptsScreen
-
 /** Shop role — publish lots, confirm transfers, receipts/ESG (no forecast). */
 @Composable
 fun ShopShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {

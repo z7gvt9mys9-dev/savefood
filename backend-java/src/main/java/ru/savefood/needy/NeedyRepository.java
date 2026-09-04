@@ -1,5 +1,4 @@
 package ru.savefood.needy;
-
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.OffsetDateTime;
@@ -11,35 +10,16 @@ import ru.savefood.util.Qr;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-
-/**
- * Port of the single-statement (and read-modify-write) functions of
- * backend/needy/db.py, on {@link JdbcTemplate} (raw SQL, mirroring the psycopg2
- * style). {@code TicketOut} / {@code NotificationOut} / {@code NeedyProfileOut}
- * shapes are built explicitly so the JSON matches the pydantic
- * {@code response_model} field set — notably the per-ticket {@code qr_secret} is
- * never emitted, only the derived {@code qr_code}.
- *
- * <p>Multi-statement transactional flows (register, ticket creation/cancel,
- * account erase) live in {@link NeedyService}; schema creation ({@code init_db})
- * stays with the Python migrations, since the Postgres schema is shared.
- */
 @Repository
 public class NeedyRepository {
-
     private final JdbcTemplate jdbc;
-
     public NeedyRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
-
-    // ── Needy ────────────────────────────────────────────────────────────────────
-
     public Map<String, Object> getNeedyById(int needyId) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM needy WHERE id = ?", needyId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     /** Update name/contact and return the refreshed row, or null if missing. */
     public Map<String, Object> updateNeedy(int needyId, String name, String contact) {
         if (getNeedyById(needyId) == null) {
@@ -48,23 +28,14 @@ public class NeedyRepository {
         jdbc.update("UPDATE needy SET name = ?, contact = ? WHERE id = ?", name, contact, needyId);
         return getNeedyById(needyId);
     }
-
-    // ── Tickets ──────────────────────────────────────────────────────────────────
-
     public Map<String, Object> getTicketById(int ticketId) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM tickets WHERE id = ?", ticketId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     public List<Map<String, Object>> getTicketsByNeedyId(int needyId) {
         return jdbc.query("SELECT * FROM tickets WHERE needy_id = ? ORDER BY created_at DESC",
             ticketOut(false), needyId);
     }
-
-    /**
-     * History view (db.py {@code get_history}): assigned/fulfilled tickets with the
-     * saved star rating and thank-you note joined in so they survive page reloads.
-     */
     public List<Map<String, Object>> getHistory(int needyId, int limit, int offset) {
         return jdbc.query(
             "SELECT t.*, dr.rating, dr.comment AS rating_comment "
@@ -73,36 +44,21 @@ public class NeedyRepository {
             + "ORDER BY t.created_at DESC LIMIT ? OFFSET ?",
             ticketOut(true), needyId, limit, offset);
     }
-
-    // ── Notifications ────────────────────────────────────────────────────────────
-
     public List<Map<String, Object>> getNotifications(int needyId) {
         return jdbc.query("SELECT * FROM notifications WHERE needy_id = ? ORDER BY created_at DESC",
             NOTIFICATION_OUT, needyId);
     }
-
     public Map<String, Object> getNotificationById(int id) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM notifications WHERE id = ?", id);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     public void markNotificationRead(int id) {
         jdbc.update("UPDATE notifications SET read = 1 WHERE id = ?", id);
     }
-
-    // ── Profile ──────────────────────────────────────────────────────────────────
-
     public Map<String, Object> getProfile(int needyId) {
         return jdbc.query("SELECT * FROM needy_profile WHERE needy_id = ?", PROFILE_OUT, needyId)
             .stream().findFirst().orElse(null);
     }
-
-    /**
-     * Upsert the profile (db.py {@code create_or_update_profile}): every column is
-     * coalesced (a null argument keeps the stored value), so PATCH and geo writes
-     * share one path. Returns the {@code
-     * NeedyProfileOut} shape, or null if the needy row is missing.
-     */
     public Map<String, Object> createOrUpdateProfile(int needyId, String address, Integer familySize,
             String preferences, String urgency, String availableTime, String apartment,
             String floorNum, String entrance, String city, Double lat, Double lon,
@@ -141,12 +97,6 @@ public class NeedyRepository {
         }
         return getProfile(needyId);
     }
-
-    /**
-     * Toggle the geo-push subscription (db.py {@code set_geo_push_enabled}, §48):
-     * creates a bare profile row if none exists. Returns false only when the needy
-     * row itself is missing.
-     */
     public boolean setGeoPushEnabled(int needyId, boolean enabled) {
         int rows = jdbc.update("UPDATE needy_profile SET geo_push_enabled = ? WHERE needy_id = ?",
             enabled, needyId);
@@ -159,9 +109,6 @@ public class NeedyRepository {
         }
         return true;
     }
-
-    // ── Data export (§49 «право на доступ») ──────────────────────────────────────
-
     /** Everything the platform holds about one recipient, as one map (db.py {@code export_account}). */
     public Map<String, Object> exportAccount(int needyId) {
         List<Map<String, Object>> n = jdbc.queryForList(
@@ -216,7 +163,6 @@ public class NeedyRepository {
             + "WHERE t.needy_id = ? ORDER BY tm.id", needyId));
         return out;
     }
-
     /** Keep device registrations visible to their owner without disclosing delivery credentials. */
     private static List<Map<String, Object>> sanitizedPushSubscriptions(List<Map<String, Object>> rows) {
         List<Map<String, Object>> out = new ArrayList<>();
@@ -230,7 +176,6 @@ public class NeedyRepository {
         }
         return out;
     }
-
     /** FCM tokens identify a recipient device, but must not be usable as raw registration credentials. */
     private static List<Map<String, Object>> sanitizedFcmRegistrations(List<Map<String, Object>> rows) {
         List<Map<String, Object>> out = new ArrayList<>();
@@ -244,7 +189,6 @@ public class NeedyRepository {
         }
         return out;
     }
-
     private static String redactIdentifier(String value) {
         if (value == null || value.isBlank()) {
             return null;
@@ -252,9 +196,6 @@ public class NeedyRepository {
         int suffixLength = Math.min(6, value.length());
         return "…" + value.substring(value.length() - suffixLength);
     }
-
-    // ── Row mappers (exact response_model shapes) ────────────────────────────────
-
     /** Builds the {@code TicketOut} map; {@code withRating} adds the joined history columns. */
     private static RowMapper<Map<String, Object>> ticketOut(boolean withRating) {
         return (rs, n) -> {
@@ -276,7 +217,6 @@ public class NeedyRepository {
             m.put("floor_num", rs.getString("floor_num"));
             m.put("entrance", rs.getString("entrance"));
             m.put("self_pickup", getBoolean(rs, "self_pickup"));
-            // Owner/admin-gated rows expose the full QR payload; the raw secret never leaves the server.
             m.put("qr_code", Qr.buildCode(id, rs.getString("qr_secret")));
             m.put("delivery_photo", rs.getString("delivery_photo"));
             m.put("delivery_photo_status", rs.getString("delivery_photo_status"));
@@ -285,7 +225,6 @@ public class NeedyRepository {
             return m;
         };
     }
-
     private static final RowMapper<Map<String, Object>> NOTIFICATION_OUT = (rs, n) -> {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", rs.getInt("id"));
@@ -296,7 +235,6 @@ public class NeedyRepository {
         m.put("read", rs.getInt("read"));
         return m;
     };
-
     private static final RowMapper<Map<String, Object>> PROFILE_OUT = (rs, n) -> {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("needy_id", rs.getInt("needy_id"));
@@ -316,21 +254,17 @@ public class NeedyRepository {
         m.put("geo_push_enabled", geo == null ? Boolean.TRUE : rs.getBoolean("geo_push_enabled"));
         return m;
     };
-
     private static Object coalesce(Object value, Object fallback) {
         return value != null ? value : fallback;
     }
-
     private static Double getDouble(ResultSet rs, String col) throws SQLException {
         Object v = rs.getObject(col);
         return v instanceof Number num ? num.doubleValue() : null;
     }
-
     private static Integer getInteger(ResultSet rs, String col) throws SQLException {
         Object v = rs.getObject(col);
         return v instanceof Number num ? num.intValue() : null;
     }
-
     private static Boolean getBoolean(ResultSet rs, String col) throws SQLException {
         Object v = rs.getObject(col);
         return v == null ? null : rs.getBoolean(col);

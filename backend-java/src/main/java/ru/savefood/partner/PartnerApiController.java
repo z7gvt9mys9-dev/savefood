@@ -1,5 +1,4 @@
 package ru.savefood.partner;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -32,26 +31,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-/**
- * Java port of backend/partner_api.py — the enterprise partner REST API.
- * Two surfaces share this controller:
- * <ul>
- *   <li>{@code /api/v1/*} — authenticated by an {@code X-API-Key} mapping to a
- *       shop (the key's sha256 hash is stored; the secret is shown once);</li>
- *   <li>{@code /shops/{id}/api_keys|webhooks} — JWT-authenticated key/webhook
- *       management for the shop dashboard (distinct paths from
- *       {@code ShopController}, so the two coexist).</li>
- * </ul>
- * Both gate on the billing {@code "api"} feature, so a plan downgrade revokes
- * access without touching the stored keys.
- */
 @RestController
 public class PartnerApiController {
-
     private static final String KEY_PREFIX = "sf_live_";
-    private static final int PREFIX_LEN = KEY_PREFIX.length() + 6; // "sf_live_a1b2c3"
-
+    private static final int PREFIX_LEN = KEY_PREFIX.length() + 6;
     private final JdbcTemplate jdbc;
     private final BillingService billing;
     private final EsgService esg;
@@ -60,7 +43,6 @@ public class PartnerApiController {
     private final ShopRepository shopRepo;
     private final WebhookProperties webhookProperties;
     private final SecureRandom random = new SecureRandom();
-
     public PartnerApiController(JdbcTemplate jdbc, BillingService billing, EsgService esg,
                                NeedsMatchService needsMatch, ShopService shopService, ShopRepository shopRepo,
                                WebhookProperties webhookProperties) {
@@ -72,9 +54,6 @@ public class PartnerApiController {
         this.shopRepo = shopRepo;
         this.webhookProperties = webhookProperties;
     }
-
-    // ── /api/v1 (X-API-Key) ─────────────────────────────────────────────────────
-
     @GetMapping("/api/v1/ping")
     public Map<String, Object> ping(@RequestHeader(value = "X-API-Key", required = false) String apiKey) {
         int shopId = apiShop(apiKey);
@@ -84,7 +63,6 @@ public class PartnerApiController {
         out.put("plan", billing.getShopPlan(shopId));
         return out;
     }
-
     @GetMapping("/api/v1/lots")
     public List<Map<String, Object>> listLots(@RequestParam(required = false) String status,
                                               @RequestParam(defaultValue = "50") int limit,
@@ -101,7 +79,6 @@ public class PartnerApiController {
             "SELECT * FROM lots WHERE shop_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
             shopId, lim, offset);
     }
-
     @PostMapping("/api/v1/lots")
     public Map<String, Object> createLot(@RequestBody ApiLotIn payload,
                                          @RequestHeader(value = "X-API-Key", required = false) String apiKey) {
@@ -116,14 +93,12 @@ public class PartnerApiController {
         }
         String comment = payload.comment() == null || payload.comment().isBlank()
             ? "Создано через партнёрский API" : payload.comment();
-        // billing quota lock is held inside ShopService.createLot (@Transactional).
         int lotId = shopService.createLot(shopId, payload.description(), payload.quantity(),
             payload.expiryDate(), null, payload.address(), payload.timeSlot(), payload.category(),
             comment, false, "кг", 1.0);
         needsMatch.startNeedsMatch(lotId);
         return Map.of("id", lotId);
     }
-
     @DeleteMapping("/api/v1/lots/{lotId}")
     public Map<String, Object> deleteLot(@PathVariable int lotId,
                                          @RequestHeader(value = "X-API-Key", required = false) String apiKey) {
@@ -137,16 +112,12 @@ public class PartnerApiController {
         }
         return Map.of("ok", true);
     }
-
     @GetMapping("/api/v1/esg")
     public Map<String, Object> esgReport(@RequestParam(defaultValue = "12") int months,
                                          @RequestHeader(value = "X-API-Key", required = false) String apiKey) {
         int shopId = apiShop(apiKey);
         return esg.shopReport(shopId, months);
     }
-
-    // ── JWT management (shop dashboard) ──────────────────────────────────────────
-
     @PostMapping("/shops/{shopId}/api_keys")
     public Map<String, Object> createApiKey(@PathVariable int shopId, @Auth CurrentUser user) {
         requireApiPlan(shopId, user);
@@ -155,14 +126,12 @@ public class PartnerApiController {
         Integer keyId = jdbc.queryForObject(
             "INSERT INTO api_keys (shop_id, key_hash, prefix) VALUES (?, ?, ?) RETURNING id",
             Integer.class, shopId, hashKey(secret), prefix);
-        // The only moment the full secret ever leaves the server.
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", keyId);
         out.put("key", secret);
         out.put("prefix", prefix);
         return out;
     }
-
     @GetMapping("/shops/{shopId}/api_keys")
     public List<Map<String, Object>> listApiKeys(@PathVariable int shopId, @Auth CurrentUser user) {
         requireApiPlan(shopId, user);
@@ -170,7 +139,6 @@ public class PartnerApiController {
             "SELECT id, prefix, revoked, created_at, last_used_at FROM api_keys "
             + "WHERE shop_id = ? ORDER BY created_at DESC", shopId);
     }
-
     @PostMapping("/shops/{shopId}/api_keys/{keyId}/revoke")
     public Map<String, Object> revokeApiKey(@PathVariable int shopId, @PathVariable int keyId,
                                             @Auth CurrentUser user) {
@@ -183,7 +151,6 @@ public class PartnerApiController {
         }
         return Map.of("ok", true);
     }
-
     @PostMapping("/shops/{shopId}/webhooks")
     public Map<String, Object> createWebhook(@PathVariable int shopId, @RequestBody WebhookIn payload,
                                              @Auth CurrentUser user) {
@@ -222,7 +189,6 @@ public class PartnerApiController {
         out.put("events", events);
         return out;
     }
-
     @GetMapping("/shops/{shopId}/webhooks")
     public List<Map<String, Object>> listWebhooks(@PathVariable int shopId, @Auth CurrentUser user) {
         requireApiPlan(shopId, user);
@@ -230,7 +196,6 @@ public class PartnerApiController {
             "SELECT id, url, events, active, created_at, last_status, last_delivery_at FROM webhooks "
             + "WHERE shop_id = ? ORDER BY created_at DESC", shopId);
     }
-
     @DeleteMapping("/shops/{shopId}/webhooks/{hookId}")
     public Map<String, Object> deleteWebhook(@PathVariable int shopId, @PathVariable int hookId,
                                              @Auth CurrentUser user) {
@@ -243,9 +208,6 @@ public class PartnerApiController {
         }
         return Map.of("ok", true);
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────────
-
     /** X-API-Key → shop id (partner_api.py {@code get_api_shop}). */
     private int apiShop(String apiKey) {
         if (apiKey == null || apiKey.isBlank()) {
@@ -260,11 +222,9 @@ public class PartnerApiController {
         jdbc.update("UPDATE api_keys SET last_used_at = ? WHERE id = ?",
             OffsetDateTime.now(), ((Number) row.get("id")).intValue());
         int shopId = ((Number) row.get("shop_id")).intValue();
-        // Plan downgrade revokes access without touching the keys themselves.
         billing.requireFeature(shopId, "api");
         return shopId;
     }
-
     private void requireApiPlan(int shopId, CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "shop", shopId);
         if (shopRepo.getShopById(shopId) == null) {
@@ -272,7 +232,6 @@ public class PartnerApiController {
         }
         billing.requireFeature(shopId, "api");
     }
-
     private static String hashKey(String key) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -286,7 +245,6 @@ public class PartnerApiController {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
-
     private String tokenHex(int bytes) {
         byte[] buf = new byte[bytes];
         random.nextBytes(buf);

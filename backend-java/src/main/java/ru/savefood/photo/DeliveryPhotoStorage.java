@@ -1,25 +1,13 @@
 package ru.savefood.photo;
-
 import ru.savefood.storage.SensitiveFileCleanup;
 import ru.savefood.storage.SensitiveFileCleanup.Storage;
 import org.springframework.stereotype.Service;
-
-/**
- * Deletes private delivery proofs only after their database reference committed.
- *
- * <p>A proof is deliberately kept outside the public nginx tree.  The deferred
- * deletion matters for route teardown: if a route transaction rolls back, the
- * ticket must keep both its reference and its file.
- */
 @Service
 public class DeliveryPhotoStorage {
-
     private final SensitiveFileCleanup cleanup;
-
     public DeliveryPhotoStorage(SensitiveFileCleanup cleanup) {
         this.cleanup = cleanup;
     }
-
     /** Persist cleanup before commit, then attempt deletion after commit. */
     public void deleteAfterCommit(String photoRef) {
         Storage storage = storageFor(photoRef);
@@ -27,7 +15,6 @@ public class DeliveryPhotoStorage {
             cleanup.trackAndDeleteAfterCommit(storage, photoRef);
         }
     }
-
     /** Clean a file that never acquired a database reference. */
     public void deleteOrQueue(String photoRef) {
         Storage storage = storageFor(photoRef);
@@ -35,7 +22,6 @@ public class DeliveryPhotoStorage {
             cleanup.deleteOrQueue(storage, photoRef);
         }
     }
-
     private Storage storageFor(String photoRef) {
         if (photoRef == null || photoRef.isBlank()) {
             return null;

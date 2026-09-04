@@ -1,28 +1,23 @@
 package main
-
 import (
 	"context"
 	"errors"
 	"math"
 	"strings"
 	"testing"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
-
 type recordedLocationExec struct {
 	sql  string
 	args []any
 }
-
 type fakeLocationRouteTx struct {
 	execs      []recordedLocationExec
 	failRoute  bool
 	committed  bool
 	rolledBack bool
 }
-
 func (t *fakeLocationRouteTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	t.execs = append(t.execs, recordedLocationExec{sql: sql, args: args})
 	if t.failRoute && strings.Contains(sql, "UPDATE volunteer_routes") {
@@ -30,29 +25,23 @@ func (t *fakeLocationRouteTx) Exec(_ context.Context, sql string, args ...any) (
 	}
 	return pgconn.NewCommandTag("UPDATE 1"), nil
 }
-
 func (t *fakeLocationRouteTx) Commit(context.Context) error {
 	t.committed = true
 	return nil
 }
-
 func (t *fakeLocationRouteTx) Rollback(context.Context) error {
 	t.rolledBack = true
 	return nil
 }
-
 type fakeLocationRouteStore struct {
 	tx *fakeLocationRouteTx
 }
-
 func (s fakeLocationRouteStore) BeginRouteActivityTx(context.Context) (locationRouteTx, error) {
 	return s.tx, nil
 }
-
 func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 	secretKey = []byte("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	claims := jwt.MapClaims{"sub": "123", "username": "alice", "role": "volunteer", "related_id": 7}
-
 	hs256, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secretKey)
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +50,6 @@ func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 	if err != nil || parsed.UserID != 123 || parsed.Role != "volunteer" || parsed.RelatedID == nil || *parsed.RelatedID != 7 {
 		t.Fatalf("HS256 token was not parsed correctly: claims=%+v err=%v", parsed, err)
 	}
-
 	hs512, err := jwt.NewWithClaims(jwt.SigningMethodHS512, claims).SignedString(secretKey)
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +57,6 @@ func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 	if _, err := parseToken(hs512); err == nil {
 		t.Fatal("HS512 token must be rejected")
 	}
-
 	legacy, err := jwt.NewWithClaims(jwt.SigningMethodHS256,
 		jwt.MapClaims{"sub": "alice", "role": "volunteer", "related_id": 7}).SignedString(secretKey)
 	if err != nil {
@@ -79,7 +66,6 @@ func TestParseTokenAcceptsOnlyHS256(t *testing.T) {
 		t.Fatal("reusable username subject must be rejected")
 	}
 }
-
 func TestValidCoordinatesRejectsWrappedAndNonFiniteValues(t *testing.T) {
 	for _, c := range []struct {
 		lat, lon float64
@@ -97,7 +83,6 @@ func TestValidCoordinatesRejectsWrappedAndNonFiniteValues(t *testing.T) {
 		}
 	}
 }
-
 func TestValidVolunteerGPSHeartbeatUpdatesLocationAndActiveRouteAtomically(t *testing.T) {
 	tx := &fakeLocationRouteTx{}
 	err := writeLocationAndRouteActivity(context.Background(), fakeLocationRouteStore{tx}, 7, 43.238, 76.889, true)
@@ -114,7 +99,6 @@ func TestValidVolunteerGPSHeartbeatUpdatesLocationAndActiveRouteAtomically(t *te
 		t.Fatalf("route heartbeat must be limited to the sending volunteer: %+v", tx.execs[1])
 	}
 }
-
 func TestRegularGPSHeartbeatsAlwaysRefreshActivityWithDatabaseTime(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		tx := &fakeLocationRouteTx{}
@@ -126,7 +110,6 @@ func TestRegularGPSHeartbeatsAlwaysRefreshActivityWithDatabaseTime(t *testing.T)
 		}
 	}
 }
-
 func TestWrongVolunteerOrAdminLocationUpdateDoesNotHeartbeatRoute(t *testing.T) {
 	for _, c := range []*claims{
 		{Role: "volunteer", RelatedID: intPtr(8)},
@@ -142,7 +125,6 @@ func TestWrongVolunteerOrAdminLocationUpdateDoesNotHeartbeatRoute(t *testing.T) 
 		}
 	}
 }
-
 func TestHeartbeatOnlyTargetsInProgressRoutesAndNoRouteIsHarmless(t *testing.T) {
 	tx := &fakeLocationRouteTx{}
 	if err := writeLocationAndRouteActivity(context.Background(), fakeLocationRouteStore{tx}, 7, 43.238, 76.889, true); err != nil {
@@ -152,7 +134,6 @@ func TestHeartbeatOnlyTargetsInProgressRoutesAndNoRouteIsHarmless(t *testing.T) 
 	if !strings.Contains(routeSQL, "status = 'in_progress'") {
 		t.Fatalf("terminal routes must be excluded from heartbeats: %s", routeSQL)
 	}
-
 	noRouteTx := &fakeLocationRouteTx{}
 	if err := writeLocationAndRouteActivity(context.Background(), fakeLocationRouteStore{noRouteTx}, 7, 43.238, 76.889, false); err != nil {
 		t.Fatal(err)
@@ -161,7 +142,6 @@ func TestHeartbeatOnlyTargetsInProgressRoutesAndNoRouteIsHarmless(t *testing.T) 
 		t.Fatalf("a volunteer without an active route must still persist location only: %+v", noRouteTx)
 	}
 }
-
 func TestRouteHeartbeatFailureRollsBackLocationWrite(t *testing.T) {
 	tx := &fakeLocationRouteTx{failRoute: true}
 	err := writeLocationAndRouteActivity(context.Background(), fakeLocationRouteStore{tx}, 7, 43.238, 76.889, true)
@@ -169,5 +149,4 @@ func TestRouteHeartbeatFailureRollsBackLocationWrite(t *testing.T) {
 		t.Fatalf("a failed route heartbeat must roll back the paired location write: err=%v committed=%v rolledBack=%v", err, tx.committed, tx.rolledBack)
 	}
 }
-
 func intPtr(v int) *int { return &v }

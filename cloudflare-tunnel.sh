@@ -1,5 +1,4 @@
 #!/bin/bash
-# Starts cloudflared quick tunnel and saves the public URL to ~/savefood-url.txt
 
 LOG=/tmp/cloudflared.log
 URL_FILE="$HOME/savefood-url.txt"

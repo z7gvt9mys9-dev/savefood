@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,10 +10,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ru.savefood.app.core.designsystem.theme.LocalStatusColors
-
 /** Semantic state for a badge — maps to a theme-aware color. */
 enum class BadgeTone { PENDING, ACTIVE, DONE, DANGER, NEUTRAL }
-
 @Composable
 fun StatusBadge(
     text: String,

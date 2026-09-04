@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.heightIn
@@ -13,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-
 /** Primary action button. Shows a spinner and disables itself while [loading]. */
 @Composable
 fun SaveFoodButton(
@@ -45,7 +43,6 @@ fun SaveFoodButton(
         }
     }
 }
-
 @Composable
 fun SaveFoodOutlinedButton(
     text: String,

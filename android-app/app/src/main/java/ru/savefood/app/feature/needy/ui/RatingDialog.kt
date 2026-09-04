@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.ui
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,11 +24,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import ru.savefood.app.R
-
-/**
- * Star-rating + optional thank-you note dialog. Used by both tracking (rate a
- * just-delivered order) and history (re-rate).
- */
 @Composable
 fun RatingDialog(
     initialRating: Int = 0,
@@ -40,7 +34,6 @@ fun RatingDialog(
 ) {
     var rating by remember { mutableIntStateOf(initialRating.coerceIn(0, 5)) }
     var comment by remember { mutableStateOf(initialComment) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.needy_rate_title)) },

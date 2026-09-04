@@ -1,11 +1,9 @@
 <resources>
-    <!-- Onboarding — common -->
     <string name="onb_skip">Пропустить</string>
     <string name="onb_next">Далее</string>
     <string name="onb_start">Начать</string>
     <string name="onb_checklist_title">Первые шаги</string>
 
-    <!-- Onboarding — shop -->
     <string name="onb_shop_t1">Публикуйте излишки</string>
     <string name="onb_shop_d1">Создавайте лоты из непроданных продуктов за пару минут.</string>
     <string name="onb_shop_t2">Подтверждайте передачу</string>
@@ -16,7 +14,6 @@
     <string name="onb_shop_c2">Создайте первый лот</string>
     <string name="onb_shop_c3">Включите уведомления</string>
 
-    <!-- Onboarding — volunteer -->
     <string name="onb_vol_t1">Берите заявки</string>
     <string name="onb_vol_d1">Находите открытые заявки рядом на карте и в списке.</string>
     <string name="onb_vol_t2">Стройте маршрут</string>
@@ -27,7 +24,6 @@
     <string name="onb_vol_c2">Найдите заявку рядом</string>
     <string name="onb_vol_c3">Разрешите геолокацию</string>
 
-    <!-- Onboarding — needy -->
     <string name="onb_needy_t1">Найдите еду</string>
     <string name="onb_needy_d1">Смотрите доступные лоты на карте и оформляйте заявку.</string>
     <string name="onb_needy_t2">Отслеживайте доставку</string>

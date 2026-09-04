@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.data
-
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
@@ -7,11 +6,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
-
 class VolunteerStatsDtoTest {
-
     private val json = Json { ignoreUnknownKeys = true }
-
     @Test
     fun deserializesCurrentBackendStatsResponseWithoutLosingLevelOrStatsFields() {
         val stats = json.decodeFromString<StatsDto>(
@@ -33,7 +29,6 @@ class VolunteerStatsDtoTest {
             }
             """.trimIndent(),
         )
-
         assertEquals(8, stats.totalRoutes)
         assertEquals(5, stats.totalDeliveries)
         assertEquals(25.5, stats.totalKg, 0.0)
@@ -46,7 +41,6 @@ class VolunteerStatsDtoTest {
         assertEquals(124.5, stats.level.pointsToNext, 0.0)
         assertEquals(0.17, stats.level.progress, 0.0)
     }
-
     @Test
     fun deserializesTerminalLevelAndUnrelatedVolunteerResponseDtos() {
         val stats = json.decodeFromString<StatsDto>(
@@ -58,19 +52,16 @@ class VolunteerStatsDtoTest {
         val team = json.decodeFromString<TeamEnvelopeDto>(
             """{"team":{"id":7,"name":"Rescuers","join_code":"ABC123","members":3,"deliveries":12,"kg":42.5}}""",
         )
-
         assertEquals("city_hero", stats.level.code)
         assertNull(stats.level.nextCode)
         assertEquals(1.0, stats.level.progress, 0.0)
         assertEquals("Спасибо", thanks.comment)
         assertEquals("Rescuers", team.team!!.name)
     }
-
     @Test
     fun rejectsLegacyScalarLevelResponse() {
         val incompatible =
             """{"total_routes":0,"total_deliveries":0,"total_kg":0.0,"avg_rating":null,"rating_count":0,"achievements":[],"level":0}"""
-
         assertThrows(SerializationException::class.java) {
             json.decodeFromString<StatsDto>(incompatible)
         }

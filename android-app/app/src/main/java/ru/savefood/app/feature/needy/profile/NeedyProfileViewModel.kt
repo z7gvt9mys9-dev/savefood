@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.profile
-
 import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
@@ -20,7 +19,6 @@ import ru.savefood.app.feature.needy.data.NeedyProfileDto
 import ru.savefood.app.feature.needy.data.NeedyProfileUpdateDto
 import ru.savefood.app.feature.needy.data.NeedyRepository
 import javax.inject.Inject
-
 data class NeedyProfileUiState(
     val loading: Boolean = true,
     val error: String? = null,
@@ -31,7 +29,6 @@ data class NeedyProfileUiState(
     val message: String? = null,
     val exportedJson: String? = null,
 )
-
 @HiltViewModel
 class NeedyProfileViewModel @Inject constructor(
     private val repo: NeedyRepository,
@@ -39,12 +36,9 @@ class NeedyProfileViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val locationProvider: LocationProvider,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(NeedyProfileUiState())
     val state: StateFlow<NeedyProfileUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val needyId = repo.currentNeedyId() ?: run {
@@ -57,7 +51,6 @@ class NeedyProfileViewModel @Inject constructor(
                     it.copy(loading = false, profile = res.data, profileExists = true)
                 }
                 is ApiResult.Error -> {
-                    // 404 = no profile yet; start with a blank editable form.
                     if (res.code == 404) {
                         _state.update { it.copy(loading = false, profile = NeedyProfileDto(), profileExists = false) }
                     } else {
@@ -67,7 +60,6 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun save(body: NeedyProfileUpdateDto, savedMessage: String) {
         viewModelScope.launch {
             val needyId = repo.currentNeedyId() ?: return@launch
@@ -82,11 +74,9 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun setGeoPush(enabled: Boolean) {
         viewModelScope.launch {
             val needyId = repo.currentNeedyId() ?: return@launch
-            // Optimistic toggle.
             _state.update { it.copy(profile = it.profile?.copy(geoPushEnabled = enabled)) }
             val res = repo.setGeoPush(needyId, enabled)
             if (res is ApiResult.Error) {
@@ -96,7 +86,6 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     /** Downloads the account export; the UI then lets the user choose a file. */
     fun export() {
         viewModelScope.launch {
@@ -108,7 +97,6 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     /** Writes the already downloaded export to a user-selected document. */
     fun saveExport(target: Uri, savedMessage: String, failedMessage: String) {
         val data = _state.value.exportedJson ?: return
@@ -128,9 +116,7 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun discardExport() = _state.update { it.copy(exportedJson = null) }
-
     fun fetchMyLocation(
         onResult: (lat: Double, lon: Double) -> Unit,
         onUnavailable: () -> Unit,
@@ -143,7 +129,6 @@ class NeedyProfileViewModel @Inject constructor(
             onResult(location.latitude, location.longitude)
         }
     }
-
     /** Deletes the account, then clears the session (routes back to login). */
     fun deleteAccount() {
         viewModelScope.launch {
@@ -154,10 +139,8 @@ class NeedyProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun logout() {
         viewModelScope.launch { authRepository.logout() }
     }
-
     fun clearMessage() = _state.update { it.copy(message = null) }
 }

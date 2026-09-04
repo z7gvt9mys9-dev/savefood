@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.available
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,12 +42,6 @@ import ru.savefood.app.feature.volunteer.data.LotDto
 import ru.savefood.app.feature.volunteer.data.MapTicketDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import ru.savefood.app.feature.volunteer.ui.VolunteerConfirmDialog
-
-/**
- * "Available" tab: list/map of open lots with delivery requests. The dominant
- * action is claiming a lot, which immediately starts a route. [onRouteStarted]
- * lets the shell jump the user to the route tab.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AvailableScreen(
@@ -59,18 +52,15 @@ fun AvailableScreen(
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(0) }
     var confirmLot by remember { mutableStateOf<LotDto?>(null) }
-
     LaunchedEffect(state.startError) {
         state.startError?.let {
             snackbar.showSnackbar(it)
             viewModel.clearStartError()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             SectionHeader(title = stringResource(R.string.vol_available_title))
-
             if (state.openTickets.isNotEmpty()) {
                 Text(
                     text = stringResource(R.string.vol_available_open_tickets, state.openTickets.size),
@@ -79,7 +69,6 @@ fun AvailableScreen(
                     modifier = Modifier.padding(bottom = 8.dp),
                 )
             }
-
             OutlinedTextField(
                 value = state.search,
                 onValueChange = viewModel::onSearchChange,
@@ -87,18 +76,15 @@ fun AvailableScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
-
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.vol_available_tab_list)) })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.vol_available_tab_map)) })
             }
-
             when {
                 state.loading -> Column(
                     modifier = Modifier.padding(top = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) { repeat(3) { ShimmerListItem() } }
-
                 state.error != null -> EmptyState(
                     icon = Icons.Filled.LocalShipping,
                     title = stringResource(R.string.common_error_generic),
@@ -106,25 +92,21 @@ fun AvailableScreen(
                     actionLabel = stringResource(R.string.common_retry),
                     onAction = viewModel::load,
                 )
-
                 state.lots.isEmpty() -> EmptyState(
                     icon = Icons.Filled.LocalShipping,
                     title = stringResource(R.string.vol_available_empty_title),
                     description = stringResource(R.string.vol_available_empty_desc),
                 )
-
                 tab == 0 -> LotList(
                     lots = state.lots,
                     startingLotId = state.startingLotId,
                     onTake = { confirmLot = it },
                 )
-
                 else -> LotMap(state.lots, state.openTickets, onTake = { confirmLot = it })
             }
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     confirmLot?.let { lot ->
         VolunteerConfirmDialog(
             title = stringResource(R.string.vol_available_start_title),
@@ -138,7 +120,6 @@ fun AvailableScreen(
         )
     }
 }
-
 @Composable
 private fun LotList(
     lots: List<LotDto>,
@@ -169,7 +150,6 @@ private fun LotList(
         }
     }
 }
-
 @Composable
 private fun LotMap(
     lots: List<LotDto>,
@@ -195,7 +175,6 @@ private fun LotMap(
             markers = lotMarkers + ticketMarkers,
             modifier = Modifier.fillMaxSize(),
             onMarkerClick = { id ->
-                // Only lot pins start a route; ticket pins are an awareness overlay.
                 id.removePrefix("lot:").toIntOrNull()
                     ?.takeIf { id.startsWith("lot:") }
                     ?.let { lotId -> lots.firstOrNull { it.id == lotId }?.let(onTake) }

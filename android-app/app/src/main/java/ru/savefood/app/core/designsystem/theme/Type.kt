@@ -1,13 +1,9 @@
 package ru.savefood.app.core.designsystem.theme
-
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
-
-// System font family keeps the APK small; weights/sizes tuned for a content-dense
-// logistics app (lots, routes, tickets) that still needs to feel modern.
 val SaveFoodTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,

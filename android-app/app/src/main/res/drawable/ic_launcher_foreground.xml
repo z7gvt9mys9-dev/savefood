@@ -3,7 +3,6 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Simple leaf mark on the brand-green adaptive background. -->
     <group android:translateX="22" android:translateY="22">
         <path
             android:fillColor="#FFFFFF"

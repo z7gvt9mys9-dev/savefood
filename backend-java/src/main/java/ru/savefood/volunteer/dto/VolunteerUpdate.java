@@ -1,7 +1,5 @@
 package ru.savefood.volunteer.dto;
-
 import java.util.List;
-
 /** Port of schemas.py {@code VolunteerUpdate} (PATCH /volunteers/{id}). */
 public record VolunteerUpdate(
     String name,

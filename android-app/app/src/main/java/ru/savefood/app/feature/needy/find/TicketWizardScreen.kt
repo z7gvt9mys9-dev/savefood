@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.find
-
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -39,7 +38,6 @@ import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.TicketCreateDto
-
 /** 3-step request wizard: method → details → confirm. */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -52,7 +50,6 @@ fun TicketWizardScreen(
     animatedScope: AnimatedVisibilityScope,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-
     var step by remember { mutableIntStateOf(0) }
     var selfPickup by remember { mutableStateOf(false) }
     var address by remember { mutableStateOf(lot?.address.orEmpty()) }
@@ -72,7 +69,6 @@ fun TicketWizardScreen(
             locationError = true
         }
     }
-
     LaunchedEffect(locationPermission.isGranted, fetchAfterPermission) {
         if (locationPermission.isGranted && fetchAfterPermission) {
             fetchAfterPermission = false
@@ -86,7 +82,6 @@ fun TicketWizardScreen(
             )
         }
     }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -99,10 +94,7 @@ fun TicketWizardScreen(
             progress = { (step + 1) / 3f },
             modifier = Modifier.fillMaxWidth(),
         )
-
         lot?.let {
-            // Shared key matches the list card (find/list LotCard) so the card
-            // morphs into this summary on enter and back on pop.
             SaveFoodCard(
                 modifier = with(sharedScope) {
                     Modifier.sharedBounds(
@@ -116,7 +108,6 @@ fun TicketWizardScreen(
                 it.shopName?.let { s -> Text(s, style = MaterialTheme.typography.bodyMedium) }
             }
         }
-
         when (step) {
             0 -> MethodStep(
                 selfPickup = selfPickup,
@@ -124,9 +115,6 @@ fun TicketWizardScreen(
                 onSelect = { selectedSelfPickup ->
                     selfPickup = selectedSelfPickup
                     if (selectedSelfPickup) {
-                        // Delivery details are private recipient data and have
-                        // no meaning for a shop handover. Do not carry them
-                        // into a self-pickup request after switching methods.
                         address = ""
                         apartment = ""
                         floor = ""
@@ -142,8 +130,6 @@ fun TicketWizardScreen(
                 selfPickup = selfPickup,
                 address = address,
                 onAddress = {
-                    // Coordinates describe the prior address/location.  Never
-                    // silently reuse them after the delivery address changes.
                     address = it
                     lat = null
                     lon = null
@@ -178,11 +164,9 @@ fun TicketWizardScreen(
                 items = items,
             )
         }
-
         state.submitError?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
-
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -226,7 +210,6 @@ fun TicketWizardScreen(
         }
     }
 }
-
 @Composable
 private fun MethodStep(selfPickup: Boolean, lotMissing: Boolean, onSelect: (Boolean) -> Unit) {
     Text(stringResource(R.string.needy_wizard_step_method), style = MaterialTheme.typography.titleMedium)
@@ -236,7 +219,6 @@ private fun MethodStep(selfPickup: Boolean, lotMissing: Boolean, onSelect: (Bool
         desc = stringResource(R.string.needy_wizard_method_delivery_desc),
         onClick = { onSelect(false) },
     )
-    // Self-pickup requires a concrete lot (backend enforces lot_required).
     MethodOption(
         selected = selfPickup,
         title = stringResource(R.string.needy_wizard_method_pickup),
@@ -245,7 +227,6 @@ private fun MethodStep(selfPickup: Boolean, lotMissing: Boolean, onSelect: (Bool
         onClick = { onSelect(true) },
     )
 }
-
 @Composable
 private fun MethodOption(
     selected: Boolean,
@@ -268,7 +249,6 @@ private fun MethodOption(
         }
     }
 }
-
 @Composable
 private fun DetailsStep(
     selfPickup: Boolean,
@@ -343,7 +323,6 @@ private fun DetailsStep(
         modifier = Modifier.fillMaxWidth(),
     )
 }
-
 @Composable
 private fun ConfirmStep(
     selfPickup: Boolean,
@@ -371,7 +350,6 @@ private fun ConfirmStep(
         }
     }
 }
-
 @Composable
 private fun ConfirmRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

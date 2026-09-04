@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.profile
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -47,33 +46,27 @@ import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.feature.volunteer.data.NotificationDto
 import ru.savefood.app.feature.volunteer.data.RouteHistoryDto
-
 @Composable
 fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
     }
-
     val savedMsg = stringResource(R.string.vol_profile_saved)
     val uploadedMsg = stringResource(R.string.vol_profile_kyc_uploaded)
     val markReadErr = stringResource(R.string.common_error_generic)
-
     val docPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) viewModel.uploadDocument(uri, uploadedMsg) }
-
     val p = state.profile
     var name by remember(p) { mutableStateOf(p?.name.orEmpty()) }
     var contact by remember(p) { mutableStateOf(p?.contact.orEmpty()) }
     var city by remember(p) { mutableStateOf(p?.city.orEmpty()) }
     var thermalBag by remember(p) { mutableStateOf(p?.hasThermalBag == true) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.loading && p == null -> ProfileSkeleton()
@@ -89,7 +82,6 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 SectionHeader(title = stringResource(R.string.vol_profile_title))
-
             if (state.partialError) {
                 Text(
                     text = stringResource(R.string.common_partial_load_error),
@@ -97,8 +89,6 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-
-            // --- Personal ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.vol_profile_section_personal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -134,15 +124,12 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                     }
                 }
             }
-
             SaveFoodButton(
                 text = stringResource(R.string.vol_profile_save),
                 loading = state.saving,
                 onClick = { viewModel.save(name, contact, city, thermalBag, savedMsg) },
                 modifier = Modifier.fillMaxWidth(),
             )
-
-            // --- KYC ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -167,8 +154,6 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                     )
                 }
             }
-
-            // --- History ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.vol_profile_section_history), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -183,8 +168,6 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                     }
                 }
             }
-
-            // --- Notifications ---
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.vol_profile_section_notifications), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -201,9 +184,7 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
                     }
                 }
             }
-
                 LanguageSelectorCard()
-
                 SaveFoodOutlinedButton(
                     text = stringResource(R.string.common_logout),
                     leadingIcon = Icons.AutoMirrored.Filled.Logout,
@@ -215,7 +196,6 @@ fun VolunteerProfileScreen(viewModel: VolunteerProfileViewModel = hiltViewModel(
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
-
 @Composable
 private fun KycBadge(status: String?) {
     val (label, tone) = when (status) {
@@ -225,7 +205,6 @@ private fun KycBadge(status: String?) {
     }
     StatusBadge(text = label, tone = tone)
 }
-
 @Composable
 private fun HistoryRow(route: RouteHistoryDto) {
     Column {
@@ -241,7 +220,6 @@ private fun HistoryRow(route: RouteHistoryDto) {
         )
     }
 }
-
 @Composable
 private fun NotificationRow(note: NotificationDto, onRead: () -> Unit) {
     Row(

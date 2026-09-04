@@ -1,9 +1,7 @@
 package ru.savefood.it;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
-
 import jakarta.servlet.http.HttpServletRequest;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
@@ -48,19 +46,15 @@ import ru.savefood.volunteer.VolunteerRepository;
 import ru.savefood.volunteer.VolunteerService;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
-
 /** Focused transaction-completion coverage for filesystem objects created by lot/KYC writes. */
 class TransactionalFileOwnershipIT extends PostgresIT {
-
     @TempDir
     Path tempDir;
-
     private Path lotDir;
     private Path kycDir;
     private Path needyDir;
     private Path deliveryDir;
     private Path legacyDir;
-
     @BeforeEach
     void createStorageRoots() throws Exception {
         lotDir = Files.createDirectory(tempDir.resolve("lots"));
@@ -69,19 +63,15 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         deliveryDir = Files.createDirectory(tempDir.resolve("delivery"));
         legacyDir = Files.createDirectory(tempDir.resolve("legacy"));
     }
-
     @Test
     void committedLotTransactionKeepsCreatedFileAndDoesNotQueueCleanup() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
-
         int lotId = lotService().createLotWithPreparedPhotos(shopId, "food", 1, null,
             List.of(preparedPhoto()), lotDir.toString(), null, null, null, null, false, "кг", 1);
-
         assertThat(lotId).isPositive();
         assertThat(Files.list(lotDir).toList()).hasSize(1);
         assertThat(count("shop_upload_cleanup")).isZero();
     }
-
     @Test
     void exceptionInsideLotTransactionDeletesCreatedFile() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
@@ -94,20 +84,16 @@ class TransactionalFileOwnershipIT extends PostgresIT {
                 throw new DataIntegrityViolationException("forced body failure");
             }
         };
-
         assertThatThrownBy(() -> lotService(failing).createLotWithPreparedPhotos(shopId, "food", 1,
             null, List.of(preparedPhoto()), lotDir.toString(), null, null, null, null,
             false, "кг", 1)).isInstanceOf(DataIntegrityViolationException.class);
-
         assertThat(Files.list(lotDir).toList()).isEmpty();
         assertThat(count("shop_upload_cleanup")).isZero();
     }
-
     @Test
     void outerRollbackAfterInnerLotMethodReturnsDeletesCreatedFile() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
         ShopService service = lotService();
-
         tx.executeWithoutResult(status -> {
             int lotId = service.createLotWithPreparedPhotos(shopId, "food", 1, null,
                 List.of(preparedPhoto()), lotDir.toString(), null, null, null, null,
@@ -116,12 +102,10 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             assertThat(list(lotDir)).hasSize(1);
             status.setRollbackOnly();
         });
-
         assertThat(Files.list(lotDir).toList()).isEmpty();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM lots WHERE shop_id = ?",
             Integer.class, shopId)).isZero();
     }
-
     @Test
     void deferredPostgresFailureAtProxyCommitDeletesCreatedLotFile() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
@@ -129,19 +113,16 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             + "BEGIN RAISE EXCEPTION 'forced deferred lot failure'; END $$");
         jdbc.execute("CREATE CONSTRAINT TRIGGER fail_lot_commit AFTER INSERT ON lots "
             + "DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_lot_commit()");
-
         assertThatThrownBy(() -> lotService().createLotWithPreparedPhotos(shopId, "food", 1,
             null, List.of(preparedPhoto()), lotDir.toString(), null, null, null, null,
             false, "кг", 1))
             .isInstanceOf(RuntimeException.class)
             .hasStackTraceContaining("forced deferred lot failure");
-
         assertThat(Files.list(lotDir).toList()).isEmpty();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM lots WHERE shop_id = ?",
             Integer.class, shopId)).isZero();
         assertThat(count("shop_upload_cleanup")).isZero();
     }
-
     @Test
     void rollbackOfStagedPhotoClaimKeepsPreExistingStagedFileUsable() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
@@ -152,13 +133,11 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         String reference = references.stage(shopId, validImage());
         String filename = references.requireAvailable(shopId, reference);
         ShopService service = lotService(new ShopRepository(jdbc), cleanup);
-
         tx.executeWithoutResult(status -> {
             service.createLotWithClaimedPhoto(shopId, "food", 1, null, filename,
                 null, null, null, null, false, "кг", 1);
             status.setRollbackOnly();
         });
-
         assertThat(lotDir.resolve(filename)).isRegularFile();
         assertThat(references.requireAvailable(shopId, reference)).isEqualTo(filename);
         Map<String, Object> staged = jdbc.queryForMap(
@@ -166,33 +145,27 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         assertThat(staged.get("lot_id")).isNull();
         assertThat(((Number) staged.get("byte_size")).longValue()).isPositive();
     }
-
     @Test
     void outerRollbackOfStagingDeletesTheNewFileAndReference() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
         LotPhotoStagingProperties limits = stagingLimits();
         LotPhotoReferenceService references = proxied(new LotPhotoReferenceService(
             new ShopRepository(jdbc), new UploadService(), lotCleanup(limits), lotDir.toString(), limits));
-
         tx.executeWithoutResult(status -> {
             assertThat(references.stage(shopId, validImage())).startsWith("/uploads/");
             assertThat(list(lotDir)).hasSize(1);
             status.setRollbackOnly();
         });
-
         assertThat(Files.list(lotDir).toList()).isEmpty();
         assertThat(count("shop_lot_photo_uploads")).isZero();
         assertThat(count("shop_upload_cleanup")).isZero();
     }
-
     @Test
     void committedKycTransactionKeepsExactNewGenerationAndDoesNotQueueCleanup() throws Exception {
         int volunteerId = insertVolunteer("Volunteer");
         VolunteerController controller = kycController();
         byte[] pdf = "%PDF-1.4\nidentity".getBytes(StandardCharsets.UTF_8);
-
         controller.uploadDocument(volunteerId, pdf(pdf), volunteerUser(volunteerId), request());
-
         Map<String, Object> row = jdbc.queryForMap(
             "SELECT document, kyc_generation FROM volunteers WHERE id = ?", volunteerId);
         String document = (String) row.get("document");
@@ -203,7 +176,6 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         assertThat(kycCrypto().readDecrypted(exactFile.toString())).isEqualTo(pdf);
         assertThat(count("sensitive_file_cleanup")).isZero();
     }
-
     @Test
     void failedRollbackDeleteQueuesExactKycPathAndDelayedRetryCannotDeleteReplacement() throws Exception {
         int volunteerId = insertVolunteer("Volunteer");
@@ -213,7 +185,6 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         SensitiveFileCleanup cleanup = sensitiveCleanup();
         VolunteerController controller = kycController(cleanup, kycCrypto());
         String[] rolledBackDocument = new String[1];
-
         tx.executeWithoutResult(status -> {
             controller.uploadDocument(volunteerId, pdf("%PDF-1.4\nrollback".getBytes(StandardCharsets.UTF_8)),
                 volunteerUser(volunteerId), request());
@@ -230,7 +201,6 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             }
             status.setRollbackOnly();
         });
-
         assertThat(original).isRegularFile();
         assertThat(jdbc.queryForMap("SELECT document, kyc_generation FROM volunteers WHERE id = ?", volunteerId))
             .containsEntry("document", "/volunteer_kyc/original.pdf")
@@ -241,7 +211,6 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             .containsEntry("storage_type", "volunteer_kyc")
             .containsEntry("file_ref", rolledBackDocument[0])
             .containsEntry("completed_at", null);
-
         controller.uploadDocument(volunteerId, pdf("%PDF-1.4\nreplacement".getBytes(StandardCharsets.UTF_8)),
             volunteerUser(volunteerId), request());
         String replacement = jdbc.queryForObject(
@@ -252,37 +221,29 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         Files.delete(rolledBackPath.resolve("blocker"));
         jdbc.update("UPDATE sensitive_file_cleanup SET next_attempt_at = CURRENT_TIMESTAMP WHERE file_ref = ?",
             rolledBackDocument[0]);
-
         cleanup.retryPending();
-
         assertThat(rolledBackPath).doesNotExist();
         assertThat(replacementPath).isRegularFile();
         assertThat(jdbc.queryForObject("SELECT document FROM volunteers WHERE id = ?",
             String.class, volunteerId)).isEqualTo(replacement);
     }
-
     private ShopService lotService() {
         LotUploadCleanup cleanup = lotCleanup(stagingLimits());
         return lotService(new ShopRepository(jdbc), cleanup);
     }
-
     private ShopService lotService(ShopRepository repo) {
         return lotService(repo, lotCleanup(stagingLimits()));
     }
-
     private ShopService lotService(ShopRepository repo, LotUploadCleanup cleanup) {
         return proxied(new ShopService(jdbc, repo, new BillingService(jdbc), mock(NeedyService.class),
             mock(PasswordService.class), new UploadService(), cleanup));
     }
-
     private LotUploadCleanup lotCleanup(LotPhotoStagingProperties limits) {
         return new LotUploadCleanup(jdbc, txManager, lotDir.toString(), limits);
     }
-
     private VolunteerController kycController() {
         return kycController(sensitiveCleanup(), kycCrypto());
     }
-
     private VolunteerController kycController(SensitiveFileCleanup cleanup, KycCrypto crypto) {
         return proxied(new VolunteerController(new VolunteerRepository(jdbc), mock(VolunteerService.class),
             mock(RateLimiter.class), new UploadService(), crypto, mock(KycService.class),
@@ -290,17 +251,14 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             jdbc, mock(AuditService.class), cleanup, mock(DeliveryPhotoStorage.class), true,
             kycDir.toString(), kycDir.toString()));
     }
-
     private SensitiveFileCleanup sensitiveCleanup() {
         return new SensitiveFileCleanup(jdbc, needyDir.toString(), kycDir.toString(),
             deliveryDir.toString(), legacyDir.toString(), txManager);
     }
-
     private KycCrypto kycCrypto() {
         String key = Base64.getUrlEncoder().encodeToString(new byte[32]);
         return new KycCrypto(key, false, new MockEnvironment());
     }
-
     @SuppressWarnings("unchecked")
     private <T> T proxied(T target) {
         ProxyFactory factory = new ProxyFactory(target);
@@ -309,11 +267,9 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             txManager, new AnnotationTransactionAttributeSource()));
         return (T) factory.getProxy();
     }
-
     private int count(String table) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
     }
-
     private static List<Path> list(Path directory) {
         try (var files = Files.list(directory)) {
             return files.toList();
@@ -321,7 +277,6 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             throw new IllegalStateException(e);
         }
     }
-
     private static LotPhotoStagingProperties stagingLimits() {
         LotPhotoStagingProperties limits = new LotPhotoStagingProperties();
         limits.setMaxPendingCount(10);
@@ -329,11 +284,9 @@ class TransactionalFileOwnershipIT extends PostgresIT {
         limits.setTtl(Duration.ofMinutes(45));
         return limits;
     }
-
     private static UploadService.PreparedUpload preparedPhoto() {
         return new UploadService().prepare(validImage());
     }
-
     private static MockMultipartFile validImage() {
         try {
             BufferedImage image = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
@@ -345,15 +298,12 @@ class TransactionalFileOwnershipIT extends PostgresIT {
             throw new IllegalStateException(e);
         }
     }
-
     private static MockMultipartFile pdf(byte[] content) {
         return new MockMultipartFile("file", "identity.pdf", "application/pdf", content);
     }
-
     private static CurrentUser volunteerUser(int volunteerId) {
         return new CurrentUser(volunteerId, "volunteer", "volunteer", volunteerId);
     }
-
     private static HttpServletRequest request() {
         return mock(HttpServletRequest.class);
     }

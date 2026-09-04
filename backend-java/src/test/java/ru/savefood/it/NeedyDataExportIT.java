@@ -1,28 +1,22 @@
 package ru.savefood.it;
-
 import static org.assertj.core.api.Assertions.assertThat;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import ru.savefood.needy.NeedyRepository;
-
 /** Focused coverage for recipient data-export ownership and secret redaction. */
 class NeedyDataExportIT extends PostgresIT {
-
     private NeedyRepository repo;
     private int needyId;
     private int userId;
-
     @BeforeEach
     void createRecipient() {
         repo = new NeedyRepository(jdbc);
         needyId = insertNeedy("Export recipient");
         userId = insertUser(needyId, "recipient-export", "password-hash-should-not-export");
     }
-
     @Test
     void exportIncludesOnlyTheRecipientsSafeAccountDeviceAndSessionMetadata() throws Exception {
         jdbc.update("UPDATE users SET telegram_chat_id = ?, google_id = ?, yandex_id = ?, is_blocked = TRUE "
@@ -35,9 +29,7 @@ class NeedyDataExportIT extends PostgresIT {
                 + "(session_id, user_id, token_hash, expires_at, consumed_at, revoked_at) "
                 + "VALUES ('11111111-1111-1111-1111-111111111111', ?, decode('deadbeef', 'hex'), "
                 + "NOW() + INTERVAL '1 day', NOW(), NULL)", userId);
-
         Map<String, Object> export = repo.exportAccount(needyId);
-
         assertThat(export.keySet()).contains("account", "account_links", "push_subscriptions",
             "fcm_registrations", "refresh_sessions", "profile", "tickets", "ratings",
             "notifications", "messages");
@@ -59,7 +51,6 @@ class NeedyDataExportIT extends PostgresIT {
         assertThat(json).doesNotContain("password-hash-should-not-export", "push-public-key",
             "push-auth-secret", "device-secret", "fcm-registration-secret", "deadbeef", "kyc");
     }
-
     @Test
     void exportUsesOnlyTheUserLinkedToTheRequestedRecipientAndHandlesAbsentOptionalData() {
         int otherNeedy = insertNeedy("Other recipient");
@@ -73,9 +64,7 @@ class NeedyDataExportIT extends PostgresIT {
         jdbc.update("INSERT INTO refresh_sessions (session_id, user_id, token_hash, expires_at) "
                 + "VALUES ('22222222-2222-2222-2222-222222222222', ?, decode('0102', 'hex'), "
                 + "NOW() + INTERVAL '1 day')", otherUser);
-
         Map<String, Object> export = repo.exportAccount(needyId);
-
         assertThat(map(export, "account")).containsEntry("username", "recipient-export")
             .doesNotContainValue("other-recipient");
         assertThat(map(export, "account_links")).containsEntry("telegram_chat_id", null)
@@ -84,18 +73,15 @@ class NeedyDataExportIT extends PostgresIT {
         assertThat(rows(export, "fcm_registrations")).isEmpty();
         assertThat(rows(export, "refresh_sessions")).isEmpty();
     }
-
     private int insertUser(int relatedId, String username, String passwordHash) {
         return jdbc.queryForObject(
             "INSERT INTO users (username, hashed_password, role, related_id) VALUES (?, ?, 'needy', ?) RETURNING id",
             Integer.class, username, passwordHash, relatedId);
     }
-
     @SuppressWarnings("unchecked")
     private static Map<String, Object> map(Map<String, Object> export, String section) {
         return (Map<String, Object>) export.get(section);
     }
-
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> rows(Map<String, Object> export, String section) {
         return (List<Map<String, Object>>) export.get(section);

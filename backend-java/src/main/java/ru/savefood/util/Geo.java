@@ -1,29 +1,23 @@
 package ru.savefood.util;
-
 /** Geodesy helpers, ported from utils.py {@code haversine} — the single implementation. */
 public final class Geo {
     private Geo() {
     }
-
     private static final double EARTH_RADIUS_METERS = 6_371_000;
-
     /** True only for a real WGS-84 latitude (not NaN, infinity or a wrapped value). */
     public static boolean isValidLatitude(Double latitude) {
         return latitude != null && Double.isFinite(latitude)
             && latitude >= -90.0 && latitude <= 90.0;
     }
-
     /** True only for a real WGS-84 longitude (not NaN, infinity or a wrapped value). */
     public static boolean isValidLongitude(Double longitude) {
         return longitude != null && Double.isFinite(longitude)
             && longitude >= -180.0 && longitude <= 180.0;
     }
-
     /** A complete, finite WGS-84 coordinate pair. */
     public static boolean isValidCoordinates(Double latitude, Double longitude) {
         return isValidLatitude(latitude) && isValidLongitude(longitude);
     }
-
     /** Great-circle distance in metres. */
     public static double haversineMeters(double lat1, double lon1, double lat2, double lon2) {
         double phi1 = Math.toRadians(lat1);

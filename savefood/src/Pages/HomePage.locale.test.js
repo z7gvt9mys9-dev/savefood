@@ -7,16 +7,13 @@ import {
   localizeLandingMarkup,
   personalizeLandingMarkup,
 } from './HomePage.locale';
-
 const landingDocument = readFileSync(resolve(process.cwd(), 'src/Pages/HomePage.markup.html'), 'utf8');
 const bodyMatch = landingDocument.match(/<body>([\s\S]*)<\/body>/i);
 const markup = bodyMatch ? bodyMatch[1] : landingDocument;
-
 const collectCyrillic = (html) => {
   const template = document.createElement('template');
   template.innerHTML = html;
   const values = [];
-
   template.content.querySelectorAll('*').forEach((element) => {
     Array.from(element.childNodes).forEach((node) => {
       const value = node.nodeType === 3 ? (node.nodeValue || '').trim() : '';
@@ -27,36 +24,30 @@ const collectCyrillic = (html) => {
       if (/[А-Яа-яЁё]/.test(value)) values.push(value);
     });
   });
-
   return values;
 };
-
 describe('production landing localization', () => {
   it('keeps the source markup for Russian', () => {
     expect(localizeLandingMarkup(markup, 'ru')).toBe(markup);
   });
-
   it('translates all visible copy and accessible labels into English', () => {
     const english = localizeLandingMarkup(markup, 'en');
     expect(english).toContain('Saving food.');
     expect(english).toContain('delivery confirmed');
     expect(collectCyrillic(english)).toEqual([]);
   });
-
   it('provides localized interactive lot content', () => {
     expect(LANDING_LOTS.en.produce).toEqual([
       'Fruit and vegetables',
       'Pick up today, 18:30–20:00',
     ]);
   });
-
   it('keeps delivery statuses inside the selected-lot bar', () => {
     const template = document.createElement('template');
     template.innerHTML = markup;
     expect(template.content.querySelector('.selection-bar .selection-statuses')).not.toBeNull();
     expect(template.content.querySelector('.product-preview > .preview-signals')).toBeNull();
   });
-
   it('routes every landing CTA to a real product action', () => {
     const template = document.createElement('template');
     template.innerHTML = markup;
@@ -68,14 +59,12 @@ describe('production landing localization', () => {
     expect(template.content.querySelector('a[href="/privacy"]')).not.toBeNull();
     expect(template.content.querySelector('a[href="/impact"]')).not.toBeNull();
   });
-
   it('replaces public header actions for an authenticated volunteer', () => {
     const personalized = personalizeLandingMarkup(markup, { role: 'volunteer' }, LANDING_COPY.ru);
     const template = document.createElement('template');
     template.innerHTML = personalized;
     const header = template.content.querySelector('.header-actions');
     const avatar = header.querySelector('[data-account-action="dashboard"]');
-
     expect(header.querySelector('[data-auth-mode]')).toBeNull();
     expect(header.classList.contains('header-actions--authenticated')).toBe(true);
     expect(avatar?.classList.contains('landing-account-avatar')).toBe(true);

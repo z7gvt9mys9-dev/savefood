@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.auth.data
-
 import kotlinx.coroutines.flow.Flow
 import ru.savefood.app.core.common.ApiResult
 import ru.savefood.app.core.common.safeApiCall
@@ -10,7 +9,6 @@ import ru.savefood.app.core.network.dto.RefreshRequest
 import ru.savefood.app.core.push.PushTokenManager
 import javax.inject.Inject
 import javax.inject.Singleton
-
 @Singleton
 class AuthRepository @Inject constructor(
     private val authApi: AuthApi,
@@ -18,7 +16,6 @@ class AuthRepository @Inject constructor(
     private val pushTokenManager: PushTokenManager,
 ) {
     val sessionFlow: Flow<Session?> = sessionStore.sessionFlow
-
     suspend fun login(username: String, password: String): ApiResult<Session> {
         return when (val res = safeApiCall { authApi.login(username.trim(), password) }) {
             is ApiResult.Success -> {
@@ -36,13 +33,9 @@ class AuthRepository @Inject constructor(
             is ApiResult.Error -> res
         }
     }
-
     suspend fun logout() {
-        // Drop this device's FCM token first — it needs the still-valid session
-        // token for auth. Best-effort: clearing the session must happen regardless.
         pushTokenManager.unregisterCurrentToken()
         sessionStore.currentTokenPair()?.refreshToken?.let { refreshToken ->
-            // Best effort: local logout must still complete if the device is offline.
             safeApiCall { authApi.logout(RefreshRequest(refreshToken)) }
         }
         sessionStore.clear()

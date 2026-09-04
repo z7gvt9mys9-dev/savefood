@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.rating
-
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,12 +14,9 @@ import ru.savefood.app.feature.volunteer.data.TeamDto
 import ru.savefood.app.feature.volunteer.data.ThanksDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import javax.inject.Inject
-
 data class RatingUiState(
     val loading: Boolean = true,
     val error: String? = null,
-    /** Thanks / team failed to load while stats loaded fine — non-blocking banner,
-     *  so an empty team section isn't misread as "you're not in a team". */
     val partialError: Boolean = false,
     val stats: StatsDto? = null,
     val thanks: List<ThanksDto> = emptyList(),
@@ -28,17 +24,13 @@ data class RatingUiState(
     val teamBusy: Boolean = false,
     val teamError: String? = null,
 )
-
 @HiltViewModel
 class RatingViewModel @Inject constructor(
     private val repo: VolunteerRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(RatingUiState())
     val state: StateFlow<RatingUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId()
@@ -66,10 +58,8 @@ class RatingViewModel @Inject constructor(
             if (partial) _state.update { it.copy(partialError = true) }
         }
     }
-
     fun createTeam(name: String) = teamAction { repo.createTeam(it, name) }
     fun joinTeam(code: String) = teamAction { repo.joinTeam(it, code) }
-
     fun leaveTeam() {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: return@launch
@@ -80,7 +70,6 @@ class RatingViewModel @Inject constructor(
             }
         }
     }
-
     private fun teamAction(block: suspend (Int) -> ApiResult<TeamDto?>) {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: return@launch
@@ -91,9 +80,7 @@ class RatingViewModel @Inject constructor(
             }
         }
     }
-
     fun clearTeamError() = _state.update { it.copy(teamError = null) }
-
     companion object {
         private const val TAG = "RatingVM"
     }

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Lots tab -->
     <string name="shop_lots_title">Лоты</string>
     <string name="shop_lots_tab_active">Активные</string>
     <string name="shop_lots_tab_history">История</string>
@@ -35,7 +34,6 @@
     <string name="shop_lot_status_cancelled">Отменён</string>
     <string name="shop_lot_status_unknown">—</string>
 
-    <!-- Shared lot fields -->
     <string name="shop_field_description">Описание</string>
     <string name="shop_field_quantity">Количество</string>
     <string name="shop_field_unit">Ед. изм.</string>
@@ -47,7 +45,6 @@
     <string name="shop_field_comment">Комментарий</string>
     <string name="shop_field_requires_cold">Требует холода</string>
 
-    <!-- Create tab -->
     <string name="shop_create_step_of">Шаг %1$d из %2$d</string>
     <string name="shop_create_photo">Фото</string>
     <string name="shop_create_photo_hint">Добавьте фото лота — камерой или из галереи. Для частных доноров фото обязательно.</string>
@@ -62,7 +59,6 @@
     <string name="shop_review_yes">Да</string>
     <string name="shop_review_no">Нет</string>
 
-    <!-- Receipts / ESG tab -->
     <string name="shop_esg_title">Чеки и ESG</string>
     <string name="shop_esg_summary">ESG-сводка</string>
     <string name="shop_esg_kg">кг</string>
@@ -92,7 +88,6 @@
     <string name="shop_receipt_status_confirmed">Подтверждён</string>
     <string name="shop_receipt_status_rejected">Отклонён</string>
 
-    <!-- Profile tab -->
     <string name="shop_profile_title">Профиль магазина</string>
     <string name="shop_profile_section_data">Данные магазина</string>
     <string name="shop_profile_name">Название</string>

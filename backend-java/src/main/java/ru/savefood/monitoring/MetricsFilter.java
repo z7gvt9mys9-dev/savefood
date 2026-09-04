@@ -1,5 +1,4 @@
 package ru.savefood.monitoring;
-
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,22 +7,12 @@ import java.io.IOException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerMapping;
-
-/**
- * Records one {@link MetricsService#observe} per request, the analogue of the
- * Python {@code observe_request} middleware. Keys on the matched route template
- * (e.g. {@code /lots/{id}}) resolved by Spring's handler mapping, falling back to
- * the raw path for unmatched requests; {@code /metrics} itself is skipped.
- */
 @Component
 public class MetricsFilter extends OncePerRequestFilter {
-
     private final MetricsService metrics;
-
     public MetricsFilter(MetricsService metrics) {
         this.metrics = metrics;
     }
-
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse resp, FilterChain chain)
             throws ServletException, IOException {

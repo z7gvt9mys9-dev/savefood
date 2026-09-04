@@ -6,11 +6,9 @@ import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL, authFetch } from '../../api';
 import './Admin.css';
-
 /** An admin image endpoint requires Bearer auth, which a plain <img> cannot send. */
 const ProtectedDeliveryPhoto = ({ path }) => {
   const [objectUrl, setObjectUrl] = useState(null);
-
   useEffect(() => {
     if (!path) {
       setObjectUrl(null);
@@ -35,7 +33,6 @@ const ProtectedDeliveryPhoto = ({ path }) => {
       if (createdUrl) URL.revokeObjectURL(createdUrl);
     };
   }, [path]);
-
   if (!objectUrl) return <div className="photo-mod-img" aria-label="Photo unavailable" />;
   return (
     <a href={objectUrl} target="_blank" rel="noopener noreferrer">
@@ -43,7 +40,6 @@ const ProtectedDeliveryPhoto = ({ path }) => {
     </a>
   );
 };
-
 const AdminPanel = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -57,12 +53,9 @@ const AdminPanel = () => {
   const [deliveryPhotos, setDeliveryPhotos] = useState([]);
   const [photoBusy, setPhotoBusy] = useState({});
   const [heatmap, setHeatmap] = useState(null);
-  // Volunteer identity KYC only; recipients do not participate in moderation.
   const [kycQueue, setKycQueue] = useState([]);
   const [kycBusy, setKycBusy] = useState({});
-
   const authHeader = {};
-
   const fetchData = async () => {
     try {
       const [statsRes, routesRes] = await Promise.all([
@@ -73,46 +66,39 @@ const AdminPanel = () => {
       if (routesRes.ok) setActiveRoutes(await routesRes.json());
     } catch {}
   };
-
   const fetchUsers = async () => {
     try {
       const res = await authFetch(`${API_URL}/admin/users`, { headers: authHeader });
       if (res.ok) setUsers(await res.json());
     } catch {}
   };
-
   useEffect(() => {
     fetchData();
   }, []);
-
   const fetchAuditLog = async () => {
     try {
       const res = await authFetch(`${API_URL}/admin/audit?limit=50&offset=0`, { headers: authHeader });
       if (res.ok) setAuditLog(await res.json());
     } catch {}
   };
-
   const fetchShops = async () => {
     try {
       const res = await authFetch(`${API_URL}/admin/shops`, { headers: authHeader });
       if (res.ok) setShops(await res.json());
     } catch {}
   };
-
   const fetchDeliveryPhotos = async () => {
     try {
       const res = await authFetch(`${API_URL}/admin/delivery_photos?status=pending`, { headers: authHeader });
       if (res.ok) setDeliveryPhotos(await res.json());
     } catch {}
   };
-
   const fetchKycQueue = async () => {
     try {
       const res = await authFetch(`${API_URL}/admin/volunteers?status=pending`, { headers: authHeader });
       setKycQueue(res.ok ? await res.json() : []);
     } catch {}
   };
-
   useEffect(() => {
     if (activeTab === 'users') fetchUsers();
     if (activeTab === 'audit') fetchAuditLog();
@@ -132,7 +118,6 @@ const AdminPanel = () => {
         .catch(() => {});
     }
   }, [activeTab]);
-
   const handleSetPlan = async (shopId, planValue) => {
     try {
       const res = await authFetch(`${API_URL}/admin/shops/${shopId}/plan`, {
@@ -144,7 +129,6 @@ const AdminPanel = () => {
       else alert(t('common.error'));
     } catch {}
   };
-
   const handleResetRoute = async (routeId) => {
     if (!window.confirm(t('admin.confirm_reset_route', { id: routeId }))) return;
     try {
@@ -153,7 +137,6 @@ const AdminPanel = () => {
       else alert(t('admin.error_reset'));
     } catch {}
   };
-
   const handleBlockUser = async (userId, isBlocked) => {
     const action = isBlocked ? 'unblock' : 'block';
     if (!window.confirm(isBlocked ? t('admin.confirm_unblock') : t('admin.confirm_block'))) return;
@@ -163,9 +146,6 @@ const AdminPanel = () => {
       else alert(t('common.error'));
     } catch {}
   };
-
-  // Delivery photo moderation: publish or drop a recipient photo before it
-  // reaches the public Impact feed.
   const handleModeratePhoto = async (photo, action) => {
     const ticketId = photo.ticket_id;
     if (!photo.photo_ref) {
@@ -182,17 +162,12 @@ const AdminPanel = () => {
       );
       if (res.ok) setDeliveryPhotos(prev => prev.filter(p => p.ticket_id !== ticketId));
       else {
-        // A replacement was uploaded while this card was open. Refresh rather
-        // than applying a decision to the wrong proof image.
         await fetchDeliveryPhotos();
         alert(t('common.error'));
       }
     } catch { alert(t('common.connection_error')); }
     finally { setPhotoBusy(prev => ({ ...prev, [ticketId]: false })); }
   };
-
-  // AI "is this food?" pre-check verdict as a colored hint; the publish
-  // decision stays with the human moderator.
   const photoBadge = (item) => {
     const v = item.delivery_photo_ai_verdict;
     if (!v || v === 'unchecked') return <span style={{ opacity: 0.6 }}>{t('admin.photo_unchecked')}</span>;
@@ -210,11 +185,6 @@ const AdminPanel = () => {
       </span>
     );
   };
-
-  // Manual KYC decision (§5). Auto-KYC settles the confident cases; this is the
-  // escape hatch for everything it flagged `review`, plus overturning a wrong
-  // automatic verdict. The document itself is never shown — by design (§58.1),
-  // the moderator judges from what the AI extracted.
   const handleModerateKyc = async (id, status) => {
     const key = `volunteer:${id}`;
     setKycBusy(prev => ({ ...prev, [key]: true }));
@@ -229,7 +199,6 @@ const AdminPanel = () => {
     } catch { alert(t('common.connection_error')); }
     finally { setKycBusy(prev => ({ ...prev, [key]: false })); }
   };
-
   const kycBadge = (item) => {
     const v = item.kyc_verdict;
     if (!v || v === 'unchecked') return <span style={{ opacity: 0.6 }}>{t('admin.kyc_unchecked')}</span>;
@@ -246,7 +215,6 @@ const AdminPanel = () => {
       </span>
     );
   };
-
   const renderKycGroup = (rows) => (
     <>
       <h3>{t('admin.kyc_volunteers')} ({rows.length})</h3>
@@ -285,7 +253,6 @@ const AdminPanel = () => {
       )}
     </>
   );
-
   const renderKyc = () => {
     const total = kycQueue.length;
     return (
@@ -302,7 +269,6 @@ const AdminPanel = () => {
       </div>
     );
   };
-
   const renderPhotos = () => (
     <div className="admin-tab">
       <h2>{t('admin.photo_queue')}</h2>
@@ -335,7 +301,6 @@ const AdminPanel = () => {
       )}
     </div>
   );
-
   const renderPlans = () => (
     <div className="admin-tab">
       <h2>{t('admin.plans_title')}</h2>
@@ -370,7 +335,6 @@ const AdminPanel = () => {
       )}
     </div>
   );
-
   const renderDispatcher = () => (
     <div className="admin-tab">
       <h2>{t('admin.dispatch')}</h2>
@@ -393,7 +357,6 @@ const AdminPanel = () => {
       </div>
     </div>
   );
-
   const renderAnalytics = () => {
     const barData = [
       { name: t('admin.analytics_food_label'), value: Number(stats.kg_food_saved) || 0, color: '#4CAF50' },
@@ -431,7 +394,6 @@ const AdminPanel = () => {
             <p className="big-value yellow-text">{stats.percent_expired_lots != null ? `${Number(stats.percent_expired_lots).toFixed(1)}%` : '—'}</p>
           </div>
         </div>
-
         {esgGlobal && (
           <>
             <h3 style={{ marginTop: 24 }}>{t('admin.esg_title')}</h3>
@@ -453,7 +415,6 @@ const AdminPanel = () => {
             </div>
           </>
         )}
-
         <div className="charts-row">
           <div className="chart-box">
             <h3>{t('admin.chart_key_metrics')}</h3>
@@ -481,7 +442,6 @@ const AdminPanel = () => {
             </ResponsiveContainer>
           </div>
         </div>
-
         {heatmap && heatmap.length > 0 && (
           <>
             <h3 style={{ marginTop: 24 }}>{t('admin.heatmap')}</h3>
@@ -518,7 +478,6 @@ const AdminPanel = () => {
       </div>
     );
   };
-
   const renderUsers = () => (
     <div className="admin-tab">
       <h2>{t('admin.users')}</h2>
@@ -561,7 +520,6 @@ const AdminPanel = () => {
       </table>
     </div>
   );
-
   const renderAuditLog = () => (
     <div className="admin-tab">
       <h2>{t('admin.logs')}</h2>
@@ -593,7 +551,6 @@ const AdminPanel = () => {
       )}
     </div>
   );
-
   return (
     <div className="dashboard-container admin-container">
       <aside className="sidebar">
@@ -608,7 +565,6 @@ const AdminPanel = () => {
           <button className={activeTab === 'audit' ? 'active' : ''} onClick={() => setActiveTab('audit')}>{t('admin.logs')}</button>
         </nav>
       </aside>
-
       <main className="main-content">
         {activeTab === 'kyc' && renderKyc()}
         {activeTab === 'photos' && renderPhotos()}
@@ -621,5 +577,4 @@ const AdminPanel = () => {
     </div>
   );
 };
-
 export default AdminPanel;

@@ -1,5 +1,4 @@
 package ru.savefood.ai;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -13,25 +12,13 @@ import java.util.Map;
 import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-/**
- * Port of backend/ai_service.py — the Gemini-backed support assistant for the
- * Telegram bot. {@link #askSupportAi} returns the model's answer, the
- * {@link #ESCALATE} sentinel when it cannot answer reliably, or {@code null} on
- * any failure (no API key, network error, empty response) so the caller escalates
- * to a human (SUPPORT_CHAT_ID).
- */
 @Service
 public class AiService {
-
     private static final Logger log = Logger.getLogger(AiService.class.getName());
-
     /** The sentinel the model returns when it cannot answer reliably. */
     public static final String ESCALATE = "ESCALATE";
-
     private static final String SYSTEM_PROMPT = """
         Ты — помощник службы поддержки платформы SaveFood (savefood — спасение еды).
-
         О платформе:
         - SaveFood соединяет магазины (отдают еду с истекающим сроком годности), волонтёров (доставляют) и нуждающихся (получают помощь бесплатно).
         - Магазин публикует «лот» (название, категория, количество кг, срок годности, адрес, время выдачи). Лот автоматически снимается за 24 часа до истечения срока.
@@ -41,26 +28,21 @@ public class AiService {
         - Если получатель не открыл дверь — волонтёр жмёт «Не открыли дверь» (после 3 попыток заявка возвращается в очередь).
         - Команды бота: /start — привязка аккаунта, /help — список команд, /status — статус аккаунта, /chat — как переписываться, /unlink — отвязать Telegram.
         - Текстовые сообщения боту пересылаются второй стороне активной доставки (волонтёр ↔ получатель).
-
         Правила ответа:
         - Отвечай кратко (1-4 предложения), дружелюбно, на языке пользователя (по умолчанию русский).
         - Отвечай ТОЛЬКО на вопросы о платформе SaveFood и её использовании.
         - Если не знаешь ответа, не уверен, либо вопрос требует действий человека (жалоба, спор, разблокировка, изменение чужих данных, возврат, инцидент, поведение другого пользователя) — ответь ровно одним словом: ESCALATE
         """;
-
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(20)).build();
-
     private final String apiKey;
     private final String model;
-
     public AiService(@Value("${savefood.gemini-api-key:}") String apiKey,
                      @Value("${savefood.ai-model:${savefood.ocr-model:gemini-2.5-flash}}") String model) {
         this.apiKey = apiKey;
         this.model = model;
     }
-
     /** @return the answer, the {@link #ESCALATE} sentinel, or null on failure. */
     public String askSupportAi(String question, String role, String username) {
         if (apiKey == null || apiKey.isBlank() || question == null || question.isBlank()) {
@@ -77,7 +59,6 @@ public class AiService {
             HttpRequest req = HttpRequest.newBuilder(URI.create(
                     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
                 .timeout(Duration.ofSeconds(20))
-                // Key in a header, not the query string, so it never lands in logs.
                 .header("x-goog-api-key", apiKey)
                 .header("content-type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body)))

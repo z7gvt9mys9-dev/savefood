@@ -1,5 +1,4 @@
 package ru.savefood.app.core.network.api
-
 import ru.savefood.app.core.network.dto.LoginResponse
 import ru.savefood.app.core.network.dto.MeResponse
 import ru.savefood.app.core.network.dto.LogoutResponse
@@ -11,24 +10,19 @@ import retrofit2.http.GET
 import retrofit2.http.Body
 import retrofit2.http.Headers
 import retrofit2.http.POST
-
 interface AuthApi {
-    // Backend uses FastAPI's OAuth2PasswordRequestForm → form-urlencoded body.
     @FormUrlEncoded
     @POST("auth/login")
     suspend fun login(
         @Field("username") username: String,
         @Field("password") password: String,
     ): LoginResponse
-
     @Headers("X-No-Auth: true")
     @POST("auth/refresh")
     suspend fun refresh(@Body request: RefreshRequest): RefreshResponse
-
     @Headers("X-No-Auth: true")
     @POST("auth/logout")
     suspend fun logout(@Body request: RefreshRequest): LogoutResponse
-
     @GET("auth/me")
     suspend fun me(): MeResponse
 }

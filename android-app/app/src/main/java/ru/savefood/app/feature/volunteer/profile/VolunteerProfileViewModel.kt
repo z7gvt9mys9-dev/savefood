@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.profile
-
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -18,12 +17,9 @@ import ru.savefood.app.feature.volunteer.data.VolunteerDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import ru.savefood.app.feature.volunteer.data.VolunteerUpdateDto
 import javax.inject.Inject
-
 data class VolunteerProfileUiState(
     val loading: Boolean = true,
     val error: String? = null,
-    /** A secondary section (history / notifications) failed to load while the core
-     *  profile loaded fine — shown as a non-blocking banner, not an empty state. */
     val partialError: Boolean = false,
     val profile: VolunteerDto? = null,
     val history: List<RouteHistoryDto> = emptyList(),
@@ -32,18 +28,14 @@ data class VolunteerProfileUiState(
     val uploadingDoc: Boolean = false,
     val message: String? = null,
 )
-
 @HiltViewModel
 class VolunteerProfileViewModel @Inject constructor(
     private val repo: VolunteerRepository,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(VolunteerProfileUiState())
     val state: StateFlow<VolunteerProfileUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: run {
@@ -70,7 +62,6 @@ class VolunteerProfileViewModel @Inject constructor(
             if (partial) _state.update { it.copy(partialError = true) }
         }
     }
-
     fun save(name: String?, contact: String?, city: String?, hasThermalBag: Boolean, savedMessage: String) {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: return@launch
@@ -89,7 +80,6 @@ class VolunteerProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun uploadDocument(uri: Uri, uploadedMessage: String) {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: return@launch
@@ -99,13 +89,12 @@ class VolunteerProfileViewModel @Inject constructor(
             when (res) {
                 is ApiResult.Success -> {
                     _state.update { it.copy(message = uploadedMessage) }
-                    load() // refresh status (pending)
+                    load()
                 }
                 is ApiResult.Error -> _state.update { it.copy(message = res.message) }
             }
         }
     }
-
     fun markNotificationRead(notificationId: Int, failureMessage: String) {
         viewModelScope.launch {
             when (val res = repo.markNotificationRead(notificationId)) {
@@ -114,7 +103,6 @@ class VolunteerProfileViewModel @Inject constructor(
                         if (it.id == notificationId) it.copy(read = 1) else it
                     })
                 }
-                // Don't flip the row to "read" if the server rejected it; tell the user.
                 is ApiResult.Error -> {
                     Log.w(TAG, "markNotificationRead($notificationId) failed: ${res.message}")
                     _state.update { it.copy(message = failureMessage) }
@@ -122,13 +110,10 @@ class VolunteerProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun logout() {
         viewModelScope.launch { authRepository.logout() }
     }
-
     fun clearMessage() = _state.update { it.copy(message = null) }
-
     companion object {
         private const val TAG = "VolunteerProfileVM"
     }

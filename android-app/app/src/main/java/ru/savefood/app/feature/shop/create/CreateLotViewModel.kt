@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.create
-
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,7 +12,6 @@ import ru.savefood.app.core.common.ApiResult
 import ru.savefood.app.feature.shop.data.LotCreateDto
 import ru.savefood.app.feature.shop.data.ShopRepository
 import javax.inject.Inject
-
 data class CreateLotForm(
     val description: String = "",
     val quantity: String = "",
@@ -26,7 +24,6 @@ data class CreateLotForm(
     val comment: String = "",
     val requiresCold: Boolean = false,
 )
-
 data class CreateLotUiState(
     val step: Int = 0,
     val form: CreateLotForm = CreateLotForm(),
@@ -41,26 +38,18 @@ data class CreateLotUiState(
             form.quantity.toIntOrNull()?.let { it >= 1 } == true &&
             (form.unit == "кг" || (form.unitWeightKg.toDoubleOrNull()?.let { it > 0 } == true))
 }
-
 @HiltViewModel
 class CreateLotViewModel @Inject constructor(
     private val repo: ShopRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(CreateLotUiState())
     val state: StateFlow<CreateLotUiState> = _state.asStateFlow()
-
     fun updateForm(transform: (CreateLotForm) -> CreateLotForm) =
         _state.update { it.copy(form = transform(it.form)) }
-
     fun setStep(step: Int) = _state.update { it.copy(step = step) }
-
     fun setPhoto(uri: Uri?) = _state.update { it.copy(photoUri = uri) }
-
     fun reset() = _state.update { CreateLotUiState() }
-
     fun clearError() = _state.update { it.copy(error = null) }
-
     fun submit() {
         val s = _state.value
         if (!s.canContinue || s.submitting) return

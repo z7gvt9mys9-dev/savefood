@@ -1,5 +1,4 @@
 package ru.savefood.app.core.device.camera
-
 import android.Manifest
 import android.content.Context
 import android.net.Uri
@@ -24,10 +23,8 @@ import java.util.Locale
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
-
 /** CAMERA permission string, re-exported for caller convenience. */
 val CAMERA_PERMISSION: String = Manifest.permission.CAMERA
-
 /** Remembers a single [ImageCapture] use case across recompositions. */
 @Composable
 fun rememberImageCapture(): ImageCapture = remember {
@@ -35,11 +32,6 @@ fun rememberImageCapture(): ImageCapture = remember {
         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
         .build()
 }
-
-/**
- * Camera preview bound to [imageCapture]. Binds the back camera to the host
- * lifecycle; rebinding is automatic when [imageCapture] changes.
- */
 @Composable
 fun CameraPreview(
     imageCapture: ImageCapture,
@@ -48,7 +40,6 @@ fun CameraPreview(
     val context = LocalContext.current
     val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
-
     AndroidView(
         factory = { previewView },
         modifier = modifier,
@@ -57,9 +48,7 @@ fun CameraPreview(
         },
     )
 }
-
 private const val TAG = "CameraCapture"
-
 private fun bindCameraUseCases(
     context: Context,
     lifecycleOwner: LifecycleOwner,
@@ -68,9 +57,6 @@ private fun bindCameraUseCases(
 ) {
     val future = ProcessCameraProvider.getInstance(context)
     future.addListener({
-        // future.get() and bindToLifecycle can both throw (provider init failure,
-        // camera in use, no back camera). Don't swallow it silently — at minimum log
-        // so a black/empty preview is diagnosable instead of a mystery.
         runCatching {
             val provider = future.get()
             val preview = Preview.Builder().build().apply {
@@ -86,13 +72,6 @@ private fun bindCameraUseCases(
         }.onFailure { Log.e(TAG, "Failed to bind camera use cases", it) }
     }, ContextCompat.getMainExecutor(context))
 }
-
-/**
- * Captures a single frame to a new file in the app's cache dir.
- *
- * @return the saved [File] (and its content [Uri]) on success.
- * @throws ImageCaptureException if the capture pipeline fails.
- */
 suspend fun ImageCapture.captureToFile(context: Context): CapturedPhoto {
     val file = File(
         context.cacheDir,
@@ -107,7 +86,6 @@ suspend fun ImageCapture.captureToFile(context: Context): CapturedPhoto {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     cont.resume(CapturedPhoto(file, output.savedUri ?: Uri.fromFile(file)))
                 }
-
                 override fun onError(exception: ImageCaptureException) {
                     cont.resumeWithException(exception)
                 }
@@ -115,6 +93,5 @@ suspend fun ImageCapture.captureToFile(context: Context): CapturedPhoto {
         )
     }
 }
-
 /** Result of a successful capture: the file on disk and its content [Uri]. */
 data class CapturedPhoto(val file: File, val uri: Uri)

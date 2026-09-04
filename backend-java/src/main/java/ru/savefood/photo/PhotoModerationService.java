@@ -1,5 +1,4 @@
 package ru.savefood.photo;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -23,37 +22,21 @@ import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Pre-publication moderation of recipient delivery photos (§36.1), ported from
- * photo_moderation.py. A photo lands as {@code delivery_photo_status = 'pending'}
- * (the public Impact feed only shows {@code 'approved'}); one Gemini Vision call
- * asks "is this actually food, and is it appropriate?" and leaves a verdict for
- * the admin queue. When PHOTO_AUTO_MODERATE is on, confident food is
- * auto-approved and clearly inappropriate content is auto-rejected (and its file
- * deleted). Fired fire-and-forget from a daemon thread after the upload.
- */
 @Service
 public class PhotoModerationService {
-
     private static final Logger log = Logger.getLogger(PhotoModerationService.class.getName());
-
     private static final double OK_THRESHOLD = 0.7;
     private static final double BAD_THRESHOLD = 0.3;
-
     private static final Map<String, String> MIME_BY_EXT = Map.of(
         ".jpg", "image/jpeg", ".jpeg", "image/jpeg", ".png", "image/png", ".webp", "image/webp");
-
     private static final String SYSTEM_PROMPT = """
         Ты — модератор публичной витрины платформы SaveFood (Казахстан).
         Получатель помощи загрузил фото полученных им продуктов — это фото попадёт в
         ПУБЛИЧНУЮ ленту, которую смотрят СМИ и городские администрации.
-
         Твоя задача — решить, можно ли это фото публиковать. На фото должна быть еда
         (продукты, готовые блюда, пакеты/коробки с продуктами). Недопустимо:
         люди крупным планом, документы с персональными данными, оскорбительный или
         непристойный контент, насилие, мемы/скриншоты, реклама, изображения не по теме.
-
         Верни СТРОГО один JSON-объект без пояснений:
         {
           "is_food": true|false,
@@ -64,7 +47,6 @@ public class PhotoModerationService {
           "summary": "1-2 предложения для модератора на русском"
         }
         """;
-
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(60)).build();
@@ -78,7 +60,6 @@ public class PhotoModerationService {
         t.setDaemon(true);
         return t;
     });
-
     public PhotoModerationService(JdbcTemplate jdbc,
             @Value("${savefood.gemini-api-key:}") String apiKey,
             @Value("${savefood.photo-model:${savefood.ocr-model:gemini-2.5-flash}}") String model,
@@ -92,12 +73,10 @@ public class PhotoModerationService {
         this.autoApproveScore = autoApproveScore;
         this.deliveryPhotos = deliveryPhotos;
     }
-
     /** Fire-and-forget entry point, the analogue of {@code start_photo_check}. */
     public void startPhotoCheck(int ticketId, String photoPath, String photoRef) {
         pool.submit(() -> runPhotoCheck(ticketId, photoPath, photoRef));
     }
-
     void runPhotoCheck(int ticketId, String photoPath, String photoRef) {
         try {
             Path path = Paths.get(photoPath);
@@ -108,7 +87,6 @@ public class PhotoModerationService {
             byte[] content = Files.readAllBytes(path);
             JsonNode parsed = analyze(content, mime);
             if (parsed == null) {
-                // AI unavailable → stays pending for fully manual review.
                 saveResult(ticketId, photoRef, "pending", "unchecked", null,
                     "ИИ-проверка недоступна, проверьте вручную", false);
                 return;
@@ -124,7 +102,6 @@ public class PhotoModerationService {
             boolean applied = saveResult(ticketId, photoRef, auto != null ? auto : "pending",
                 result.verdict, result.score, notes, auto != null);
             if (applied && "rejected".equals(auto)) {
-                // Drop the analysed file so it never leaks; the row keeps the verdict.
                 deliveryPhotos.deleteAfterCommit(photoRef);
             }
             log.info("[photo] ticket " + ticketId + ": " + result.verdict + " (" + result.score + ") → "
@@ -133,7 +110,6 @@ public class PhotoModerationService {
             log.warning("[photo] check for ticket " + ticketId + " failed: " + e.getMessage());
         }
     }
-
     private JsonNode analyze(byte[] content, String mime) {
         if (apiKey == null || apiKey.isBlank() || content == null || content.length == 0) {
             return null;
@@ -151,7 +127,6 @@ public class PhotoModerationService {
                         Map.of("text", "Проверь это фото для публичной ленты.")))),
                 "generationConfig", Map.of(
                     "responseMimeType", "application/json", "maxOutputTokens", 1000));
-
             HttpRequest req = HttpRequest.newBuilder(URI.create(
                     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
                 .timeout(Duration.ofSeconds(60))
@@ -180,10 +155,8 @@ public class PhotoModerationService {
             return null;
         }
     }
-
     /** Deterministic scoring of the AI's structured answer (0=reject, 1=ok). */
     private Scored score(JsonNode parsed) {
-        // Inappropriate content is a hard veto regardless of "is_food".
         if (parsed.path("inappropriate").asBoolean(false)) {
             String reason = parsed.path("inappropriate_reason").asText("");
             return new Scored(0.0, "inappropriate",
@@ -211,7 +184,6 @@ public class PhotoModerationService {
         String note = (summary + (tail.isBlank() ? "" : " — " + tail)).strip();
         return new Scored(score, verdict, truncate(note), false);
     }
-
     /** Pure auto-moderation decision → "approved" | "rejected" | null (queue). */
     private String decide(Scored result) {
         if (!autoModerate) {
@@ -225,12 +197,6 @@ public class PhotoModerationService {
         }
         return null;
     }
-
-    /**
-     * Only touch a row still 'pending' AND still pointing at the analysed photo: a
-     * human decision must never be overwritten, and a re-upload (a different file)
-     * must not inherit this stale verdict. Returns true if the row was updated.
-     */
     private boolean saveResult(int ticketId, String photoUrl, String status, String verdict,
             Double score, String notes, boolean reviewed) {
         OffsetDateTime reviewedAt = reviewed ? OffsetDateTime.now() : null;
@@ -241,12 +207,10 @@ public class PhotoModerationService {
             status, verdict, score, notes, reviewedAt, ticketId, photoUrl);
         return rows > 0;
     }
-
     private static String extension(String path) {
         int dot = path.lastIndexOf('.');
         return dot < 0 ? "" : path.substring(dot).toLowerCase();
     }
-
     private static String stripFence(String text) {
         if (text.startsWith("```")) {
             text = text.replaceAll("^`+", "").replaceAll("`+$", "");
@@ -256,11 +220,9 @@ public class PhotoModerationService {
         }
         return text.strip();
     }
-
     private static String truncate(String s) {
         return s.length() > 1000 ? s.substring(0, 1000) : s;
     }
-
     private record Scored(double score, String verdict, String notes, boolean inappropriate) {
     }
 }

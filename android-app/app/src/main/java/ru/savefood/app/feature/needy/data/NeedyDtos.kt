@@ -1,8 +1,6 @@
 package ru.savefood.app.feature.needy.data
-
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-
 /** A recipient's request/ticket (GET /needy/{id}/tickets, /history). */
 @Serializable
 data class TicketDto(
@@ -28,7 +26,6 @@ data class TicketDto(
     val rating: Int? = null,
     @SerialName("rating_comment") val ratingComment: String? = null,
 )
-
 /** Body for POST /needy/{id}/ticket. */
 @Serializable
 data class TicketCreateDto(
@@ -43,10 +40,8 @@ data class TicketCreateDto(
     val entrance: String? = null,
     @SerialName("self_pickup") val selfPickup: Boolean = false,
 )
-
 @Serializable
 data class CreatedIdDto(val id: Int)
-
 /** An active food lot (GET /lots). */
 @Serializable
 data class LotDto(
@@ -67,7 +62,6 @@ data class LotDto(
     @SerialName("shop_lat") val shopLat: Double? = null,
     @SerialName("shop_lon") val shopLon: Double? = null,
 )
-
 /** Recipient profile (GET/POST/PATCH /needy/{id}/profile). */
 @Serializable
 data class NeedyProfileDto(
@@ -86,7 +80,6 @@ data class NeedyProfileDto(
     val lon: Double? = null,
     @SerialName("geo_push_enabled") val geoPushEnabled: Boolean? = true,
 )
-
 /** Body for POST/PATCH /needy/{id}/profile. */
 @Serializable
 data class NeedyProfileUpdateDto(
@@ -103,10 +96,8 @@ data class NeedyProfileUpdateDto(
     val lon: Double? = null,
     @SerialName("clear_coordinates") val clearCoordinates: Boolean? = null,
 )
-
 @Serializable
 data class GeoPushUpdateDto(val enabled: Boolean)
-
 /** Live volunteer location (GET /volunteers/{id}/location). */
 @Serializable
 data class VolunteerLocationDto(

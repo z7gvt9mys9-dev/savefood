@@ -5,12 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { API_URL, authFetch } from '../api';
 import MonoIcon from '../components/MonoIcon';
 import './Style/ImpactPage.css';
-
 const POLL_MS = 20000;
-
-// Public city dashboard: live counters of rescued food / CO2 / meals,
-// the inter-city leaderboard and the anonymous delivery photo feed.
-// No auth — this page is the platform's PR surface (media, city halls, sponsors).
 const ImpactPage = () => {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -22,7 +17,6 @@ const ImpactPage = () => {
   const [uploadingTickets, setUploadingTickets] = useState({});
   const [error, setError] = useState(false);
   const pollRef = useRef(null);
-
   const fetchAll = async () => {
     try {
       const [sRes, cRes, tRes, fRes] = await Promise.all([
@@ -40,16 +34,13 @@ const ImpactPage = () => {
       setError(true);
     }
   };
-
   useEffect(() => {
     fetchAll();
     pollRef.current = setInterval(fetchAll, POLL_MS);
     return () => clearInterval(pollRef.current);
   }, []);
-
   useEffect(() => {
     if (user?.role === 'needy' && user?.relatedId) {
-      // Fetch up to 100 recent tickets to ensure recipients can find orders to photograph
       authFetch(`${API_URL}/needy/${user.relatedId}/history?limit=100`)
       .then(res => res.ok ? res.json() : [])
       .then(data => {
@@ -59,7 +50,6 @@ const ImpactPage = () => {
       .catch(() => {});
     }
   }, [user]);
-
   const handleUpload = async (ticketId, file) => {
     if (!file) return;
     setUploadingTickets(prev => ({ ...prev, [ticketId]: true }));
@@ -73,7 +63,6 @@ const ImpactPage = () => {
       if (res.ok) {
         fetchAll();
         setUserTickets(prev => prev.filter(t => t.id !== ticketId));
-        // Photo is not public immediately — it goes through moderation (§36.1).
         alert(t('impact.photo_pending'));
       } else {
         alert(t('common.error'));
@@ -84,7 +73,6 @@ const ImpactPage = () => {
       setUploadingTickets(prev => ({ ...prev, [ticketId]: false }));
     }
   };
-
   const totals = summary?.totals;
   const counters = totals ? [
     { value: Math.round(totals.kg).toLocaleString(), label: t('impact.kg_saved'), accent: true },
@@ -94,7 +82,6 @@ const ImpactPage = () => {
     { value: (summary.active_volunteers ?? 0).toLocaleString(), label: t('impact.volunteers') },
     { value: (summary.partner_shops ?? 0).toLocaleString(), label: t('impact.shops') },
   ] : [];
-
   return (
     <div className="impact-page">
       <section className="impact-hero">
@@ -102,9 +89,7 @@ const ImpactPage = () => {
         <p>{t('impact.subtitle')}</p>
         <span className="impact-live">● {t('impact.live')}</span>
       </section>
-
       {error && !summary && <p className="impact-error">{t('common.connection_error')}</p>}
-
       <section className="impact-counters">
         {counters.map((c, i) => (
           <div key={i} className={`impact-counter ${c.accent ? 'accent' : ''}`}>
@@ -113,7 +98,6 @@ const ImpactPage = () => {
           </div>
         ))}
       </section>
-
       {summary?.by_month?.length > 0 && (
         <section className="impact-section">
           <h2>{t('impact.monthly_title')}</h2>
@@ -127,7 +111,6 @@ const ImpactPage = () => {
           </ResponsiveContainer>
         </section>
       )}
-
       {cities.length > 0 && (
         <section className="impact-section">
           <h2>{t('impact.cities_title')}</h2>
@@ -148,7 +131,6 @@ const ImpactPage = () => {
           </div>
         </section>
       )}
-
       {teams.length > 0 && (
         <section className="impact-section">
           <h2>{t('impact.teams_title')}</h2>
@@ -172,7 +154,6 @@ const ImpactPage = () => {
           </div>
         </section>
       )}
-
       {userTickets.length > 0 && (
         <section className="impact-section upload-impact-section">
           <h2>{t('impact.share_title')}</h2>
@@ -197,7 +178,6 @@ const ImpactPage = () => {
           </div>
         </section>
       )}
-
       {feed.length > 0 && (
         <section className="impact-section">
           <h2>{t('impact.feed_title')}</h2>
@@ -223,12 +203,10 @@ const ImpactPage = () => {
           </div>
         </section>
       )}
-
       {summary?.methodology && (
         <p className="impact-methodology">{t('impact.methodology')}: {summary.methodology}</p>
       )}
     </div>
   );
 };
-
 export default ImpactPage;

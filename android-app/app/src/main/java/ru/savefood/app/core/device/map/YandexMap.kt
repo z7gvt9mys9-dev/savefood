@@ -1,5 +1,4 @@
 package ru.savefood.app.core.device.map
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -18,7 +17,6 @@ import com.yandex.mapkit.map.Map as YMap
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.map.PlacemarkMapObject
 import com.yandex.mapkit.mapview.MapView
-
 /** A single marker rendered on the map. [id] is echoed back on tap. */
 data class MapMarker(
     val id: String,
@@ -26,20 +24,7 @@ data class MapMarker(
     val longitude: Double,
     val title: String? = null,
 )
-
 private const val DEFAULT_ZOOM = 13f
-
-/**
- * Compose wrapper around a Yandex [MapView].
- *
- * @param markers placemarks to render; tapping one invokes [onMarkerClick] with its id.
- * @param center initial camera focus. Falls back to the first marker, then Moscow.
- * @param onMarkerClick invoked with [MapMarker.id] when a placemark is tapped.
- * @param onMapClick invoked with the tapped [Point] for empty-map taps.
- *
- * Lifecycle is bound to the host: MapKit + MapView are started/stopped with
- * the composable's [Lifecycle], matching Yandex's required onStart/onStop calls.
- */
 @Composable
 fun YandexMap(
     markers: List<MapMarker>,
@@ -53,10 +38,7 @@ fun YandexMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentMarkerClick = rememberUpdatedState(onMarkerClick)
     val currentMapClick = rememberUpdatedState(onMapClick)
-
     val mapView = remember { MapView(context) }
-
-    // Tap listener kept as a field so MapKit holds a strong reference (it uses weak refs).
     val tapListener = remember {
         MapObjectTapListener { mapObject, _ ->
             (mapObject.userData as? String)?.let { currentMarkerClick.value(it) }
@@ -69,7 +51,6 @@ fun YandexMap(
             override fun onMapLongTap(map: YMap, point: Point) = Unit
         }
     }
-
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -87,7 +68,6 @@ fun YandexMap(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-
     AndroidView(
         factory = {
             mapView.mapWindow.map.addInputListener(inputListener)
@@ -100,12 +80,9 @@ fun YandexMap(
                 ?: markers.firstOrNull()?.let { Point(it.latitude, it.longitude) }
                 ?: MOSCOW
             map.move(CameraPosition(focus, initialZoom, 0f, 0f))
-
             val collection = map.mapObjects
             collection.clear()
             markers.forEach { marker ->
-                // Default-pin overload: feature screens supply custom icons via
-                // a later style pass; a plain placemark is sufficient here.
                 @Suppress("DEPRECATION")
                 val placemark: PlacemarkMapObject = collection.addPlacemark(
                     Point(marker.latitude, marker.longitude),
@@ -116,5 +93,4 @@ fun YandexMap(
         },
     )
 }
-
 private val MOSCOW = Point(55.7558, 37.6173)

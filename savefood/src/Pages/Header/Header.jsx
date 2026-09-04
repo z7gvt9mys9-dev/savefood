@@ -3,10 +3,8 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useTranslation } from 'react-i18next';
 import './Header.css';
-
 const ROLE_PATHS = { shop: '/shop', volunteer: '/volunteer', needy: '/needy', admin: '/admin' };
 const LANGS = [{ code: 'ru', label: 'RU' }, { code: 'en', label: 'EN' }];
-
 const LogoSymbol = () => (
   <svg className="logo-symbol" viewBox="0 0 48 48" aria-hidden="true">
     <path className="logo-symbol__base" d="M24 3.5c11.8 0 20.5 8.7 20.5 20.2 0 11.9-8.8 20.8-20.5 20.8S3.5 35.6 3.5 23.7C3.5 12.2 12.2 3.5 24 3.5Z" />
@@ -17,29 +15,23 @@ const LogoSymbol = () => (
     <path className="logo-symbol__route" d="M17.2 25.8c1.8 2.5 4 3.8 6.8 3.8s5-1.3 6.8-3.8" />
   </svg>
 );
-
 const Header = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
-
   const close = () => setOpen(false);
-
   const handleLogout = () => {
     logout();
     navigate('/');
     close();
   };
-
   const switchLang = (code) => {
     i18n.changeLanguage(code);
     close();
   };
-
   if (location.pathname === '/') return null;
-
   return (
     <header className="header">
       <div className="header-container">
@@ -47,11 +39,9 @@ const Header = () => {
           <LogoSymbol />
           <span className="logo-text">Save<span>Food</span></span>
         </Link>
-
         <button className={`burger ${open ? 'active' : ''}`} onClick={() => setOpen(o => !o)} aria-label={t('nav.menu')}>
           <span /><span /><span />
         </button>
-
         <nav className={`nav ${open ? 'open' : ''}`}>
           <ul className="nav-links">
             <li><NavLink to="/" end onClick={close}>{t('nav.home')}</NavLink></li>
@@ -83,11 +73,9 @@ const Header = () => {
             </li>
           </ul>
         </nav>
-
         {open && <div className="nav-backdrop" onClick={close} />}
       </div>
     </header>
   );
 };
-
 export default Header;

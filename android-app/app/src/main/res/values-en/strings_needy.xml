@@ -1,5 +1,4 @@
 <resources>
-    <!-- Tracking -->
     <string name="needy_tickets_title">My requests</string>
     <string name="needy_tickets_empty_title">No active requests</string>
     <string name="needy_tickets_empty_desc">Create a request in the "Find food" tab and delivery tracking will appear here.</string>
@@ -22,7 +21,6 @@
     <string name="needy_track_cancel_confirm_desc">The courier will stop delivering. This cannot be undone.</string>
     <string name="needy_track_rate_cta">Rate delivery</string>
 
-    <!-- Find food -->
     <string name="needy_find_title">Find food</string>
     <string name="needy_find_tab_list">List</string>
     <string name="needy_find_tab_map">Map</string>
@@ -31,7 +29,6 @@
     <string name="needy_find_empty_desc">Check back later — shops publish food throughout the day.</string>
     <string name="needy_find_request_cta">Create request</string>
 
-    <!-- Wizard -->
     <string name="needy_wizard_title">New request</string>
     <string name="needy_wizard_step_method">Method</string>
     <string name="needy_wizard_step_details">Details</string>
@@ -53,7 +50,6 @@
     <string name="needy_wizard_address_required">Enter a delivery address</string>
     <string name="needy_wizard_location_required">Share your precise delivery location</string>
 
-    <!-- History -->
     <string name="needy_history_title">History</string>
     <string name="needy_history_empty_title">No history yet</string>
     <string name="needy_history_empty_desc">Completed pickups will show up here.</string>
@@ -68,12 +64,10 @@
     <string name="needy_history_cancel_confirm_title">Cancel active request?</string>
     <string name="needy_history_cancel_confirm_desc">The active request and delivery will be cancelled. This cannot be undone.</string>
 
-    <!-- Rating -->
     <string name="needy_rate_title">Rate the delivery</string>
     <string name="needy_rate_comment_hint">Thank-you note (optional)</string>
     <string name="needy_rate_submit">Submit rating</string>
 
-    <!-- Profile -->
     <string name="needy_profile_title">Profile</string>
     <string name="needy_profile_section_personal">Details</string>
     <string name="needy_profile_section_address">Address</string>
@@ -101,7 +95,6 @@
     <string name="needy_profile_delete_confirm_title">Delete account?</string>
     <string name="needy_profile_delete_confirm_desc">Personal data will be erased permanently (right to be forgotten).</string>
 
-    <!-- Common -->
     <string name="needy_choose_file">Choose file</string>
     <string name="needy_retry">Retry</string>
 </resources>

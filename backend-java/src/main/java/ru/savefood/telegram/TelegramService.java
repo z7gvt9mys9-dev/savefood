@@ -1,5 +1,4 @@
 package ru.savefood.telegram;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -15,29 +14,14 @@ import ru.savefood.push.PushDispatchService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Port of backend/telegram_service.py: outbound Telegram notifications plus the
- * Web-Push mirror. {@link #notifyNeedy}, {@link #notifyShop} and
- * {@link #notifyVolunteer} send the Telegram message (if the account linked a
- * chat) and always also fan out to Web Push / FCM, so users without the bot
- * still get a browser/native notification — exactly like the Python helpers.
- *
- * <p>Sends go through the optional VLESS SOCKS5 proxy ({@link ProxyService}) when
- * configured. The JDK's {@code HttpClient} cannot use a SOCKS proxy, so this uses
- * {@code HttpURLConnection}, which honours {@link Proxy.Type#SOCKS}.
- */
 @Service
 public class TelegramService {
-
     private static final Logger log = Logger.getLogger(TelegramService.class.getName());
-
     private final ObjectMapper mapper = new ObjectMapper();
     private final JdbcTemplate jdbc;
     private final ProxyService proxyService;
     private final PushDispatchService push;
     private final String botToken;
-
     public TelegramService(JdbcTemplate jdbc, ProxyService proxyService, PushDispatchService push,
                            @Value("${savefood.oauth.telegram-bot-token:}") String botToken) {
         this.jdbc = jdbc;
@@ -45,7 +29,6 @@ public class TelegramService {
         this.push = push;
         this.botToken = botToken == null ? "" : botToken;
     }
-
     /** Low-level send. Returns true on HTTP 200, false (never throws) otherwise. */
     public boolean sendMessage(String chatId, String text) {
         if (botToken.isEmpty() || chatId == null || chatId.isEmpty()) {
@@ -73,7 +56,6 @@ public class TelegramService {
             return false;
         }
     }
-
     public String getChatIdByRelated(String role, int relatedId) {
         try {
             return jdbc.query(
@@ -83,32 +65,25 @@ public class TelegramService {
             return null;
         }
     }
-
     public void notifyNeedy(int needyId, String text) {
         notify("needy", needyId, text);
     }
-
     public void notifyShop(int shopId, String text) {
         notify("shop", shopId, text);
     }
-
     public void notifyVolunteer(int volunteerId, String text) {
         notify("volunteer", volunteerId, text);
     }
-
     private void notify(String role, int relatedId, String text) {
         String chatId = getChatIdByRelated(role, relatedId);
         if (chatId != null && !chatId.isEmpty()) {
             sendMessage(chatId, text);
         }
-        // Web Push mirrors every Telegram notification (best-effort, never blocks).
         try {
             push.notifyRole(role, relatedId, text, "/");
         } catch (Exception ignore) {
-            // a push failure must never affect the caller
         }
     }
-
     private Proxy proxy() {
         String url = proxyService.getProxyUrl();
         if (url == null || !url.startsWith("socks5://")) {

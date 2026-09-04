@@ -1,5 +1,4 @@
 <resources>
-    <!-- Available -->
     <string name="vol_available_title">Available requests</string>
     <string name="vol_available_tab_list">List</string>
     <string name="vol_available_tab_map">Map</string>
@@ -13,7 +12,6 @@
     <string name="vol_available_start_desc">You will pick up the lot \"%1$s\" and deliver it to matching requests. The route is built automatically.</string>
     <string name="vol_available_started">Route created — open the \"My route\" tab</string>
 
-    <!-- Route -->
     <string name="vol_route_title">My route</string>
     <string name="vol_route_empty_title">No active route</string>
     <string name="vol_route_empty_desc">Take a request on the \"Available\" tab to build a delivery route.</string>
@@ -44,7 +42,6 @@
     <string name="vol_route_addr_detail">%1$s</string>
     <string name="vol_available_reserved_badge">Reserved for delivery</string>
 
-    <!-- Rating -->
     <string name="vol_rating_title">Rating</string>
     <string name="vol_rating_level">Level %1$s</string>
     <string name="vol_rating_points">Points: %1$s</string>
@@ -69,13 +66,11 @@
     <string name="vol_rating_team_name_hint">Team name</string>
     <string name="vol_rating_team_code_hint">Join code</string>
 
-    <!-- Achievements -->
     <string name="vol_ach_first_delivery">First delivery</string>
     <string name="vol_ach_kg_100">100 kg rescued</string>
     <string name="vol_ach_night_courier">Night courier</string>
     <string name="vol_ach_sprinter">Sprinter</string>
 
-    <!-- Profile -->
     <string name="vol_profile_title">Volunteer profile</string>
     <string name="vol_profile_section_personal">Personal info</string>
     <string name="vol_profile_name">Name</string>

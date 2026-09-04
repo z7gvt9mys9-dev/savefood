@@ -1,5 +1,4 @@
 package ru.savefood.webhook;
-
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.InetAddress;
 import java.net.URI;
@@ -26,23 +25,12 @@ import javax.crypto.spec.SecretKeySpec;
 import jakarta.annotation.PreDestroy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Outgoing webhooks for Enterprise shops, ported from webhook_service.py.
- * Delivery runs off the request thread (a daemon executor here, daemon threads
- * in Python); the body is HMAC-SHA256-signed with the webhook secret and sent
- * with {@code X-SaveFood-Event} / {@code X-SaveFood-Signature} headers. Delivery
- * is bounded so a partner's slow endpoint cannot consume request threads or grow
- * the process without limit. A best-effort SSRF guard blocks internal addresses.
- */
 @Service
 public class WebhookService {
-
     private static final Logger log = Logger.getLogger(WebhookService.class.getName());
     /** The events a partner webhook may subscribe to (webhook_service.py {@code EVENTS}). */
     public static final java.util.List<String> EVENTS =
         java.util.List.of("lot.taken", "lot.confirmed", "receipt.parsed");
-
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
     private final WebhookProperties properties;
@@ -53,7 +41,6 @@ public class WebhookService {
     private final ConcurrentHashMap<Integer, Semaphore> shopPermits = new ConcurrentHashMap<>();
     private final AtomicInteger createdThreads = new AtomicInteger();
     private final AtomicLong rejectedDeliveries = new AtomicLong();
-
     public WebhookService(JdbcTemplate jdbc, WebhookProperties properties) {
         this.jdbc = jdbc;
         this.properties = properties;
@@ -63,7 +50,6 @@ public class WebhookService {
         this.urlValidator = WebhookService::isSafeWebhookUrl;
         this.delivery = newExecutor();
     }
-
     WebhookService(JdbcTemplate jdbc, WebhookProperties properties, DeliverySender sender,
                    UrlValidator urlValidator) {
         this.jdbc = jdbc;
@@ -74,7 +60,6 @@ public class WebhookService {
         this.urlValidator = urlValidator;
         this.delivery = newExecutor();
     }
-
     private ThreadPoolExecutor newExecutor() {
         return new ThreadPoolExecutor(properties.getWorkerCount(), properties.getWorkerCount(),
             0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(properties.getQueueCapacity()), r -> {
@@ -83,7 +68,6 @@ public class WebhookService {
                 return t;
             }, new ThreadPoolExecutor.AbortPolicy());
     }
-
     /** Fan {@code event} out to every matching active webhook of the shop. */
     public void fire(int shopId, String event, Map<String, Object> data) {
         List<Map<String, Object>> hooks;
@@ -137,13 +121,11 @@ public class WebhookService {
             } catch (java.util.concurrent.RejectedExecutionException e) {
                 permits.release();
                 rejectedDeliveries.incrementAndGet();
-                // The caller must never wait for capacity. A later event can retry delivery.
                 log.warning("[webhook] delivery for webhook id=" + id
                     + " dropped: delivery queue is full");
             }
         }
     }
-
     static boolean eventMatches(String eventsCsv, String event) {
         String csv = eventsCsv == null || eventsCsv.isBlank() ? "*" : eventsCsv;
         for (String e : csv.split(",")) {
@@ -154,7 +136,6 @@ public class WebhookService {
         }
         return false;
     }
-
     static String sign(String secret, byte[] body) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
@@ -170,7 +151,6 @@ public class WebhookService {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
         }
     }
-
     private void deliverWithRetries(int webhookId, String url, String secret, String event, byte[] body) {
         Integer status = null;
         String destination = sanitizeWebhookUrlForLog(url);
@@ -201,10 +181,8 @@ public class WebhookService {
             jdbc.update("UPDATE webhooks SET last_status = ?, last_delivery_at = ? WHERE id = ?",
                 status, OffsetDateTime.now(), webhookId);
         } catch (RuntimeException ignored) {
-            // best-effort, like the Python except: pass
         }
     }
-
     private Integer sendHttp(String url, String secret, String event, byte[] body) throws Exception {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
             .timeout(properties.getRequestTimeout())
@@ -216,7 +194,6 @@ public class WebhookService {
         HttpResponse<Void> resp = http.send(req, HttpResponse.BodyHandlers.discarding());
         return resp.statusCode();
     }
-
     private boolean backoff(int attempt) {
         try {
             long delay = Math.multiplyExact(properties.getInitialBackoff().toMillis(), 1L << attempt);
@@ -229,16 +206,9 @@ public class WebhookService {
             return false;
         }
     }
-
     private static boolean isRetryableStatus(Integer status) {
         return status != null && (status == 408 || status == 429 || status >= 500);
     }
-
-    /**
-     * Returns the only form of a partner-controlled webhook URL permitted in logs.
-     * Paths are intentionally omitted because path segments are commonly used for
-     * bearer-style credentials; query, fragment, and userinfo are never retained.
-     */
     static String sanitizeWebhookUrlForLog(String url) {
         try {
             URI uri = URI.create(url);
@@ -253,46 +223,22 @@ public class WebhookService {
             return "[invalid webhook URL]";
         }
     }
-
     @PreDestroy
     void stop() {
         delivery.shutdown();
     }
-
     int activeDeliveryCount() { return delivery.getActiveCount(); }
     int queuedDeliveryCount() { return delivery.getQueue().size(); }
     int createdThreadCount() { return createdThreads.get(); }
     long rejectedDeliveryCount() { return rejectedDeliveries.get(); }
-
     @FunctionalInterface
     interface DeliverySender {
         Integer send(String url, String secret, String event, byte[] body) throws Exception;
     }
-
     @FunctionalInterface
     interface UrlValidator {
         boolean isSafe(String url);
     }
-
-    /**
-     * SSRF guard: partners control the URL, so block anything resolving to
-     * internal infrastructure. Mirrors the Python {@code ip.is_private} /
-     * loopback / link-local / reserved / multicast / unspecified checks.
-     *
-     * <p>{@link InetAddress}'s built-ins miss two ranges that Python's
-     * {@code is_private} catches, so we add them explicitly: IPv6 ULA
-     * ({@code fc00::/7}) and IPv4 CGNAT ({@code 100.64.0.0/10}) — plus the
-     * reserved {@code 0.0.0.0/8} and {@code 240.0.0.0/4}, and the IPv4-mapped
-     * IPv6 form of all of the above.
-     *
-     * <p>Known limitation (shared with the authoritative Python service): this is
-     * a resolve-then-send check, so a DNS-rebinding attacker could in principle
-     * flip the record between validation and the HTTP client's own resolution.
-     * Closing that fully needs IP-pinning via a custom socket factory; it is left
-     * matching the Python source's posture rather than diverging in the port.
-     * Redirects are not a vector — the client uses the default
-     * {@code Redirect.NEVER} (as does Python's httpx).
-     */
     static boolean isSafeWebhookUrl(String url) {
         URI uri;
         try {
@@ -321,7 +267,6 @@ public class WebhookService {
         }
         return true;
     }
-
     private static boolean isBlockedAddress(InetAddress ip) {
         if (ip.isLoopbackAddress() || ip.isAnyLocalAddress() || ip.isLinkLocalAddress()
                 || ip.isSiteLocalAddress() || ip.isMulticastAddress()) {
@@ -333,9 +278,8 @@ public class WebhookService {
         }
         if (b.length == 16) {
             if ((b[0] & 0xFE) == 0xFC) {
-                return true; // fc00::/7 unique local address
+                return true;
             }
-            // IPv4-mapped IPv6 (::ffff:a.b.c.d) — re-check the embedded v4.
             boolean mapped = true;
             for (int i = 0; i < 10; i++) {
                 if (b[i] != 0) {
@@ -354,11 +298,10 @@ public class WebhookService {
         }
         return false;
     }
-
     /** IPv4 ranges {@link InetAddress} doesn't flag but Python's is_private/is_reserved does. */
     private static boolean isBlockedV4(int o0, int o1) {
-        return o0 == 0                               // 0.0.0.0/8 (this network)
-            || (o0 == 100 && (o1 & 0xC0) == 64)      // 100.64.0.0/10 CGNAT
-            || o0 >= 240;                            // 240.0.0.0/4 reserved
+        return o0 == 0
+            || (o0 == 100 && (o1 & 0xC0) == 64)
+            || o0 >= 240;
     }
 }

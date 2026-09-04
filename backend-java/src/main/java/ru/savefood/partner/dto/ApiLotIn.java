@@ -1,7 +1,5 @@
 package ru.savefood.partner.dto;
-
 import java.time.LocalDate;
-
 /** Port of partner_api.py {@code ApiLotIn} (POST /api/v1/lots). */
 public record ApiLotIn(
     String description,

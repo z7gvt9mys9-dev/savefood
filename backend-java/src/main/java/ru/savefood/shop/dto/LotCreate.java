@@ -1,7 +1,5 @@
 package ru.savefood.shop.dto;
-
 import java.time.LocalDate;
-
 /** POST /shops/{id}/lots JSON body (schemas.py LotCreate). */
 public record LotCreate(
     String description,

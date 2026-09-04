@@ -6,11 +6,9 @@ import { API_URL, authFetch } from '../../api';
 import { hasDeliveryLocation } from '../../utils/ticket';
 import AddressInput from './AddressInput';
 import './Auth.css';
-
 const TELEGRAM_COMPLETION_RETRY_MS = 250;
 const TELEGRAM_COMPLETION_MAX_ATTEMPTS = 5;
 const NEEDY_REGISTRATION_KEY = 'savefood_needy_registration_id';
-
 const AuthIcon = ({ name }) => {
   const paths = {
     telegram: <path d="M3 9.6 17 4l-3.2 12-4.5-3.4-2.8 2.2.6-4.1L14 6.5 7.1 10.7 3 9.6Z" />,
@@ -24,7 +22,6 @@ const AuthIcon = ({ name }) => {
     </svg>
   );
 };
-
 const AuthPage = () => {
   const initialParams = new URLSearchParams(window.location.search);
   const requestedRole = initialParams.get('role');
@@ -34,16 +31,14 @@ const AuthPage = () => {
     : ['shop', 'volunteer', 'needy', 'admin'];
   const initialRole = allowedInitialRoles.includes(requestedRole) ? requestedRole : 'shop';
   const [isLogin, setIsLogin] = useState(!startsInRegisterMode);
-  const [role, setRole] = useState(initialRole); // shop, volunteer, needy, admin
-  const [step, setStep] = useState(1); // For multi-step registration (Needy)
-  const [tgStep, setTgStep] = useState(false); // show Telegram link step after registration
+  const [role, setRole] = useState(initialRole);
+  const [step, setStep] = useState(1);
+  const [tgStep, setTgStep] = useState(false);
   const [regAuthenticated, setRegAuthenticated] = useState(false);
   const [regSession, setRegSession] = useState(null);
   const [regNeedyId, setRegNeedyId] = useState(null);
   const [needySubmitting, setNeedySubmitting] = useState(false);
-  // C2C: 'business' (магазин/кафе) | 'private' (частное лицо отдаёт излишки)
   const [donorKind, setDonorKind] = useState('business');
-
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -61,12 +56,10 @@ const AuthPage = () => {
     floor_num: '',
     entrance: '',
   });
-
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
-
   const handleAddressChange = (addr) => {
     setFormData(prev => ({
       ...prev,
@@ -79,20 +72,16 @@ const AuthPage = () => {
       entrance: addr.entrance,
     }));
   };
-
   const { t } = useTranslation();
   const { user, login } = useAuth();
   const navigate = useNavigate();
-
   const [agreed, setAgreed] = useState(false);
   const [providers, setProviders] = useState(null);
-  const [tgLogin, setTgLogin] = useState(null); // status-only browser transaction
+  const [tgLogin, setTgLogin] = useState(null);
   const [tgStarting, setTgStarting] = useState(false);
   const tgPollRef = useRef(null);
   const tgActiveTokenRef = useRef(null);
   const tgStartingRef = useRef(false);
-
-  // Which social providers are configured on the server (hide the rest)
   useEffect(() => {
     fetch(`${API_URL}/auth/oauth/providers`)
       .then(r => r.ok ? r.json() : null)
@@ -104,9 +93,6 @@ const AuthPage = () => {
       clearInterval(tgPollRef.current);
     };
   }, []);
-
-  // Keep a submitted registration resumable across reloads without storing the
-  // password. The auth context already restores the owner's token.
   useEffect(() => {
     if (!startsInRegisterMode || initialRole !== 'needy' || regNeedyId) return;
     if (user?.role !== 'needy' || !user.relatedId) return;
@@ -117,11 +103,6 @@ const AuthPage = () => {
     setRegSession({ role: 'needy', relatedId: savedId });
     setStep(2);
   }, [startsInRegisterMode, initialRole, regNeedyId, user]);
-
-  // OAuth callbacks return a JWT in the fragment. Telegram instead returns a
-  // one-time completion credential sent only in the private bot conversation.
-  // Strip either fragment synchronously so it is not retained or replayed by a
-  // second React StrictMode effect pass.
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const telegramCompletion = hash.get('telegram_completion');
@@ -192,7 +173,6 @@ const AuthPage = () => {
       completeOAuthLogin();
     }
   }, []);
-
   const handleOAuthLogin = async (provider) => {
     try {
       const res = await fetch(`${API_URL}/auth/oauth/${provider}/start?mode=login`);
@@ -207,7 +187,6 @@ const AuthPage = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const handleTelegramLogin = async () => {
     if (tgStartingRef.current || tgActiveTokenRef.current) return;
     tgStartingRef.current = true;
@@ -223,8 +202,6 @@ const AuthPage = () => {
       tgActiveTokenRef.current = data.token;
       setTgLogin({ ...data, status: 'pending' });
       window.open(data.link, '_blank', 'noopener');
-      // This token observes status only. The JWT can be obtained solely by
-      // opening the separate completion link delivered in private Telegram.
       clearInterval(tgPollRef.current);
       tgPollRef.current = setInterval(async () => {
         try {
@@ -261,7 +238,6 @@ const AuthPage = () => {
       setTgStarting(false);
     }
   };
-
   const cancelTelegramLogin = async () => {
     const token = tgActiveTokenRef.current;
     tgActiveTokenRef.current = null;
@@ -277,16 +253,10 @@ const AuthPage = () => {
       });
     } catch {}
   };
-
   const showRequestError = (error, fallbackKey) => {
     const isNetworkError = error?.name === 'TypeError';
     alert(isNetworkError ? t('common.connection_error') : (error?.message || t(fallbackKey)));
   };
-
-  // The login screen lets one phone number be used as the identifier for
-  // different account types. Never accept a session for a role other than the
-  // one the person selected: otherwise an account with a matching identifier
-  // could open the wrong dashboard.
   const acceptLogin = (data, expectedRole) => {
     if (!data.access_token || !data.refresh_token || data.role !== expectedRole) {
       throw new Error(t('auth.invalid_credentials'));
@@ -294,12 +264,10 @@ const AuthPage = () => {
     login(data.access_token, data.refresh_token, data.role, data.related_id);
     navigate(`/${data.role}`);
   };
-
   const appendLoginRole = (formData, expectedRole) => {
     formData.append('role', expectedRole);
     return formData;
   };
-
   const renderSocialLogin = () => {
     if (!providers || (!providers.yandex && !providers.telegram)) return null;
     return (
@@ -308,12 +276,6 @@ const AuthPage = () => {
           {t('auth.or_login_with')}
         </p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {/* Google login is temporarily disabled. */}
-          {/* {providers.google && (
-            <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('google')}>
-              G&nbsp;Google
-            </button>
-          )} */}
           {providers.yandex && (
             <button type="button" className="btn btn-secondary" onClick={() => handleOAuthLogin('yandex')}>
               Я&nbsp;Yandex
@@ -348,7 +310,6 @@ const AuthPage = () => {
       </div>
     );
   };
-
   const validateNeedyStep1 = () => {
     if (!formData.name || !formData.phone || !formData.password) {
       alert(t('auth.fill_required'));
@@ -364,7 +325,6 @@ const AuthPage = () => {
     }
     return true;
   };
-
   const submitNeedyStep1 = async () => {
     if (needySubmitting || !validateNeedyStep1()) return;
     setNeedySubmitting(true);
@@ -390,7 +350,6 @@ const AuthPage = () => {
         if (!needyId) throw new Error(t('auth.register_error'));
         setRegNeedyId(needyId);
       }
-
       if (!regAuthenticated) {
         const fd = new FormData();
         fd.append('username', formData.phone);
@@ -408,7 +367,6 @@ const AuthPage = () => {
         setRegSession({ role: sessionRole, relatedId });
         login(loginData.access_token, loginData.refresh_token, sessionRole, relatedId);
       }
-
       window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
       setStep(2);
     } catch (err) {
@@ -417,7 +375,6 @@ const AuthPage = () => {
       setNeedySubmitting(false);
     }
   };
-
   const submitNeedyProfile = async (e) => {
     e.preventDefault();
     if (!regNeedyId || !regAuthenticated) {
@@ -458,14 +415,12 @@ const AuthPage = () => {
       setNeedySubmitting(false);
     }
   };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!isLogin && !agreed) {
       alert(t('auth.agree_required'));
       return;
     }
-
     if (isLogin) {
       try {
         const fd = new FormData();
@@ -481,10 +436,6 @@ const AuthPage = () => {
       }
     } else {
       try {
-        // The final needy-registration step collects an actual delivery point.
-        // A manually typed address has no trustworthy coordinates until it is
-        // selected from the geocoder, so do not create a profile that cannot be
-        // served by a volunteer.
         let endpoint = '';
         let body = {};
         if (role === 'shop') {
@@ -500,9 +451,6 @@ const AuthPage = () => {
           throw new Error(err?.detail || t('auth.register_error'));
         }
         const data = await res.json();
-
-        // Auto-login first so owner-protected profile writes carry a valid token
-        // (those endpoints are owner-protected).
         let token = null;
         try {
           const loginUsername = (role === 'shop') ? formData.email : formData.phone;
@@ -518,21 +466,16 @@ const AuthPage = () => {
             setRegAuthenticated(true);
             const sessionRole = loginData.role || role;
             const relatedId = loginData.related_id ?? data.id ?? null;
-            // Registration already performed a successful login. Persist that
-            // session just like the normal login flow rather than making the
-            // new account holder authenticate a second time after Telegram.
             login(token, loginData.refresh_token, sessionRole, relatedId);
             setRegSession({ role: sessionRole, relatedId });
           }
         } catch {}
-
         setTgStep(true);
       } catch (err) {
         showRequestError(err, 'auth.register_error');
       }
     }
   };
-
   const renderRoleSelection = () => (
     <div className="role-selector">
       <button
@@ -555,11 +498,9 @@ const AuthPage = () => {
       </button>
     </div>
   );
-
   const renderLoginForm = () => (
     <form onSubmit={handleSubmit} className="auth-form">
       <h2>{t('auth.login')}: {t(`auth.role_${role}`)}</h2>
-
       {role === 'shop' || role === 'admin' ? (
         <>
           <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
@@ -571,7 +512,6 @@ const AuthPage = () => {
           <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} required />
         </>
       )}
-
       <button type="submit" className="btn btn-primary">{t('auth.submit_login')}</button>
       {renderSocialLogin()}
       {role !== 'admin' && (
@@ -579,7 +519,6 @@ const AuthPage = () => {
       )}
     </form>
   );
-
   const renderShopReg = () => (
     <form onSubmit={handleSubmit} className="auth-form">
       <h2>{t('auth.register')}: {donorKind === 'private' ? t('auth.donor_private') : t('auth.role_shop')}</h2>
@@ -607,7 +546,6 @@ const AuthPage = () => {
       <input type="text" name="contact" placeholder={t('auth.contact')} onChange={handleInputChange} required />
       <input type="email" name="email" placeholder={t('auth.email')} onChange={handleInputChange} required />
       <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} minLength={8} required />
-
       <AddressInput
         label={t('auth.address')}
         onChange={handleAddressChange}
@@ -620,26 +558,22 @@ const AuthPage = () => {
         entrance={formData.entrance}
         showUnitFields={false}
       />
-
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
           <span>{t('auth.agree')} (<a href="/privacy">{t('auth.privacy')}</a>)</span>
         </label>
       </div>
-
       <button type="submit" className="btn btn-primary">{t('auth.submit_register')}</button>
       <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
     </form>
   );
-
   const renderVolunteerReg = () => (
     <form onSubmit={handleSubmit} className="auth-form">
       <h2>{t('auth.register')}: {t('auth.role_volunteer')}</h2>
       <input type="text" name="name" placeholder={t('auth.name')} onChange={handleInputChange} required />
       <input type="tel" name="phone" placeholder={t('auth.phone')} onChange={handleInputChange} required />
       <input type="password" name="password" placeholder={t('auth.password')} onChange={handleInputChange} minLength={8} required />
-
       <AddressInput
         label={t('volunteer.your_city')}
         onChange={handleAddressChange}
@@ -651,19 +585,16 @@ const AuthPage = () => {
         floorNum={formData.floor_num}
         entrance={formData.entrance}
       />
-
       <div className="consent-box">
         <label className="checkbox-label">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
           <span>{t('auth.agree')}</span>
         </label>
       </div>
-
       <button type="submit" className="btn btn-primary">{t('auth.submit_register')}</button>
       <p onClick={() => setIsLogin(true)} className="toggle-auth">{t('auth.switch_to_login')}</p>
     </form>
   );
-
   const renderNeedyReg = () => {
     if (step === 1) {
       return (
@@ -673,14 +604,12 @@ const AuthPage = () => {
           <input type="text" name="name" placeholder={t('auth.full_name')} onChange={handleInputChange} required />
           <input type="tel" name="phone" placeholder={t('auth.phone_number')} onChange={handleInputChange} required />
           <input type="password" name="password" placeholder={t('auth.create_password')} onChange={handleInputChange} minLength={8} required />
-
           <div className="consent-box">
             <label className="checkbox-label">
               <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} required />
               <span>{t('auth.agree')}</span>
             </label>
           </div>
-
           <button type="button" onClick={submitNeedyStep1} className="btn btn-primary" disabled={needySubmitting}>
             {needySubmitting ? t('common.loading') : t('auth.next')}
           </button>
@@ -704,25 +633,21 @@ const AuthPage = () => {
         />
         <input type="number" name="familySize" placeholder={t('auth.family_members')} onChange={handleInputChange} required />
         <textarea name="preferences" placeholder={t('auth.dietary_prefs')} onChange={handleInputChange}></textarea>
-
         <label>{t('auth.urgency_label')}</label>
         <select name="urgency" onChange={handleInputChange}>
           <option value="normal">{t('auth.urgency_normal')}</option>
           <option value="high">{t('auth.urgency_high')}</option>
           <option value="critical">{t('auth.urgency_critical')}</option>
         </select>
-
         <div className="limit-notice">
           <p><AuthIcon name="info" />{t('auth.limit_notice')}</p>
         </div>
-
         <button type="submit" className="btn btn-primary" disabled={needySubmitting}>
           {needySubmitting ? t('common.loading') : t('auth.finish_register')}
         </button>
       </form>
     );
   };
-
   const renderTgStep = () => (
     <div className="auth-form">
       <h2>{t('auth.telegram_title')}</h2>
@@ -759,7 +684,6 @@ const AuthPage = () => {
       </button>
     </div>
   );
-
   return (
     <div className="auth-container">
       <div className="auth-card">
@@ -775,5 +699,4 @@ const AuthPage = () => {
     </div>
   );
 };
-
 export default AuthPage;

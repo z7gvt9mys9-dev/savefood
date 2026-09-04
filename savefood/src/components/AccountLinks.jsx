@@ -3,42 +3,32 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { API_URL, authFetch } from '../api';
 import MonoIcon from './MonoIcon';
-
-// Profile block: link / unlink Telegram, Google and Yandex.
-// Telegram uses the existing bot deep-link (init-link); Google/Yandex go
-// through the server-side OAuth flow (/auth/oauth/{p}/start?mode=link), the
-// callback redirects back to `dashboardPath` with #linked=<provider>.
 const PROVIDER_META = [
   { id: 'telegram', icon: <MonoIcon name="send" /> },
   { id: 'google', icon: 'G' },
   { id: 'yandex', icon: 'Я' },
 ];
-
 const AccountLinks = ({ dashboardPath = '/' }) => {
   const { user } = useAuth();
   const { t } = useTranslation();
   const authHeader = {};
-
   const [links, setLinks] = useState(null);
   const [providers, setProviders] = useState(null);
   const [tgLink, setTgLink] = useState(null);
   const [busy, setBusy] = useState('');
   const [justLinked, setJustLinked] = useState('');
-
   const loadLinks = () => {
     authFetch(`${API_URL}/auth/links`, { headers: authHeader })
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setLinks(data); })
       .catch(() => {});
   };
-
   useEffect(() => {
     loadLinks();
     fetch(`${API_URL}/auth/oauth/providers`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setProviders(data); })
       .catch(() => {});
-    // OAuth callback lands back here with #linked=<provider>
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const linked = hash.get('linked');
     if (linked) {
@@ -46,17 +36,12 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
       window.history.replaceState(null, '', window.location.pathname);
     }
   }, []);
-
-  // While the Telegram deep-link is on screen and the account is still not
-  // linked, poll the status so the row flips to «привязан» by itself once the
-  // user presses Start in the bot (no manual «Обновить» needed).
   useEffect(() => {
     if (!tgLink || links?.telegram) return;
     const timer = setInterval(loadLinks, 3000);
     const stop = setTimeout(() => clearInterval(timer), 120000);
     return () => { clearInterval(timer); clearTimeout(stop); };
   }, [tgLink, links?.telegram]);
-
   const handleLink = async (provider) => {
     setBusy(provider);
     try {
@@ -83,7 +68,6 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
       setBusy('');
     }
   };
-
   const handleUnlink = async (provider) => {
     if (!window.confirm(t('links.confirm_unlink'))) return;
     setBusy(provider);
@@ -95,14 +79,11 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
       if (res.ok) { setTgLink(null); loadLinks(); }
     } catch {} finally { setBusy(''); }
   };
-
   if (!user) return null;
-
   const rowStyle = {
     display: 'flex', alignItems: 'center', gap: 10,
     padding: '8px 0', borderBottom: '1px solid #ffffff14',
   };
-
   return (
     <div className="tg-connect-section">
       <h3>{t('links.title')}</h3>
@@ -112,7 +93,7 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
         </p>
       )}
       {PROVIDER_META.map(({ id, icon }) => {
-        if (providers && !providers[id]) return null; // not configured on server
+        if (providers && !providers[id]) return null;
         const isLinked = links?.[id];
         return (
           <div key={id} style={rowStyle}>
@@ -147,5 +128,4 @@ const AccountLinks = ({ dashboardPath = '/' }) => {
     </div>
   );
 };
-
 export default AccountLinks;

@@ -1,5 +1,4 @@
 package ru.savefood.shop.dto;
-
 /** PATCH /shops/{id} body (schemas.py ShopUpdate). */
 public record ShopUpdate(
     String name,

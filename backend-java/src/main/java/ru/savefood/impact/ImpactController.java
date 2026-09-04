@@ -1,5 +1,4 @@
 package ru.savefood.impact;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,23 +21,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-/**
- * Java port of backend/impact.py — the public impact/PR surface (city dashboard,
- * leaderboards, anonymous delivery feed, embeddable SVG badges). Everything here
- * is intentionally unauthenticated and exposes only aggregates / first names /
- * moderation-approved photos — no personal data. "Rescued" is defined once in
- * {@link EsgService} (confirmed hand-over or a fulfilled ticket, §56).
- */
 @RestController
 public class ImpactController {
-
     private final JdbcTemplate jdbc;
     private final EsgService esg;
     private final CacheService cache;
     private final String deliveryPhotoUploadDir;
     private final String legacyVolunteerUploadDir;
-
     public ImpactController(JdbcTemplate jdbc, EsgService esg, CacheService cache,
                             @Value("${savefood.delivery-photo-upload-dir}") String deliveryPhotoUploadDir,
                             @Value("${savefood.volunteer-upload-dir}") String legacyVolunteerUploadDir) {
@@ -48,13 +37,11 @@ public class ImpactController {
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
         this.legacyVolunteerUploadDir = legacyVolunteerUploadDir;
     }
-
     @GetMapping("/impact/summary")
     public Map<String, Object> summary(@RequestParam(defaultValue = "12") int months) {
         int m = Clamp.clamp(months, 1, 36);
         return cache.cachedJson("impact:summary:" + m, CacheService.TTL_STATS, () -> computeSummary(m));
     }
-
     private Map<String, Object> computeSummary(int months) {
         Map<String, Object> report = esg.globalReport(months);
         long deliveries = count("SELECT COUNT(*) FROM tickets WHERE status = 'fulfilled'");
@@ -73,7 +60,6 @@ public class ImpactController {
         out.put("partner_shops", shops);
         return out;
     }
-
     @GetMapping("/impact/cities")
     public List<Map<String, Object>> cityLeaderboard(@RequestParam(defaultValue = "12") int months) {
         int m = Clamp.clamp(months, 1, 36);
@@ -84,7 +70,6 @@ public class ImpactController {
             + " >= CURRENT_TIMESTAMP - (? * INTERVAL '1 month') "
             + "GROUP BY 1 ORDER BY kg DESC LIMIT 10", m);
     }
-
     @GetMapping("/impact/volunteers")
     public List<Map<String, Object>> volunteerLeaderboard() {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -103,7 +88,6 @@ public class ImpactController {
             String firstName = name.isBlank() ? "Волонтёр" : name.trim().split("\\s+")[0];
             Map<String, Object> e = new LinkedHashMap<>();
             e.put("id", r.get("id"));
-            // First word only — a full name must not leak publicly.
             e.put("name", firstName);
             e.put("deliveries", deliveries);
             e.put("kg", kg);
@@ -112,7 +96,6 @@ public class ImpactController {
         }
         return out;
     }
-
     @GetMapping("/impact/teams")
     public List<Map<String, Object>> teamLeaderboard() {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -128,7 +111,6 @@ public class ImpactController {
         }
         return rows;
     }
-
     @GetMapping(value = "/impact/widget.svg", produces = "image/svg+xml")
     public ResponseEntity<String> globalWidget() {
         String svg = cache.cachedJson("impact:widget:global", CacheService.TTL_STATS, () -> {
@@ -138,7 +120,6 @@ public class ImpactController {
         });
         return svgResponse(svg);
     }
-
     @GetMapping(value = "/impact/widget/{shopId}.svg", produces = "image/svg+xml")
     public ResponseEntity<String> shopWidget(@PathVariable int shopId) {
         String svg = cache.cachedJson("impact:widget:shop:" + shopId, CacheService.TTL_STATS, () -> {
@@ -152,7 +133,6 @@ public class ImpactController {
         });
         return svgResponse(svg);
     }
-
     @GetMapping("/impact/feed")
     public List<Map<String, Object>> feed(@RequestParam(defaultValue = "20") int limit) {
         int lim = Clamp.clamp(limit, 1, 50);
@@ -166,15 +146,12 @@ public class ImpactController {
             Map<String, Object> e = new LinkedHashMap<>();
             e.put("photo", "/impact/delivery_photos/" + r.get("ticket_id") + "/image");
             e.put("date", r.get("fulfilled_at"));
-            // A photo decision moderates the image only. Recipient-provided ticket
-            // text is never a public-feed caption, including for legacy tickets.
             e.put("category", r.get("category"));
             e.put("city", r.get("city"));
             out.add(e);
         }
         return out;
     }
-
     /** Public only after moderation and fulfilment; pending proof files stay private. */
     @GetMapping("/impact/delivery_photos/{ticketId}/image")
     public ResponseEntity<Resource> deliveryPhoto(@PathVariable int ticketId) {
@@ -194,9 +171,6 @@ public class ImpactController {
             .header("Cache-Control", "public, max-age=3600")
             .body(new FileSystemResource(path));
     }
-
-    // ── badge rendering (impact.py {@code _badge_svg}) ────────────────────────────
-
     private static String badgeSvg(String title, double kg, long meals, double co2) {
         String titleS = htmlEscape(title.length() > 40 ? title.substring(0, 40) : title);
         String kgS = htmlEscape(fmtKg(kg));
@@ -222,7 +196,6 @@ public class ImpactController {
             + "fill=\"#c8e6c9\">SaveFood</text>\n"
             + "</svg>";
     }
-
     private static String fmtKg(double kg) {
         double v = Math.max(0, kg);
         if (v >= 1000) {
@@ -231,38 +204,31 @@ public class ImpactController {
         }
         return (long) Math.round(v) + " кг";
     }
-
     private ResponseEntity<String> svgResponse(String svg) {
         return ResponseEntity.ok()
             .contentType(MediaType.valueOf("image/svg+xml"))
             .header("Cache-Control", "public, max-age=3600")
             .body(svg);
     }
-
     @SuppressWarnings("unchecked")
     private static Map<String, Object> totals(Map<String, Object> report) {
         Object t = report.get("totals");
         return t instanceof Map ? (Map<String, Object>) t : Map.of();
     }
-
     private long count(String sql) {
         Long n = jdbc.queryForObject(sql, Long.class);
         return n == null ? 0 : n;
     }
-
     private static double toDouble(Object o) {
         return o instanceof Number n ? n.doubleValue() : 0.0;
     }
-
     private static long toLong(Object o) {
         return o instanceof Number n ? n.longValue() : 0;
     }
-
     private static String htmlEscape(String s) {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace("\"", "&quot;").replace("'", "&#x27;");
     }
-
     private Path deliveryPhotoPath(String ref) {
         if (ref == null || ref.isBlank()) {
             return null;
@@ -280,7 +246,6 @@ public class ImpactController {
             return null;
         }
     }
-
     private static MediaType mediaTypeFor(String filename) {
         String f = filename.toLowerCase(Locale.ROOT);
         if (f.endsWith(".png")) {

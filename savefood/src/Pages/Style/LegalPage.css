@@ -4,31 +4,26 @@
   padding: 32px 16px 48px;
   line-height: 1.65;
 }
-
 .legal-page h1 {
   font-size: 1.7rem;
   margin-bottom: 4px;
 }
-
 .legal-updated {
   color: #888;
   font-size: 0.8rem;
   margin-bottom: 24px;
 }
-
 .legal-page h2 {
   font-size: 1.05rem;
   margin: 22px 0 8px;
   color: #4caf50;
 }
-
 .legal-page p,
 .legal-page li {
   font-size: 0.92rem;
   color: inherit;
   opacity: 0.92;
 }
-
 .legal-page ul {
   padding-left: 20px;
   margin: 8px 0;

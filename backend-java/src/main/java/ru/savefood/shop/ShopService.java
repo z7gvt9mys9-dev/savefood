@@ -1,5 +1,4 @@
 package ru.savefood.shop;
-
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -15,18 +14,8 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-/**
- * Transactional shop mutations that span more than one statement or need the
- * monthly-quota advisory lock held across an insert — the Java home for the work
- * the Python routes did inside a single {@code get_db_cursor()} block or
- * {@code billing.lot_quota_guard}. Single-statement reads/writes stay on
- * {@link ShopRepository}; the fire-and-forget {@code needs_match} fan-out is
- * triggered by the controller after these methods commit.
- */
 @Service
 public class ShopService {
-
     private final JdbcTemplate jdbc;
     private final ShopRepository repo;
     private final BillingService billing;
@@ -34,7 +23,6 @@ public class ShopService {
     private final PasswordService passwords;
     private final UploadService uploads;
     private final LotUploadCleanup lotUploadCleanup;
-
     public ShopService(JdbcTemplate jdbc, ShopRepository repo, BillingService billing,
                        NeedyService needyService, PasswordService passwords, UploadService uploads,
                        LotUploadCleanup lotUploadCleanup) {
@@ -46,11 +34,6 @@ public class ShopService {
         this.uploads = uploads;
         this.lotUploadCleanup = lotUploadCleanup;
     }
-
-    /**
-     * Register a shop + its login in one transaction (routes.py {@code register_shop}):
-     * if the username is taken, the shop row rolls back too.
-     */
     @Transactional
     public int registerShop(String name, String contact, Double lat, Double lon, String city,
                             String kind, String username, String rawPassword) {
@@ -69,7 +52,6 @@ public class ShopService {
         }
         return shopId;
     }
-
     /** Quota-guarded lot creation (routes.py {@code create_lot} + lot_quota_guard). */
     @Transactional
     public int createLot(int shopId, String description, double quantity, LocalDate expiryDate,
@@ -81,12 +63,6 @@ public class ShopService {
         return repo.createLot(shopId, description, quantity, expiryDate, photo, address, timeSlot,
             category, comment, requiresCold, unit, unitWeightKg);
     }
-
-    /**
-     * Creates a private-donor lot and consumes its already validated, owner-bound
-     * staged image in the same transaction.  The conditional claim prevents a
-     * reference from being attached to two lots under concurrent requests.
-     */
     @Transactional
     public int createLotWithClaimedPhoto(int shopId, String description, double quantity,
                                          LocalDate expiryDate, String filename, String address,
@@ -102,7 +78,6 @@ public class ShopService {
         }
         return lotId;
     }
-
     /** As {@link #createLot} but with the full photo list (multi-upload form). */
     @Transactional
     public int createLotWithPhotos(int shopId, String description, double quantity, LocalDate expiryDate,
@@ -114,14 +89,6 @@ public class ShopService {
         return repo.createLotMultiPhoto(shopId, description, quantity, expiryDate, photos, address,
             timeSlot, category, comment, requiresCold, unit, unitWeightKg);
     }
-
-    /**
-     * Creates a multipart lot under the same transaction as its quota guard.
-     * Prepared uploads have already passed all size, decoder and image-bomb
-     * checks, but are not written until quota is available.  Every generated
-     * filename is request-local and is removed (or durably queued for removal)
-     * if a later write or database operation fails.
-     */
     @Transactional
     public int createLotWithPreparedPhotos(int shopId, String description, double quantity,
                                            LocalDate expiryDate,
@@ -132,7 +99,6 @@ public class ShopService {
         LotQuantity.requireWholeUnits(quantity, "quantity");
         requirePositiveFinite(unitWeightKg, "unit_weight_kg");
         billing.acquireLotQuota(shopId);
-
         List<String> created = new ArrayList<>();
         try {
             List<String> photoUrls = new ArrayList<>();
@@ -154,14 +120,10 @@ public class ShopService {
             throw e;
         }
     }
-
     /** Create the confirmed receipt's lots under one quota lock (routes.py {@code confirm_receipt}). */
     @Transactional
     public List<Integer> confirmReceiptLots(int shopId, int receiptId, List<ReceiptLotDraft> drafts,
                                             LocalDate expiry, String address, String timeSlot) {
-        // Serialise competing confirms on the receipt row itself. The controller's
-        // earlier read is only a friendly fast-fail; this locked read is the
-        // authoritative check that prevents duplicate lots.
         Map<String, Object> receipt = repo.getReceiptForUpdate(receiptId);
         if (receipt == null || ((Number) receipt.get("shop_id")).intValue() != shopId) {
             throw new ApiException(404, "Чек не найден");
@@ -197,18 +159,10 @@ public class ShopService {
         }
         return lotIds;
     }
-
     @Transactional
     public boolean deleteLot(int lotId) {
         return repo.deleteLot(lotId);
     }
-
-    /**
-     * Close a self-pickup ticket by the recipient's QR code (routes.py
-     * {@code confirm_self_pickup}). Ownership is checked by the caller; here the
-     * ticket is validated, marked fulfilled, the recipient notified, and their
-     * "last received" stamp refreshed. Returns the closed ticket id.
-     */
     @Transactional
     public int confirmSelfPickup(int shopId, int ticketId, String providedSecret) {
         OffsetDateTime now = OffsetDateTime.now();
@@ -217,18 +171,12 @@ public class ShopService {
             + "WHERE t.id = ? AND t.lot_id = l.id AND l.shop_id = ? "
             + "AND t.status = 'open' AND t.self_pickup IS TRUE "
             + "AND (t.expires_at IS NULL OR t.expires_at > clock_timestamp()) "
-            // A ticket with a secret can only be closed by presenting it; the bare
-            // SF-{id} form remains valid only for legacy secret-less tickets.
             + "AND (t.qr_secret IS NULL OR t.qr_secret = '' OR t.qr_secret = ?) "
             + "RETURNING t.needy_id",
             (rs, rowNum) -> rs.getInt("needy_id"), now, ticketId, shopId, providedSecret);
         if (winners.isEmpty()) {
             throw explainSelfPickupRejection(shopId, ticketId, providedSecret);
         }
-
-        // PostgreSQL rechecks every guard after waiting for a concurrent writer.
-        // Therefore only the request represented by this returned row may emit
-        // fulfilment side effects.
         int needyId = winners.get(0);
         jdbc.update(
             "INSERT INTO notifications (needy_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
@@ -237,11 +185,9 @@ public class ShopService {
         try {
             needyService.setProfileLastReceived(needyId, now);
         } catch (RuntimeException ignored) {
-            // best-effort, like the Python try/except around set_profile_last_received
         }
         return ticketId;
     }
-
     /** Preserve the existing API errors after the atomic winner statement loses. */
     private ApiException explainSelfPickupRejection(int shopId, int ticketId, String providedSecret) {
         List<Map<String, Object>> tickets = jdbc.queryForList(
@@ -268,7 +214,6 @@ public class ShopService {
         }
         return new ApiException(409, "Заявка уже изменилась — повторите попытку");
     }
-
     private static void requirePositiveFinite(double value, String field) {
         if (!Double.isFinite(value) || value <= 0) {
             throw new ApiException(422, field + ": значение должно быть положительным и конечным");

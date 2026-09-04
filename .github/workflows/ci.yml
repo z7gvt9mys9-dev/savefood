@@ -1,21 +1,3 @@
-# CI: builds and verifies the three deployable components, gated by changed paths.
-#
-# - backend-tests: `./mvnw test` in backend-java — runs the full JUnit suite
-#   (pure logic only: ESG math, billing gating, gamification levels, forecast,
-#   auth/JWT, KYC crypto, availability windows, routing, geo verification,
-#   receipt anti-fraud). No database and no Spring context needed.
-# - frontend-build: unit tests + production React build of savefood/.
-# - android-build: compiles the native client. It ships 58 wired endpoints, so a
-#   contract change that breaks it must not reach main unnoticed.
-# - backend-integration: the transactional chains against a real Postgres
-#   (Testcontainers). Separate from backend-tests so the fast unit job stays
-#   database-free.
-# - geows-build: compile + vet of the Go websocket microservice.
-#
-# The `changes` job computes path filters; build jobs are skipped (not omitted)
-# when their paths are untouched, so required status checks still pass on PRs
-# that don't affect them. Every filter includes this workflow file, so editing
-# it re-runs all jobs.
 name: CI
 
 on:
@@ -28,8 +10,6 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Superseded PR pushes are cancelled, but every push to main runs to
-  # completion so no main commit lands unverified.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
@@ -42,8 +22,6 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       geows: ${{ steps.filter.outputs.geows }}
     steps:
-      # On pull_request the action reads changed files from the GitHub API;
-      # a checkout is only needed to diff push events.
       - uses: actions/checkout@v4
         if: github.event_name == 'push'
       - uses: dorny/paths-filter@v3
@@ -78,8 +56,6 @@ jobs:
           java-version: "21"
           distribution: temurin
           cache: maven
-      # setup-java's `cache: maven` covers only ~/.m2/repository; the wrapper
-      # downloads the Maven distribution into ~/.m2/wrapper.
       - name: Cache Maven wrapper distribution
         uses: actions/cache@v4
         with:
@@ -108,13 +84,7 @@ jobs:
         with:
           path: ~/.m2/wrapper
           key: maven-wrapper-${{ hashFiles('backend-java/.mvn/wrapper/maven-wrapper.properties') }}
-      # Covers what the unit job cannot: guarded updates, partial unique indexes,
-      # UPDATE … RETURNING and rollback — plus it applies V1__baseline.sql through
-      # Flyway, which is the only check that a fresh deploy actually comes up.
       - name: Integration tests
-        # GitHub-hosted runners currently expose Docker API v1.48 at most.
-        # The project default is tuned for newer local Docker Desktop releases,
-        # so override it here rather than making local integration tests fail.
         run: ./mvnw -B --no-transfer-progress -Dapi.version=1.48 -Pintegration verify
 
   frontend-build:
@@ -154,9 +124,6 @@ jobs:
           java-version: "21"
           distribution: temurin
       - uses: gradle/actions/setup-gradle@v4
-      # Compile only: no emulator, no instrumentation. This catches the failure
-      # that actually happens here — an API/DTO change the client no longer
-      # matches — without paying for a device matrix.
       - name: Compile
         run: ./gradlew :app:assembleDevDebug -x lint --no-daemon
 

@@ -3,7 +3,6 @@
   flex-direction: column;
   height: 100%;
 }
-
 .map-container-mobile {
   width: 100%;
   height: 400px;
@@ -13,16 +12,13 @@
   border-radius: 8px;
   overflow: hidden;
 }
-
 .map-container-mobile.mini-map {
   height: 250px;
 }
-
 .task-list-mobile h3 {
   margin-bottom: 15px;
   font-size: 1.1rem;
 }
-
 .mobile-container {
   max-width: 500px;
   margin: 0 auto;
@@ -33,12 +29,10 @@
   position: relative;
   padding-bottom: 70px;
 }
-
 .mobile-content {
   flex: 1;
   padding: 20px;
 }
-
 .mobile-nav {
   position: fixed;
   bottom: 0;
@@ -53,12 +47,10 @@
   padding: 10px 0;
   z-index: 1000;
 }
-
 .mobile-nav button {
   background: none;
   border: none;
   color: #666;
-  /* 5 вкладок (…, Статистика, Профиль) должны умещаться на узких экранах */
   flex: 1;
   min-width: 0;
   font-size: 0.68rem;
@@ -69,11 +61,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .mobile-nav button.active {
   color: #fff;
 }
-
 .task-card-mobile {
   background-color: #111;
   border: 1px solid #222;
@@ -83,25 +73,21 @@
   justify-content: space-between;
   align-items: center;
 }
-
 .task-dist {
   color: #f1c40f;
   font-weight: bold;
 }
-
 .navigator-card {
   background-color: #111;
   padding: 20px;
   border: 1px solid #222;
 }
-
 .route-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 30px;
 }
-
 .badge {
   background-color: #f39c12;
   color: #000;
@@ -109,13 +95,11 @@
   font-size: 0.7rem;
   font-weight: bold;
 }
-
 .route-points {
   display: grid;
   gap: 10px;
   margin-bottom: 32px;
 }
-
 .point {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 26px;
@@ -128,17 +112,14 @@
   background: #151515;
   transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
 }
-
 .point.current {
   border-color: #e8e8e8;
   background: #1a1a1a;
 }
-
 .point.done {
   background: #111;
   border-color: #242424;
 }
-
 .point-kind-icon {
   display: grid;
   width: 42px;
@@ -149,7 +130,6 @@
   border: 1px solid #333;
   border-radius: 11px;
 }
-
 .point-kind-icon svg {
   width: 22px;
   height: 22px;
@@ -158,11 +138,8 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
 .point.done .point-kind-icon { color: #888; border-color: #262626; }
-
 .point-text { min-width: 0; }
-
 .point-meta {
   display: flex;
   align-items: center;
@@ -170,7 +147,6 @@
   gap: 12px;
   margin-bottom: 5px;
 }
-
 .point-label { font-size: 0.68rem; color: #888; text-transform: uppercase; letter-spacing: 0.1em; margin: 0; }
 .point-sequence { color: #666; font-size: 0.68rem; font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
 .point-addr { color: #f3f3f3; font-size: 0.96rem; font-weight: 650; line-height: 1.35; margin: 0; overflow-wrap: anywhere; }
@@ -179,7 +155,6 @@
 .point-attempts, .point-attempt-message { color: #d2d2d2; font-size: 0.75rem; margin: 5px 0 0; }
 .point-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
 .point-attempt-message { align-self: center; margin: 0; }
-
 .point-checkbox {
   display: grid;
   width: 24px;
@@ -192,7 +167,6 @@
   border-radius: 7px;
   box-shadow: inset 0 0 0 2px #151515;
 }
-
 .point-checkbox svg {
   width: 18px;
   height: 18px;
@@ -201,18 +175,15 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-
 .point-checkbox.is-current { border-color: #f4f4f4; }
 .point-checkbox.is-checked { color: #0b0b0b; background: #f1f1f1; border-color: #f1f1f1; box-shadow: none; }
 .point-checkbox-dot { width: 7px; height: 7px; background: #f4f4f4; border-radius: 2px; }
-
 .navigator-icon { width: 17px; height: 17px; flex: 0 0 auto; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; }
 .navigator-card .btn .navigator-icon { margin-right: 8px; vertical-align: -3px; }
 .empty-route-icon { display: grid; width: 46px; height: 46px; place-items: center; color: #ddd; border: 1px solid #444; border-radius: 14px; }
 .empty-route-icon .navigator-icon { width: 23px; height: 23px; }
 .offline-banner { display: flex; align-items: center; gap: 8px; }
 .offline-dot { width: 8px; height: 8px; flex: 0 0 auto; border: 1px solid currentColor; border-radius: 50%; }
-
 @media (max-width: 420px) {
   .point { grid-template-columns: 36px minmax(0, 1fr) 24px; gap: 11px; padding: 14px 12px; }
   .point-kind-icon { width: 36px; height: 36px; border-radius: 10px; }
@@ -220,38 +191,31 @@
   .point-meta { align-items: flex-start; }
   .point-sequence { display: none; }
 }
-
 .gps-status {
   text-align: center;
   margin-bottom: 20px;
   font-size: 0.8rem;
 }
-
 .gps-on { color: #2ecc71; }
 .gps-off { color: #e74c3c; }
-
 .scanner-mock {
   background-color: #000;
   border: 2px dashed #333;
   padding: 40px 20px;
   text-align: center;
 }
-
 .scanner-frame {
   width: 150px;
   height: 150px;
   border: 2px solid #fff;
   margin: 0 auto 20px;
 }
-
 .btn-full { width: 100%; }
-
 .stats-row {
   display: flex;
   gap: 20px;
   margin-bottom: 30px;
 }
-
 .v-stat {
   flex: 1;
   background-color: #111;
@@ -264,18 +228,15 @@
   justify-content: center;
   gap: 4px;
 }
-
 .v-stat span {
   display: block;
   font-size: 1.5rem;
   font-weight: bold;
 }
-
 .lot-photo {
   width: 100%; max-height: 120px; object-fit: cover; border-radius: 8px;
   margin-bottom: 8px;
 }
-
 .scanner-container {
   padding: 12px;
   background: #0d1117;
@@ -283,12 +244,8 @@
   border-radius: 8px;
   margin-top: 8px;
 }
-
-/* ─── Delivery attempt ─── */
 .btn-warning { border-color: #f39c12; color: #f39c12; }
 .btn-warning:hover { background: rgba(243,156,18,0.1); }
-
-/* ─── Desktop layout ─── */
 @media (min-width: 769px) {
   .mobile-container {
     max-width: none;
@@ -296,11 +253,9 @@
     padding-bottom: 0;
     min-height: auto;
   }
-
   .mobile-content {
     padding: 0;
   }
-
   .mobile-nav {
     position: static;
     transform: none;
@@ -317,45 +272,36 @@
     padding: 8px 10px;
     order: -1;
   }
-
   .mobile-container {
     display: flex;
     flex-direction: column;
   }
-
   .mobile-nav button {
     padding: 8px 22px;
     border-radius: 6px;
     font-size: 0.82rem;
     letter-spacing: 0.5px;
   }
-
   .mobile-nav button.active {
     background-color: #1e1e1e;
     color: #fff;
   }
-
   .map-container-mobile {
     height: 520px;
     border-radius: 12px;
     margin-bottom: 24px;
   }
-
   .map-container-mobile.mini-map {
     height: 320px;
   }
-
   .task-card-mobile {
     border-radius: 8px;
     margin-bottom: 10px;
   }
-
   .navigator-card {
     border-radius: 10px;
   }
 }
-
-/* ─── Category badge ─── */
 .category-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -367,12 +313,9 @@
   border: 1px solid #4CAF5044;
   margin-bottom: 4px;
 }
-
-/* ─── Страница профиля ─── */
 .profile-page {
   gap: 0;
 }
-
 .profile-head {
   display: flex;
   align-items: center;
@@ -383,7 +326,6 @@
   padding: 16px;
   margin-bottom: 14px;
 }
-
 .profile-avatar {
   width: 54px;
   height: 54px;
@@ -396,13 +338,11 @@
   justify-content: center;
   font-size: 1.6rem;
 }
-
 .profile-name {
   margin: 0 0 4px;
   font-weight: 700;
   font-size: 1.05rem;
 }
-
 .profile-role {
   margin: 0;
   color: #888;
@@ -414,7 +354,6 @@
   gap: 8px;
   flex-wrap: wrap;
 }
-
 .kyc-chip {
   display: inline-block;
   padding: 2px 8px;
@@ -427,7 +366,6 @@
 .kyc-chip.kyc-approved { background: #4CAF5022; color: #4CAF50; border: 1px solid #4CAF5044; }
 .kyc-chip.kyc-pending  { background: #FFC10722; color: #FFC107; border: 1px solid #FFC10744; }
 .kyc-chip.kyc-rejected { background: #f4433622; color: #ef5350; border: 1px solid #f4433644; }
-
 .profile-section {
   background: #111;
   border: 1px solid #222;
@@ -435,20 +373,16 @@
   padding: 14px 16px;
   margin-bottom: 14px;
 }
-
 .profile-section h4 {
   margin: 0 0 6px;
   font-size: 0.95rem;
 }
-
 .profile-hint {
   font-size: 0.78rem;
   color: #888;
   margin: 0 0 10px;
   line-height: 1.5;
 }
-
-/* Красная кнопка «Выйти» — всегда в самом низу страницы профиля. */
 .profile-logout-btn {
   display: block;
   width: 100%;
@@ -469,22 +403,18 @@
   background: #e53935;
   color: #fff;
 }
-
-/* ─── Блок «Команда» ─── */
 .team-card {
   background: linear-gradient(160deg, #10151f 0%, #0d1117 100%);
   border: 1px solid #2196F344;
   border-radius: 14px;
   padding: 16px;
 }
-
 .team-card-header {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 12px;
 }
-
 .team-card-icon {
   width: 42px;
   height: 42px;
@@ -497,7 +427,6 @@
   justify-content: center;
   font-size: 1.2rem;
 }
-
 .team-card-title {
   display: flex;
   flex-direction: column;
@@ -510,14 +439,12 @@
   overflow-wrap: anywhere;
 }
 .team-card-title span { color: #8a93a5; font-size: 0.78rem; }
-
 .team-card-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 12px;
 }
-
 .team-stat {
   background: #ffffff08;
   border: 1px solid #ffffff12;
@@ -527,7 +454,6 @@
 }
 .team-stat-value { display: block; font-size: 1.25rem; font-weight: 700; color: #fff; }
 .team-stat-label { font-size: 0.7rem; color: #8a93a5; text-transform: uppercase; letter-spacing: 0.5px; }
-
 .team-code-row {
   display: flex;
   align-items: center;
@@ -546,7 +472,6 @@
   font-weight: 700;
   letter-spacing: 2px;
 }
-
 .team-join-card {
   background: #111;
   border: 1px solid #222;
@@ -557,7 +482,6 @@
   gap: 10px;
 }
 .team-intro { font-size: 0.82rem; color: #aaa; margin: 0; line-height: 1.5; }
-
 .team-join-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .team-join-row input {
   flex: 1;
@@ -571,7 +495,6 @@
   outline: none;
 }
 .team-join-row input:focus { border-color: #4CAF50; }
-
 .team-join-divider {
   display: flex;
   align-items: center;

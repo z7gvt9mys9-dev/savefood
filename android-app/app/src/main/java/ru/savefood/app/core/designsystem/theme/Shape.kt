@@ -1,10 +1,7 @@
 package ru.savefood.app.core.designsystem.theme
-
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Shapes
 import androidx.compose.ui.unit.dp
-
-// Generous rounding for a friendly, modern feel; large = cards/sheets.
 val SaveFoodShapes = Shapes(
     extraSmall = RoundedCornerShape(6.dp),
     small = RoundedCornerShape(10.dp),

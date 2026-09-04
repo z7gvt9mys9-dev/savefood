@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.receipts
-
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -23,16 +22,12 @@ import ru.savefood.app.feature.shop.data.ReceiptLotDraftDto
 import ru.savefood.app.feature.shop.data.ShopRepository
 import javax.inject.Inject
 import javax.inject.Named
-
-/** The ESG section is exactly one of these — encodes the four mutually exclusive
- *  outcomes as a type so no contradictory flag combination is representable. */
 sealed interface EsgState {
     data object Loading : EsgState
-    data object Locked : EsgState               // plan does not include ESG (403)
-    data object Error : EsgState                // failed to load (network / 5xx)
+    data object Locked : EsgState
+    data object Error : EsgState
     data class Loaded(val report: EsgReportDto) : EsgState
 }
-
 data class ReceiptsUiState(
     val loading: Boolean = true,
     val error: String? = null,
@@ -44,19 +39,15 @@ data class ReceiptsUiState(
     val exporting: Boolean = false,
     val message: String? = null,
 )
-
 @HiltViewModel
 class ReceiptsViewModel @Inject constructor(
     private val repo: ShopRepository,
     @ApplicationContext private val context: Context,
     @Named("authImageLoader") val imageLoader: ImageLoader,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(ReceiptsUiState())
     val state: StateFlow<ReceiptsUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: run {
@@ -70,8 +61,6 @@ class ReceiptsViewModel @Inject constructor(
             }
             when (val esg = repo.getEsg(shopId)) {
                 is ApiResult.Success -> _state.update { it.copy(esg = EsgState.Loaded(esg.data)) }
-                // 403 = not in plan (a real, expected state). Anything else is a load
-                // failure and must read differently than "ESG unavailable on your plan".
                 is ApiResult.Error -> {
                     if (esg.code != 403) Log.w(TAG, "getEsg failed: ${esg.message}")
                     _state.update { it.copy(esg = if (esg.code == 403) EsgState.Locked else EsgState.Error) }
@@ -79,7 +68,6 @@ class ReceiptsViewModel @Inject constructor(
             }
         }
     }
-
     fun uploadReceipt(uri: Uri) {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: return@launch
@@ -92,7 +80,6 @@ class ReceiptsViewModel @Inject constructor(
             }
         }
     }
-
     fun confirmReceipt(
         receiptId: Int,
         lots: List<ReceiptLotDraftDto>,
@@ -121,7 +108,6 @@ class ReceiptsViewModel @Inject constructor(
             }
         }
     }
-
     /** Downloads the ESG CSV and writes it to the user-picked [target] document. */
     fun exportCsv(target: Uri, savedMessage: String, failedMessage: String) {
         viewModelScope.launch {
@@ -144,9 +130,7 @@ class ReceiptsViewModel @Inject constructor(
             }
         }
     }
-
     fun clearMessage() = _state.update { it.copy(message = null) }
-
     companion object {
         private const val TAG = "ReceiptsVM"
     }

@@ -1,32 +1,17 @@
 package ru.savefood.billing;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import ru.savefood.web.ApiException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Port of backend/billing.py — plan lookup, feature gating and the monthly
- * lot-quota guard. Entitlement data lives in {@link Plans}; this service applies
- * it against the live {@code shops}/{@code lots} tables.
- */
 @Service
 public class BillingService {
-
-    /**
-     * Advisory-lock namespace (first key of {@code pg_advisory_xact_lock}) for the
-     * monthly lot quota — same arbitrary constant as billing.py {@code _LOT_QUOTA_LOCK_NS}.
-     */
     private static final int LOT_QUOTA_LOCK_NS = 0x10720001;
-
     private final JdbcTemplate jdbc;
-
     public BillingService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
-
     public String getShopPlan(int shopId) {
         List<String> plans = jdbc.query("SELECT plan FROM shops WHERE id = ?",
             (rs, n) -> rs.getString("plan"), shopId);
@@ -36,7 +21,6 @@ public class BillingService {
         }
         return Plans.PLANS.containsKey(plan) ? plan : Plans.DEFAULT_PLAN;
     }
-
     public int lotsCreatedThisMonth(int shopId) {
         Integer n = jdbc.queryForObject(
             "SELECT COUNT(*) FROM lots WHERE shop_id = ? "
@@ -44,7 +28,6 @@ public class BillingService {
             Integer.class, shopId);
         return n == null ? 0 : n;
     }
-
     /** Raise 402 unless the shop's plan includes {@code feature}. Returns the plan. */
     public String requireFeature(int shopId, String feature) {
         String plan = getShopPlan(shopId);
@@ -56,24 +39,9 @@ public class BillingService {
         }
         return plan;
     }
-
-    /**
-     * Quota half of billing.py {@code lot_quota_guard}: takes a transaction-scoped
-     * advisory lock keyed on the shop, then rejects (402) if the monthly limit is
-     * already reached. Must run inside the caller's {@code @Transactional} lot-create
-     * method so the lock is held across the subsequent insert — a concurrent
-     * same-shop create blocks here until this transaction commits and the new row
-     * is visible to its COUNT. Unlimited plans skip the lock entirely.
-     */
     public void acquireLotQuota(int shopId) {
         acquireLotQuota(shopId, 1);
     }
-
-    /**
-     * Same transaction-scoped quota guard for a batch (receipt confirmation).
-     * The old one-lot check let a receipt with several drafts cross the monthly
-     * cap after a single successful pre-check.
-     */
     public void acquireLotQuota(int shopId, int lotsToCreate) {
         if (lotsToCreate < 1) {
             throw new IllegalArgumentException("lotsToCreate must be positive");
@@ -81,7 +49,7 @@ public class BillingService {
         String plan = getShopPlan(shopId);
         Integer limit = Plans.get(plan).monthlyLotLimit();
         if (limit == null) {
-            return; // unlimited plan: nothing to serialize
+            return;
         }
         jdbc.queryForList("SELECT pg_advisory_xact_lock(?, ?)", LOT_QUOTA_LOCK_NS, shopId);
         int used = lotsCreatedThisMonth(shopId);
@@ -91,7 +59,6 @@ public class BillingService {
                 + " лотов в этом месяце. Перейдите на тариф «Профи» для безлимитной публикации.");
         }
     }
-
     /** Plan + usage payload for the shop dashboard (billing.py {@code plan_summary}). */
     public Map<String, Object> planSummary(int shopId) {
         String plan = getShopPlan(shopId);

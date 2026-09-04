@@ -1,5 +1,4 @@
 package ru.savefood.receipt;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -22,29 +21,16 @@ import java.util.Map;
 import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-/**
- * Receipt OCR + item classification + anti-fraud (Gemini Vision), ported from
- * receipt_service.py. One Vision call extracts merchant/date/total/items and maps
- * each item onto the four lot categories; deterministic rules then score the
- * receipt for fraud before any lot is created. Parsed receipts are modelled as
- * {@code Map<String,Object>} to mirror the Python dicts the callers consume.
- */
 @Service
 public class ReceiptService {
-
     private static final Logger log = Logger.getLogger(ReceiptService.class.getName());
-
     public static final List<String> LOT_CATEGORIES =
         List.of("Выпечка", "Овощи/Фрукты", "Готовая еда", "Молочные продукты");
-
     public static final double FRAUD_REJECT_THRESHOLD = 0.7;
     public static final double FRAUD_FLAG_THRESHOLD = 0.4;
-
     private static final String SYSTEM_PROMPT = """
         Ты — система распознавания кассовых чеков платформы SaveFood (Казахстан).
         На фото — чек списания продуктов из магазина (язык: русский/казахский).
-
         Верни СТРОГО один JSON-объект без пояснений:
         {
           "is_receipt": true|false,
@@ -65,7 +51,6 @@ public class ReceiptService {
           "authenticity": "ok" | "suspicious",
           "authenticity_reason": "почему suspicious, иначе null"
         }
-
         Правила:
         - is_receipt=false, если на фото не кассовый/товарный чек.
         - category — ближайшая из четырёх; напитки и бакалею относи к "Готовая еда".
@@ -74,15 +59,12 @@ public class ReceiptService {
         - authenticity="suspicious", если чек выглядит отредактированным, нарисованным,
           сфотографированным с экрана, со «скачущими» шрифтами или замазанными полями.
         """;
-
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(60)).build();
-
     private final String apiKey;
     private final String model;
     private final int maxAgeHours;
-
     public ReceiptService(@Value("${savefood.gemini-api-key:}") String apiKey,
                           @Value("${savefood.ocr-model:gemini-2.5-flash}") String model,
                           @Value("${savefood.receipt-max-age-hours:48}") int maxAgeHours) {
@@ -90,13 +72,6 @@ public class ReceiptService {
         this.model = model;
         this.maxAgeHours = maxAgeHours;
     }
-
-    /**
-     * One Vision call: OCR + normalization + classification + authenticity.
-     *
-     * @return the parsed map, or {@code null} when the AI stage is unavailable
-     *         or failed (no key, network error, unparseable answer).
-     */
     public Map<String, Object> parseReceiptImage(byte[] content, String mimeType) {
         if (apiKey == null || apiKey.isBlank() || content == null || content.length == 0) {
             return null;
@@ -115,7 +90,6 @@ public class ReceiptService {
                 "generationConfig", Map.of(
                     "responseMimeType", "application/json",
                     "maxOutputTokens", 4000));
-
             HttpRequest req = HttpRequest.newBuilder(URI.create(
                     "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
                 .timeout(Duration.ofSeconds(60))
@@ -138,8 +112,6 @@ public class ReceiptService {
                 sb.append(p.path("text").asText(""));
             }
             String text = sb.toString().strip();
-            // responseMimeType=application/json normally yields bare JSON, but be
-            // defensive about ```json fences anyway.
             if (text.startsWith("```")) {
                 text = text.replaceAll("^`+", "").replaceAll("`+$", "");
                 if (text.startsWith("json")) {
@@ -156,7 +128,6 @@ public class ReceiptService {
             return null;
         }
     }
-
     /** Coerce model output into the shapes the rest of the code relies on. Package-private for tests. */
     Map<String, Object> sanitize(JsonNode parsed) {
         List<Map<String, Object>> items = new ArrayList<>();
@@ -205,7 +176,6 @@ public class ReceiptService {
             item.put("weight_kg", round2(weight));
             items.add(item);
         }
-
         LocalDate receiptDate = null;
         String rawDate = parsed.path("receipt_date").asText(null);
         if (rawDate != null && !rawDate.isBlank() && !"null".equals(rawDate)) {
@@ -226,7 +196,6 @@ public class ReceiptService {
                 total = null;
             }
         }
-
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("is_receipt", parsed.path("is_receipt").asBoolean(false));
         out.put("merchant", emptyToNull(parsed.path("merchant").asText(null)));
@@ -239,7 +208,6 @@ public class ReceiptService {
         out.put("authenticity_reason", emptyToNull(parsed.path("authenticity_reason").asText(null)));
         return out;
     }
-
     public String sha256Hex(byte[] content) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);
@@ -253,7 +221,6 @@ public class ReceiptService {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
     }
-
     /** merchant|date|total — catches the same receipt re-photographed. */
     @SuppressWarnings("unchecked")
     public String fingerprint(Map<String, Object> parsed) {
@@ -267,13 +234,11 @@ public class ReceiptService {
         return merchant + "|" + ((LocalDate) date) + "|"
             + String.format(Locale.ROOT, "%.2f", ((Number) total).doubleValue());
     }
-
     /** Deterministic scoring on top of the AI verdict. */
     public Map<String, Object> evaluateFraud(Map<String, Object> parsed, boolean fingerprintDupe) {
         double score = 0.0;
         List<String> reasons = new ArrayList<>();
         LocalDate today = LocalDate.now(ZoneOffset.UTC);
-
         LocalDate rdate = (LocalDate) parsed.get("receipt_date");
         if (rdate == null) {
             score += 0.3;
@@ -285,18 +250,15 @@ public class ReceiptService {
             score += 0.8;
             reasons.add("чек старше " + maxAgeHours + " ч (" + rdate + ")");
         }
-
         if (fingerprintDupe) {
             score += 0.9;
             reasons.add("дубликат: чек с тем же магазином, датой и суммой уже загружался");
         }
-
         if ("suspicious".equals(parsed.get("authenticity"))) {
             score += 0.5;
             Object reason = parsed.get("authenticity_reason");
             reasons.add("ИИ: " + (reason == null ? "признаки редактирования изображения" : reason));
         }
-
         score = Math.min(1.0, round2(score));
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("score", score);
@@ -305,11 +267,6 @@ public class ReceiptService {
         out.put("flagged", score >= FRAUD_FLAG_THRESHOLD);
         return out;
     }
-
-    /**
-     * Group parsed items by category into lot drafts the shop can confirm — one
-     * lot per category (not per line), so a 15-line receipt can't flood the map.
-     */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> suggestLots(List<Map<String, Object>> items) {
         Map<String, List<String>> names = new LinkedHashMap<>();
@@ -327,7 +284,6 @@ public class ReceiptService {
         List<Map<String, Object>> drafts = new ArrayList<>();
         for (Map.Entry<String, List<String>> e : names.entrySet()) {
             String category = e.getKey();
-            // lots.quantity is integer kg; never suggest 0 for a non-empty group.
             int quantity = Math.max(1, (int) Math.round(weights.getOrDefault(category, 0.0)));
             String desc = String.join(", ", e.getValue());
             if (desc.length() > 300) {
@@ -341,16 +297,13 @@ public class ReceiptService {
         }
         return drafts;
     }
-
     private static String textOrEmpty(JsonNode node, String field) {
         JsonNode v = node.path(field);
         return v.isTextual() ? v.asText() : "";
     }
-
     private static String emptyToNull(String s) {
         return s == null || s.isEmpty() || "null".equals(s) ? null : s;
     }
-
     private static double round2(double x) {
         return BigDecimal.valueOf(x).setScale(2, RoundingMode.HALF_EVEN).doubleValue();
     }

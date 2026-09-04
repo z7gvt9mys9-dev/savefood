@@ -6,12 +6,7 @@ import {
   storeSession,
   subscribeSession,
 } from '../api';
-
 const AuthContext = createContext(null);
-
-// Authenticated API responses must never survive on a shared device after the
-// account signs out. The service worker also receives the message, but clear
-// Cache Storage here as well in case it has just been updated or is stopped.
 const clearSessionCaches = () => {
   if (typeof window === 'undefined') return;
   if ('caches' in window) {
@@ -25,13 +20,10 @@ const clearSessionCaches = () => {
     navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_SESSION_CACHE' });
   }
 };
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
   useEffect(() => {
-    // Access-only legacy sessions cannot rotate and intentionally sign in once.
     if (!getSession()) clearSession();
     const applySession = (session) => {
       setUser(session ? {
@@ -53,21 +45,17 @@ export const AuthProvider = ({ children }) => {
       window.removeEventListener('storage', onStorage);
     };
   }, []);
-
   const login = (accessToken, refreshToken, role, relatedId) => {
     storeSession(accessToken, refreshToken, role, relatedId);
   };
-
   const logout = () => {
     clearSessionCaches();
     return revokeAndClearSession();
   };
-
   return (
     <AuthContext.Provider value={{ user, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );
 };
-
 export const useAuth = () => useContext(AuthContext);

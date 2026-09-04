@@ -11,16 +11,13 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        // Yandex MapKit is not published to Maven Central.
         maven("https://maven.yandex.net/repository/yandex_mapkit/")
     }
 }
-
 rootProject.name = "SaveFood"
 include(":app")

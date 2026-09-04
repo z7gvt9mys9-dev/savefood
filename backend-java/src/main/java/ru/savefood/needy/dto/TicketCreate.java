@@ -1,5 +1,4 @@
 package ru.savefood.needy.dto;
-
 /** Port of schemas.py {@code TicketCreate}. */
 public record TicketCreate(
     String items,

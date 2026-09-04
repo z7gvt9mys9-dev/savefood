@@ -1,5 +1,4 @@
 package ru.savefood.app.core.network.di
-
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
@@ -18,11 +17,9 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import javax.inject.Named
 import javax.inject.Singleton
-
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
-
     @Provides
     @Singleton
     fun provideJson(): Json = Json {
@@ -30,17 +27,14 @@ object NetworkModule {
         explicitNulls = false
         coerceInputValues = true
     }
-
     @Provides
     @Named("baseUrl")
     fun provideBaseUrl(): String = BuildConfig.API_BASE_URL
-
     @Provides
     @Singleton
     fun provideAuthenticator(
         refreshManager: TokenRefreshManager,
     ): TokenAuthenticator = TokenAuthenticator(refreshManager)
-
     @Provides
     @Singleton
     fun provideOkHttp(
@@ -60,7 +54,6 @@ object NetworkModule {
             .authenticator(authenticator)
             .build()
     }
-
     @Provides
     @Singleton
     fun provideRetrofit(
@@ -69,7 +62,6 @@ object NetworkModule {
         @Named("baseUrl") baseUrl: String,
     ): Retrofit {
         val contentType = "application/json".toMediaType()
-        // baseUrl must end with '/' for Retrofit relative path resolution.
         val normalized = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         return Retrofit.Builder()
             .baseUrl(normalized)
@@ -77,7 +69,6 @@ object NetworkModule {
             .addConverterFactory(json.asConverterFactory(contentType))
             .build()
     }
-
     @Provides
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)

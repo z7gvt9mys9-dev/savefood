@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.lots
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,7 +12,6 @@ import ru.savefood.app.feature.shop.data.LotDto
 import ru.savefood.app.feature.shop.data.LotUpdateDto
 import ru.savefood.app.feature.shop.data.ShopRepository
 import javax.inject.Inject
-
 data class LotsUiState(
     val loading: Boolean = true,
     val error: String? = null,
@@ -23,17 +21,13 @@ data class LotsUiState(
     val busyLotId: Int? = null,
     val message: String? = null,
 )
-
 @HiltViewModel
 class LotsViewModel @Inject constructor(
     private val repo: ShopRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(LotsUiState())
     val state: StateFlow<LotsUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: run {
@@ -47,7 +41,6 @@ class LotsViewModel @Inject constructor(
             }
         }
     }
-
     fun loadHistory() {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: return@launch
@@ -58,7 +51,6 @@ class LotsViewModel @Inject constructor(
             }
         }
     }
-
     fun saveEdit(lotId: Int, body: LotUpdateDto, savedMessage: String) {
         viewModelScope.launch {
             _state.update { it.copy(busyLotId = lotId) }
@@ -76,7 +68,6 @@ class LotsViewModel @Inject constructor(
             }
         }
     }
-
     fun deleteLot(lotId: Int, deletedMessage: String) {
         viewModelScope.launch {
             _state.update { it.copy(busyLotId = lotId) }
@@ -88,7 +79,6 @@ class LotsViewModel @Inject constructor(
             }
         }
     }
-
     fun confirmTransfer(lotId: Int, confirmedMessage: String, onDone: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(busyLotId = lotId) }
@@ -102,6 +92,5 @@ class LotsViewModel @Inject constructor(
             }
         }
     }
-
     fun clearMessage() = _state.update { it.copy(message = null) }
 }

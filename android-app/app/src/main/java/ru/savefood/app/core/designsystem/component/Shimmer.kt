@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -17,7 +16,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-
 /** Pulsing placeholder block for skeleton loading states. */
 @Composable
 fun ShimmerBox(
@@ -42,7 +40,6 @@ fun ShimmerBox(
             .background(MaterialTheme.colorScheme.surfaceVariant),
     )
 }
-
 /** A few stacked shimmer lines approximating a list card while loading. */
 @Composable
 fun ShimmerListItem(modifier: Modifier = Modifier) {

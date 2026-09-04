@@ -1,24 +1,19 @@
 @import '../Shop/Shop.css';
-
 .admin-table {
   width: 100%;
   border-collapse: collapse;
   margin-top: 20px;
 }
-
 .admin-table th, .admin-table td {
   padding: 15px;
   text-align: left;
   border-bottom: 1px solid #222;
 }
-
 .admin-table a {
   color: #f1c40f;
   text-decoration: underline;
 }
-
 .btn-success { border-color: #2ecc71; color: #2ecc71; }
-
 .incident-marker {
   position: absolute;
   top: 40%;
@@ -30,49 +25,40 @@
   cursor: pointer;
   animation: pulse 2s infinite;
 }
-
 @keyframes pulse {
   0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.7); }
   70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(231, 76, 60, 0); }
   100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(231, 76, 60, 0); }
 }
-
 .incident-card {
   background-color: #111;
   border-left: 4px solid #e74c3c;
   padding: 20px;
   margin-top: 20px;
 }
-
 .incident-card.warning {
   border-left-color: #f39c12;
 }
-
 .analytics-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
   margin-bottom: 40px;
 }
-
 .analytic-card {
   background-color: #111;
   padding: 30px;
   border: 1px solid #222;
 }
-
 .big-value {
   font-size: 3rem;
   font-weight: 800;
   margin: 10px 0 0 0;
 }
-
 .yellow-text { color: #f1c40f; }
-
 .incident-card {
   display: flex; align-items: flex-start; gap: 12px;
 }
-
 .charts-row {
   display: flex;
   gap: 20px;
@@ -92,15 +78,10 @@
   font-size: 0.95rem;
   color: #ccc;
 }
-
 .yellow-text { color: #f1c40f; }
-
-/* ─── Audit log ─── */
 .audit-table td { font-size: 0.82rem; vertical-align: top; }
 .audit-time { white-space: nowrap; color: #888; }
 .audit-action { background: rgba(255,255,255,0.07); border-radius: 4px; padding: 2px 6px; font-weight: 600; font-size: 0.78rem; letter-spacing: 0.3px; }
-
-/* ─── Delivery photo moderation queue (§36.1) ─── */
 .photo-mod-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

@@ -1,5 +1,4 @@
 <resources>
-    <!-- Available -->
     <string name="vol_available_title">Доступные заявки</string>
     <string name="vol_available_tab_list">Список</string>
     <string name="vol_available_tab_map">Карта</string>
@@ -13,7 +12,6 @@
     <string name="vol_available_start_desc">Вы заберёте лот «%1$s» и развезёте его по подходящим заявкам. Маршрут построится автоматически.</string>
     <string name="vol_available_started">Маршрут построен — откройте вкладку «Мой маршрут»</string>
 
-    <!-- Route -->
     <string name="vol_route_title">Мой маршрут</string>
     <string name="vol_route_empty_title">Активного маршрута нет</string>
     <string name="vol_route_empty_desc">Возьмите заявку во вкладке «Доступные», чтобы построить маршрут доставки.</string>
@@ -44,7 +42,6 @@
     <string name="vol_route_addr_detail">%1$s</string>
     <string name="vol_available_reserved_badge">Зарезервировано для доставки</string>
 
-    <!-- Rating -->
     <string name="vol_rating_title">Рейтинг</string>
     <string name="vol_rating_level">Уровень %1$s</string>
     <string name="vol_rating_points">Очки: %1$s</string>
@@ -69,13 +66,11 @@
     <string name="vol_rating_team_name_hint">Название команды</string>
     <string name="vol_rating_team_code_hint">Код вступления</string>
 
-    <!-- Achievements -->
     <string name="vol_ach_first_delivery">Первая доставка</string>
     <string name="vol_ach_kg_100">100 кг спасено</string>
     <string name="vol_ach_night_courier">Ночной курьер</string>
     <string name="vol_ach_sprinter">Спринтер</string>
 
-    <!-- Profile -->
     <string name="vol_profile_title">Профиль волонтёра</string>
     <string name="vol_profile_section_personal">Личные данные</string>
     <string name="vol_profile_name">Имя</string>

@@ -1,5 +1,4 @@
 package ru.savefood.app
-
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,15 +20,6 @@ import ru.savefood.app.feature.onboarding.OnboardingScreen
 import ru.savefood.app.feature.onboarding.OnboardingViewModel
 import ru.savefood.app.feature.shop.ShopShell
 import ru.savefood.app.feature.volunteer.VolunteerShell
-
-/**
- * Top-level router. Watches the persisted session and shows login, a role shell,
- * or a brief loading splash. Admin has no mobile UI → routed to a notice.
- *
- * [deepLinkUrl] is a notification's `data.url` (or null); it's resolved to a tab
- * route for the active role and handed to the shell, which navigates once and
- * calls [onDeepLinkConsumed] to clear it.
- */
 @Composable
 fun AppRoot(
     deepLinkUrl: String? = null,
@@ -37,13 +27,11 @@ fun AppRoot(
     viewModel: AppViewModel = hiltViewModel(),
 ) {
     val state by viewModel.sessionState.collectAsStateWithLifecycle()
-
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         when (val s = state) {
             is SessionState.Loading -> LoadingSplash()
             is SessionState.LoggedOut -> LoginScreen()
             is SessionState.LoggedIn -> {
-                // Prompt for notification permission once, in an authed context.
                 RequestNotificationPermission()
                 when (s.role) {
                     UserRole.ADMIN, UserRole.UNKNOWN -> AdminNotSupported()
@@ -51,7 +39,6 @@ fun AppRoot(
                         val onboardingVm: OnboardingViewModel = hiltViewModel()
                         val onboardingDone by onboardingVm.completed.collectAsStateWithLifecycle()
                         when (onboardingDone) {
-                            // null = flag not yet resolved; avoid flashing onboarding.
                             null -> LoadingSplash()
                             false -> OnboardingScreen(role = s.role, onFinish = onboardingVm::complete)
                             else -> {
@@ -69,14 +56,12 @@ fun AppRoot(
         }
     }
 }
-
 @Composable
 private fun LoadingSplash() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator()
     }
 }
-
 @Composable
 private fun AdminNotSupported() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

@@ -1,20 +1,14 @@
 package ru.savefood.security;
-
 import org.junit.jupiter.api.Test;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
-
 class JwtServiceTest {
-
-    // Long enough for the negative HS384 fixture too. JwtService itself must
-    // still sign every token with HS256 regardless of the secret length.
     private static final String SECRET = "test-secret-key-for-junit-0123456789abcdef"
         + "0123456789abcdef0123456789abcdef";
     private final JwtService service = new JwtService(SECRET);
-
     @Test
     void tokenRoundtrip() {
         String token = service.create(11, "alice", "volunteer", 7);
@@ -25,7 +19,6 @@ class JwtServiceTest {
         assertThat(user.role()).isEqualTo("volunteer");
         assertThat(user.relatedId()).isEqualTo(7);
     }
-
     @Test
     void tokensAreAlwaysHs256EvenWithALongSecret() {
         String token = service.create(11, "alice", "volunteer", 7);
@@ -33,7 +26,6 @@ class JwtServiceTest {
             StandardCharsets.UTF_8);
         assertThat(header).contains("\"HS256\"");
     }
-
     @Test
     void hs384TokenIsRejected() {
         String token = Jwts.builder().subject("alice").claim("role", "volunteer")
@@ -41,7 +33,6 @@ class JwtServiceTest {
             .compact();
         assertThat(service.decode(token)).isNull();
     }
-
     @Test
     void payloadMatchesClaims() {
         String token = service.create(12, "bob", "shop", 42);
@@ -50,29 +41,24 @@ class JwtServiceTest {
         assertThat(payload.get("role")).isEqualTo("shop");
         assertThat(((Number) payload.get("related_id")).intValue()).isEqualTo(42);
     }
-
     @Test
     void expiredTokenRejected() {
-        // Sign a claims blob with a negative TTL (already expired).
         String token = service.signClaims(Map.of("sub", "carol"), -1);
         assertThat(service.decode(token)).isNull();
         assertThat(service.readClaims(token)).isNull();
     }
-
     @Test
     void legacyUsernameSubjectIsRejected() {
         String token = service.signClaims(
             Map.of("sub", "alice", "role", "volunteer", "related_id", 7), 5);
         assertThat(service.decode(token)).isNull();
     }
-
     @Test
     void garbageTokenRejected() {
         assertThat(service.decode("not.a.jwt")).isNull();
         assertThat(service.decode("")).isNull();
         assertThat(service.readClaims("garbage")).isNull();
     }
-
     @Test
     void signClaimsRoundtrip() {
         Map<String, Object> claims = Map.of("action", "oauth-state", "nonce", "xyz");
@@ -82,7 +68,6 @@ class JwtServiceTest {
         assertThat(read.get("action")).isEqualTo("oauth-state");
         assertThat(read.get("nonce")).isEqualTo("xyz");
     }
-
     @Test
     void shortSecretRejected() {
         org.junit.jupiter.api.Assertions.assertThrows(

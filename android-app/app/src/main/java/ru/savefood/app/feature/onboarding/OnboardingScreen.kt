@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.onboarding
-
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,12 +46,6 @@ import ru.savefood.app.R
 import ru.savefood.app.core.datastore.UserRole
 import ru.savefood.app.core.designsystem.component.SaveFoodButton
 import ru.savefood.app.core.designsystem.component.SaveFoodCard
-
-/**
- * First-run onboarding: a per-role carousel (3 slides) plus a first-steps
- * checklist page. Shown once after login, before the role shell; [onFinish]
- * persists the "completed" flag (see OnboardingViewModel / OnboardingStore).
- */
 @Composable
 fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
     val content = remember(role) { onboardingContent(role) }
@@ -61,7 +54,6 @@ fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { pageCount })
     val scope = rememberCoroutineScope()
     val onLast = pagerState.currentPage == lastIndex
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -72,7 +64,6 @@ fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
                 TextButton(onClick = onFinish) { Text(stringResource(R.string.onb_skip)) }
             }
         }
-
         HorizontalPager(
             state = pagerState,
             modifier = Modifier
@@ -85,13 +76,11 @@ fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
                 ChecklistPage(content.checklist)
             }
         }
-
         PageIndicator(
             pageCount = pageCount,
             currentPage = pagerState.currentPage,
             modifier = Modifier.padding(vertical = 24.dp),
         )
-
         SaveFoodButton(
             text = if (onLast) stringResource(R.string.onb_start) else stringResource(R.string.onb_next),
             onClick = {
@@ -104,7 +93,6 @@ fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
         )
     }
 }
-
 @Composable
 private fun SlidePage(slide: OnbSlide) {
     Column(
@@ -142,7 +130,6 @@ private fun SlidePage(slide: OnbSlide) {
         )
     }
 }
-
 @Composable
 private fun ChecklistPage(checklist: List<Int>) {
     Column(
@@ -178,7 +165,6 @@ private fun ChecklistPage(checklist: List<Int>) {
         }
     }
 }
-
 @Composable
 private fun PageIndicator(pageCount: Int, currentPage: Int, modifier: Modifier = Modifier) {
     Row(
@@ -199,11 +185,8 @@ private fun PageIndicator(pageCount: Int, currentPage: Int, modifier: Modifier =
         }
     }
 }
-
 private data class OnbSlide(val icon: ImageVector, val titleRes: Int, val descRes: Int)
-
 private data class OnbContent(val slides: List<OnbSlide>, val checklist: List<Int>)
-
 private fun onboardingContent(role: UserRole): OnbContent = when (role) {
     UserRole.SHOP -> OnbContent(
         slides = listOf(
@@ -221,7 +204,6 @@ private fun onboardingContent(role: UserRole): OnbContent = when (role) {
         ),
         checklist = listOf(R.string.onb_vol_c1, R.string.onb_vol_c2, R.string.onb_vol_c3),
     )
-    // Needy + any fallback (ADMIN/UNKNOWN never reach onboarding — AppRoot gates them).
     else -> OnbContent(
         slides = listOf(
             OnbSlide(Icons.Filled.Restaurant, R.string.onb_needy_t1, R.string.onb_needy_d1),

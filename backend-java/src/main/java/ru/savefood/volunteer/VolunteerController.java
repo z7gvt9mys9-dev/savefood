@@ -1,5 +1,4 @@
 package ru.savefood.volunteer;
-
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -55,20 +54,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-
-/**
- * Java port of backend/volunteer/routes.py — the volunteer/courier surface
- * (registration, identity KYC upload, the live map, route lifecycle with
- * server-side QR+GPS delivery verification, ratings, gamified stats, teams and
- * location tracking). Authenticated routes take an {@code @Auth CurrentUser} and
- * call {@link Authz#ensureOwnerOrAdmin}; {@code POST /volunteers/register} is
- * public and rate-limited. Transactional flows live in {@link VolunteerService}.
- */
 @RestController
 public class VolunteerController {
-
     private static final Pattern HM = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
-
     private final VolunteerRepository repo;
     private final VolunteerService service;
     private final RateLimiter rateLimiter;
@@ -85,7 +73,6 @@ public class VolunteerController {
     private final boolean kycRequired;
     private final String kycUploadDir;
     private final String deliveryPhotoUploadDir;
-
     @Autowired
     public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
                               UploadService uploads, KycCrypto kycCrypto, KycService kycService,
@@ -115,7 +102,6 @@ public class VolunteerController {
         this.kycUploadDir = kycUploadDir;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
     }
-
     /** Constructor retained for focused controller tests without file cleanup. */
     public VolunteerController(VolunteerRepository repo, VolunteerService service, RateLimiter rateLimiter,
                               UploadService uploads, KycCrypto kycCrypto, KycService kycService,
@@ -127,9 +113,6 @@ public class VolunteerController {
             webhooks, telegram, jdbc, audit, null, null, kycRequired, kycUploadDir,
             deliveryPhotoUploadDir);
     }
-
-    // ── Registration / KYC ────────────────────────────────────────────────────────
-
     @PostMapping("/volunteers/register")
     public Map<String, Object> register(@RequestBody VolunteerCreate vol, HttpServletRequest request) {
         rateLimiter.check("volunteers:register", ClientIp.of(request), 5);
@@ -140,7 +123,6 @@ public class VolunteerController {
         validateOptionalCoordinates(vol.lat(), vol.lon());
         return Map.of("id", service.registerVolunteer(vol));
     }
-
     @PostMapping("/volunteers/{volunteerId}/document/upload")
     @Transactional
     public Map<String, Object> uploadDocument(@PathVariable int volunteerId,
@@ -158,7 +140,6 @@ public class VolunteerController {
         Path path = Paths.get(kycUploadDir, filename);
         String generation = UUID.randomUUID().toString();
         VolunteerRepository.KycDocumentReplacement replacement;
-        // Encrypt the identity document at rest immediately (§58): on disk only ciphertext.
         try {
             kycCrypto.encryptFile(path.toString());
             replacement = repo.replaceVolunteerKycDocument(volunteerId, document, generation);
@@ -181,11 +162,6 @@ public class VolunteerController {
         out.put("status", "pending");
         return out;
     }
-
-    /**
-     * Serve the volunteer's identity document, decrypted in memory (§58). The
-     * volunteer owner only; moderators use the AI verdict, score, and notes.
-     */
     @GetMapping("/volunteers/{volunteerId}/document")
     public ResponseEntity<byte[]> getDocument(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwner(user, "volunteer", volunteerId);
@@ -209,11 +185,6 @@ public class VolunteerController {
             .contentType(mediaTypeFor(basename(docUrl)))
             .body(content);
     }
-
-    /**
-     * Moderator decision on a pending volunteer (hybrid KYC, §58): approve or reject.
-     * On a decision the identity document is deleted from disk (§5 — PII).
-     */
     @PatchMapping("/volunteers/{volunteerId}/moderation")
     @Transactional
     public Map<String, Object> moderate(@PathVariable int volunteerId,
@@ -241,13 +212,11 @@ public class VolunteerController {
         try {
             telegram.notifyVolunteer(volunteerId, (approved ? "✓ " : "! ") + msg);
         } catch (RuntimeException ignore) {
-            // best-effort
         }
         audit.log(user.sub(), "volunteer_moderation", "volunteer", volunteerId,
             "Admin set volunteer #" + volunteerId + " to " + status);
         return Map.of("ok", true, "status", status);
     }
-
     /** Re-run the AI verdict synchronously while the document exists (§38.2). Admin only. */
     @PostMapping("/volunteers/{volunteerId}/kyc_recheck")
     public Map<String, Object> recheck(@PathVariable int volunteerId, @Auth CurrentUser user) {
@@ -277,7 +246,6 @@ public class VolunteerController {
             "kyc_score", updated.get("kyc_score") == null ? "" : updated.get("kyc_score"),
             "kyc_notes", updated.get("kyc_notes") == null ? "" : updated.get("kyc_notes"));
     }
-
     /** Delete the volunteer's identity document from disk and clear the column (§5). */
     private void deleteDocument(int volunteerId, String docUrl, String generation) {
         if (docUrl != null && !docUrl.isBlank() && generation != null
@@ -285,11 +253,9 @@ public class VolunteerController {
             sensitiveFiles.trackAndDeleteAfterCommit(Storage.VOLUNTEER_KYC, docUrl);
         }
     }
-
     private static String basename(String url) {
         return Paths.get(url).getFileName().toString();
     }
-
     private static MediaType mediaTypeFor(String filename) {
         String f = filename.toLowerCase();
         if (f.endsWith(".png")) {
@@ -303,9 +269,6 @@ public class VolunteerController {
         }
         return MediaType.IMAGE_JPEG;
     }
-
-    // ── Map / profile ─────────────────────────────────────────────────────────────
-
     @GetMapping("/volunteers/map")
     public Map<String, Object> getMap(@RequestParam String city,
                                       @RequestParam(defaultValue = "100") int limit,
@@ -320,8 +283,6 @@ public class VolunteerController {
         if (limit < 1) {
             throw new ApiException(400, "limit must be positive");
         }
-        // Map pins include where vulnerable recipients live (albeit coarsened),
-        // so a pending/rejected volunteer must not be able to enumerate them.
         if (!user.isAdmin()) {
             if (user.relatedId() == null) {
                 throw new ApiException(403, "Forbidden");
@@ -341,7 +302,6 @@ public class VolunteerController {
         }
         return service.mapPoints(requestedCity, limit);
     }
-
     @GetMapping("/volunteers/{volunteerId}")
     public Map<String, Object> getVolunteer(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
@@ -351,7 +311,6 @@ public class VolunteerController {
         }
         return volunteerOut(v);
     }
-
     @PatchMapping("/volunteers/{volunteerId}")
     public Map<String, Object> patchVolunteer(@PathVariable int volunteerId,
                                               @RequestBody VolunteerUpdate payload, @Auth CurrentUser user) {
@@ -379,9 +338,6 @@ public class VolunteerController {
         }
         return updated;
     }
-
-    // ── Route lifecycle ───────────────────────────────────────────────────────────
-
     @PostMapping("/volunteers/{volunteerId}/start_route")
     public Map<String, Object> startRoute(@PathVariable int volunteerId,
                                           @RequestBody StartRouteRequest payload, @Auth CurrentUser user) {
@@ -400,11 +356,8 @@ public class VolunteerController {
         if (payload.maxStops() != null && payload.maxStops() < 1) {
             throw new ApiException(422, "max_stops: значение должно быть ≥ 1");
         }
-
         VolunteerService.StartRouteResult result =
             service.startRoute(volunteerId, vol, payload.lotId(), payload.maxStops());
-
-        // Enterprise webhook (ERP integration) — fire-and-forget, outside the tx.
         try {
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("lot_id", payload.lotId());
@@ -414,12 +367,7 @@ public class VolunteerController {
             data.put("volunteer_name", result.volName());
             webhooks.fire(result.shopId(), "lot.taken", data);
         } catch (RuntimeException e) {
-            // best-effort, like the Python try/except around webhook_service.fire
         }
-
-        // Telegram fan-out after the transaction, like Python's post-response
-        // BackgroundTasks. Names and lot descriptions originate from user input,
-        // so escape them before embedding into an HTML-parsed Telegram message.
         String safeVolName = Html.escape(result.volName());
         String lotDesc = result.lotDescription() == null || result.lotDescription().isEmpty()
             ? "лот #" + payload.lotId() : result.lotDescription();
@@ -427,17 +375,14 @@ public class VolunteerController {
             telegram.notifyShop(result.shopId(), "□ Волонтёр <b>" + safeVolName + "</b> взял ваш лот «"
                 + Html.escape(lotDesc) + "». Маршрут #" + result.routeId() + " в пути.");
         } catch (RuntimeException ignore) {
-            // best-effort
         }
         for (int[] pair : result.assignedNeedy()) {
             try {
                 telegram.notifyNeedy(pair[0], "→ Волонтёр <b>" + safeVolName + "</b> принял вашу заявку #"
                     + pair[1] + " и скоро поедет в магазин.");
             } catch (RuntimeException ignore) {
-                // best-effort
             }
         }
-
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("route_id", result.routeId());
         List<Map<String, Object>> responsePoints = result.points().stream()
@@ -448,7 +393,6 @@ public class VolunteerController {
         out.put("points", responsePoints);
         return out;
     }
-
     @PostMapping("/volunteers/route/{routeId}/complete_point")
     public Map<String, Object> completePoint(@PathVariable int routeId,
                                              @RequestBody CompletePointRequest payload, @Auth CurrentUser user) {
@@ -457,7 +401,6 @@ public class VolunteerController {
             payload.ticketId(), payload.lat(), payload.lon(), payload.qrCode());
         return Map.of("ok", true);
     }
-
     @PostMapping("/volunteers/route/{routeId}/finish")
     public Map<String, Object> finishRoute(@PathVariable int routeId,
                                            @RequestBody(required = false) FinishRouteRequest payload,
@@ -466,7 +409,6 @@ public class VolunteerController {
         service.finishRoute(route);
         return Map.of("ok", true);
     }
-
     @PostMapping("/volunteers/route/{routeId}/attempt_delivery")
     public Map<String, Object> attemptDelivery(@PathVariable int routeId,
                                                @RequestBody CompletePointRequest payload, @Auth CurrentUser user) {
@@ -474,12 +416,6 @@ public class VolunteerController {
         return service.attemptDelivery(route, ((Number) route.get("volunteer_id")).intValue(),
             payload.ticketId(), payload.lat(), payload.lon());
     }
-
-    /**
-     * Store a courier's proof photo for an active assigned stop. Pending photos
-     * live outside public nginx aliases; only moderation-approved files can be
-     * read through the public impact endpoint.
-     */
     @PostMapping(value = "/volunteers/route/{routeId}/ticket/{ticketId}/photo",
                  consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> uploadDeliveryPhoto(@PathVariable int routeId, @PathVariable int ticketId,
@@ -501,7 +437,6 @@ public class VolunteerController {
         return Map.of("ok", true, "status", "pending",
             "photo_url", "/impact/delivery_photos/" + ticketId + "/image");
     }
-
     @GetMapping("/volunteers/{volunteerId}/history")
     public List<Map<String, Object>> history(@PathVariable int volunteerId,
                                              @RequestParam(defaultValue = "20") int limit,
@@ -510,7 +445,6 @@ public class VolunteerController {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
         return service.historyRoutes(volunteerId, Math.min(Math.max(limit, 1), 100), Math.max(0, offset));
     }
-
     @GetMapping("/volunteers/{volunteerId}/active_route")
     public Map<String, Object> activeRoute(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
@@ -518,9 +452,6 @@ public class VolunteerController {
             && Objects.equals(user.relatedId(), volunteerId);
         return service.activeRoute(volunteerId, assignedVolunteer);
     }
-
-    // ── Notifications / rating / stats / thanks ──────────────────────────────────
-
     @GetMapping("/volunteers/{volunteerId}/notifications")
     public List<Map<String, Object>> notifications(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
@@ -529,7 +460,6 @@ public class VolunteerController {
         }
         return repo.getNotifications(volunteerId);
     }
-
     @PatchMapping("/volunteers/notifications/{notificationId}/read")
     public Map<String, Object> markNotificationRead(@PathVariable int notificationId, @Auth CurrentUser user) {
         Map<String, Object> note = repo.getNotificationById(notificationId);
@@ -544,19 +474,15 @@ public class VolunteerController {
         repo.markNotificationRead(notificationId);
         return Map.of("ok", true);
     }
-
     @GetMapping("/volunteers/{volunteerId}/rating")
     public Map<String, Object> rating(@PathVariable int volunteerId, @Auth CurrentUser user) {
-        // Any authenticated user may read a volunteer's rating (no ownership check, like Python).
         return service.ratingSummary(volunteerId);
     }
-
     @GetMapping("/volunteers/{volunteerId}/stats")
     public Map<String, Object> stats(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
         return service.stats(volunteerId);
     }
-
     @GetMapping("/volunteers/{volunteerId}/thanks")
     public List<Map<String, Object>> thanks(@PathVariable int volunteerId,
                                             @RequestParam(defaultValue = "30") int limit,
@@ -565,9 +491,6 @@ public class VolunteerController {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
         return service.thanks(volunteerId, limit, offset);
     }
-
-    // ── Teams ──────────────────────────────────────────────────────────────────────
-
     @GetMapping("/volunteers/{volunteerId}/team")
     public Map<String, Object> getTeam(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
@@ -580,7 +503,6 @@ public class VolunteerController {
         }
         return nullableTeam(service.teamSummary(((Number) vol.get("team_id")).intValue()));
     }
-
     @PostMapping("/volunteers/{volunteerId}/team/create")
     public Map<String, Object> createTeam(@PathVariable int volunteerId,
                                           @RequestBody TeamCreate payload, @Auth CurrentUser user) {
@@ -595,7 +517,6 @@ public class VolunteerController {
         }
         return nullableTeam(service.createTeam(volunteerId, name));
     }
-
     @PostMapping("/volunteers/{volunteerId}/team/join")
     public Map<String, Object> joinTeam(@PathVariable int volunteerId,
                                         @RequestBody TeamJoin payload, @Auth CurrentUser user) {
@@ -607,16 +528,12 @@ public class VolunteerController {
         String code = payload.code() == null ? "" : payload.code().strip().toUpperCase();
         return nullableTeam(service.joinTeam(volunteerId, code));
     }
-
     @PostMapping("/volunteers/{volunteerId}/team/leave")
     public Map<String, Object> leaveTeam(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
         service.leaveTeam(volunteerId);
         return Map.of("ok", true);
     }
-
-    // ── Location ─────────────────────────────────────────────────────────────────
-
     @PatchMapping("/volunteers/{volunteerId}/location")
     public Map<String, Object> updateLocation(@PathVariable int volunteerId,
                                               @RequestBody LocationUpdate payload, @Auth CurrentUser user) {
@@ -624,12 +541,9 @@ public class VolunteerController {
         if (!Geo.isValidCoordinates(payload.lat(), payload.lon())) {
             throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
         }
-        // Postgres is the source of truth; the Redis write-through cache stays on
-        // the Python layer during the migration (CacheService is a no-op here).
         repo.updateVolunteerLocation(volunteerId, payload.lat(), payload.lon());
         return Map.of("ok", true);
     }
-
     @GetMapping("/volunteers/{volunteerId}/location")
     public Map<String, Object> getLocation(@PathVariable int volunteerId, @Auth CurrentUser user) {
         boolean allowed = user.isAdmin()
@@ -645,9 +559,6 @@ public class VolunteerController {
         }
         return loc;
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────────
-
     private void enforceVolunteerKyc(Map<String, Object> vol, CurrentUser user) {
         if (kycRequired && !user.isAdmin() && !"approved".equals(vol.get("status"))) {
             throw new ApiException(403,
@@ -655,7 +566,6 @@ public class VolunteerController {
                 + "проверки, чтобы брать маршруты");
         }
     }
-
     private Map<String, Object> requireRouteOwner(int routeId, CurrentUser user, boolean requireActive) {
         Map<String, Object> route = repo.getRouteById(routeId);
         if (route == null) {
@@ -667,7 +577,6 @@ public class VolunteerController {
         }
         return route;
     }
-
     /** Validate the weekly windows (pydantic Field rules) and emit the stored JSON text. */
     private String availabilityJson(List<AvailabilityWindow> windows) {
         StringBuilder sb = new StringBuilder("[");
@@ -689,7 +598,6 @@ public class VolunteerController {
         }
         return sb.append("]").toString();
     }
-
     /** Project the full volunteer row to the {@code VolunteerOut} field set. */
     private Map<String, Object> volunteerOut(Map<String, Object> v) {
         Map<String, Object> out = new LinkedHashMap<>();
@@ -708,24 +616,20 @@ public class VolunteerController {
         out.put("created_at", v.get("created_at"));
         return out;
     }
-
     private static Map<String, Object> nullableTeam(Map<String, Object> team) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("team", team);
         return out;
     }
-
     private static boolean isBlank(String s) {
         return s == null || s.isBlank();
     }
-
     /** Mirror pydantic VolunteerCreate.password Field(min_length=8, max_length=128). */
     private static void validatePassword(String password) {
         if (password.length() < 8 || password.length() > 128) {
             throw new ApiException(422, "password: длина должна быть от 8 до 128 символов");
         }
     }
-
     private static void validateOptionalCoordinates(Double lat, Double lon) {
         if (lat == null && lon == null) {
             return;
@@ -734,7 +638,6 @@ public class VolunteerController {
             throw new ApiException(422, "lat/lon: укажите координаты в диапазонах -90..90 и -180..180");
         }
     }
-
     private static Double asDouble(Object value) {
         return value instanceof Number n ? n.doubleValue() : null;
     }

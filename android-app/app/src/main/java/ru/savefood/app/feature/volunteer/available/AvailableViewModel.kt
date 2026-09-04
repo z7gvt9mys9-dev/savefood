@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.available
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,7 +13,6 @@ import ru.savefood.app.feature.volunteer.data.MapTicketDto
 import ru.savefood.app.feature.volunteer.data.VolunteerMapDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import javax.inject.Inject
-
 data class AvailableUiState(
     val loading: Boolean = true,
     val error: String? = null,
@@ -24,23 +22,16 @@ data class AvailableUiState(
     val startingLotId: Int? = null,
     val startError: String? = null,
 )
-
 @HiltViewModel
 class AvailableViewModel @Inject constructor(
     private val repo: VolunteerRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(AvailableUiState())
     val state: StateFlow<AvailableUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            // The volunteer map is deliberately narrower than the public /lots
-            // catalogue: it contains only lots for which a recipient requested
-            // delivery.  Do not fetch /lots here, or unrequested lots reappear.
             val volunteerId = repo.currentVolunteerId()
             if (volunteerId == null) {
                 _state.update { it.copy(loading = false, error = "Нет сессии") }
@@ -72,11 +63,8 @@ class AvailableViewModel @Inject constructor(
             }
         }
     }
-
     fun onSearchChange(value: String) = _state.update { it.copy(search = value) }
-
     fun lotById(id: Int?): LotDto? = _state.value.lots.firstOrNull { it.id == id }
-
     /** Claims [lotId] and starts the route. [onStarted] fires on success. */
     fun startRoute(lotId: Int, onStarted: (routeId: Int) -> Unit) {
         viewModelScope.launch {
@@ -97,9 +85,7 @@ class AvailableViewModel @Inject constructor(
             }
         }
     }
-
     fun clearStartError() = _state.update { it.copy(startError = null) }
-
     /** Convert delivery-only map cards into the list displayed to volunteers. */
     private fun mapToDeliveryLots(map: VolunteerMapDto): List<LotDto> {
         val query = _state.value.search.trim().lowercase()

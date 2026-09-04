@@ -1,28 +1,18 @@
 package ru.savefood.push;
-
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import ru.savefood.web.ApiException;
-
-/**
- * Web-push endpoints are later fetched by the server.  Treat them as untrusted
- * URLs, not as opaque browser data: only HTTPS endpoints resolving exclusively
- * to public addresses may be stored or dispatched to.
- */
 final class PushEndpointValidator {
     private static final int MAX_ENDPOINT_LENGTH = 2048;
-
     private PushEndpointValidator() { }
-
     static void validate(String raw) {
         if (!isAllowed(raw)) {
             throw new ApiException(400, "Недопустимый push endpoint");
         }
     }
-
     static boolean isAllowed(String raw) {
         if (raw == null || raw.length() > MAX_ENDPOINT_LENGTH || raw.chars().anyMatch(Character::isISOControl)) {
             return false;
@@ -46,7 +36,6 @@ final class PushEndpointValidator {
             return false;
         }
     }
-
     private static boolean isPublicInternetAddress(InetAddress address) {
         if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
                 || address.isSiteLocalAddress() || address.isMulticastAddress()) {
@@ -57,8 +46,6 @@ final class PushEndpointValidator {
             int a = Byte.toUnsignedInt(bytes[0]);
             int b = Byte.toUnsignedInt(bytes[1]);
             int c = Byte.toUnsignedInt(bytes[2]);
-            // Unspecified, CGNAT, documentation/benchmark ranges and future-use
-            // blocks must not be reachable through a browser subscription.
             return a != 0
                 && !(a == 100 && b >= 64 && b <= 127)
                 && !(a == 192 && b == 0)
@@ -71,7 +58,6 @@ final class PushEndpointValidator {
         }
         if (address instanceof Inet6Address && bytes.length == 16) {
             int first = Byte.toUnsignedInt(bytes[0]);
-            // fc00::/7 is unique-local (not always reported by isSiteLocalAddress).
             return (first & 0xfe) != 0xfc;
         }
         return false;

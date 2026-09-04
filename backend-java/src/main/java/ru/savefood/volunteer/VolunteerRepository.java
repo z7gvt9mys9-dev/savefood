@@ -1,5 +1,4 @@
 package ru.savefood.volunteer;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
@@ -7,51 +6,28 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
-
-/**
- * Port of the single-statement (and read-modify-write) functions of
- * backend/volunteer/db.py, on {@link JdbcTemplate}. The multi-statement
- * transactional flows (start_route, complete_point, finish, teams) live in
- * {@link VolunteerService}; schema creation ({@code init_db}) stays with the
- * Python migrations since the Postgres schema is shared.
- *
- * <p>Rows are returned as column-keyed maps ({@code queryForList}), matching the
- * Python routes that return raw {@code dict(row)} values. The one shape the Python
- * side narrows — {@code VolunteerOut} on {@code GET /volunteers/{id}} — is
- * projected in the controller; here {@code availability} (a JSON TEXT column) is
- * decoded to a JSON array so it serialises like the pydantic field.
- */
 @Repository
 public class VolunteerRepository {
-
     public record KycDocumentReplacement(String previousDocument) {
     }
-
     public record KycModerationTransition(String document, String generation) {
     }
-
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-
     public VolunteerRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
-
-    // ── Volunteers ───────────────────────────────────────────────────────────────
-
     /** Full volunteer row with {@code availability} decoded, or null if missing. */
     public Map<String, Object> getVolunteerById(int volId) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM volunteers WHERE id = ?", volId);
         return rows.isEmpty() ? null : parseAvailability(rows.get(0));
     }
-
     /** Atomically assigns the volunteer only if they still have no team. */
     public boolean assignTeamIfUnassigned(int volId, int teamId) {
         return jdbc.update(
             "UPDATE volunteers SET team_id = ? WHERE id = ? AND team_id IS NULL",
             teamId, volId) == 1;
     }
-
     public Map<String, Object> updateVolunteer(int volId, String name, String contact, Double lat, Double lon,
                                                String city, Boolean hasThermalBag, Double capacityKg,
                                                String availabilityJson) {
@@ -66,7 +42,6 @@ public class VolunteerRepository {
         Object newCity = city != null ? city : v.get("city");
         Object newBag = hasThermalBag != null ? hasThermalBag : v.get("has_thermal_bag");
         Object newCapacity = capacityKg != null ? capacityKg : v.get("capacity_kg");
-        // availability was decoded to a node on read; fall back to the raw stored text.
         Object newAvail = availabilityJson != null ? availabilityJson : rawAvailability(volId);
         jdbc.update(
             "UPDATE volunteers SET name = ?, contact = ?, lat = ?, lon = ?, city = ?, "
@@ -74,12 +49,6 @@ public class VolunteerRepository {
             newName, newContact, newLat, newLon, newCity, newBag, newCapacity, newAvail, volId);
         return getVolunteerById(volId);
     }
-
-    /**
-     * Auto-KYC decision (db.py {@code set_volunteer_status}). When
-     * {@code expectedStatus} is given the flip is conditional and returns null if
-     * the row was no longer in that state (TOCTOU guard for the auto-KYC thread).
-     */
     public Map<String, Object> setVolunteerStatus(int volId, String status, String expectedStatus) {
         List<Integer> ids = jdbc.query("SELECT 1 FROM volunteers WHERE id = ?", (rs, n) -> 1, volId);
         if (ids.isEmpty()) {
@@ -96,11 +65,6 @@ public class VolunteerRepository {
         }
         return getVolunteerById(volId);
     }
-
-    /**
-     * Installs a new identity document and generation in one row-locked statement.
-     * The returned reference is the exact previous file that the caller may delete.
-     */
     public KycDocumentReplacement replaceVolunteerKycDocument(int volId, String document,
                                                                String generation) {
         List<KycDocumentReplacement> rows = jdbc.query(
@@ -113,7 +77,6 @@ public class VolunteerRepository {
             volId, document, generation);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     /** Persist one complete analysis result only while its document generation is current. */
     public boolean saveVolunteerKyc(int volId, String generation, Double score,
                                     String verdict, String notes, String expectedStatus) {
@@ -133,12 +96,6 @@ public class VolunteerRepository {
             + "WHERE id = ? AND kyc_generation = ? AND document IS NOT NULL" + statusGuard,
             args.toArray()) == 1;
     }
-
-    /**
-     * Auto-approve only the still-current generation and only if its current
-     * persisted verdict is the approving verdict. The status guard makes the
-     * notification side effects single-winner under concurrent analyses.
-     */
     public boolean autoApproveVolunteerKyc(int volId, String generation) {
         return jdbc.update(
             "UPDATE volunteers SET status = 'approved', "
@@ -147,7 +104,6 @@ public class VolunteerRepository {
             + "AND status = 'pending' AND kyc_verdict = 'likely_ok'",
             volId, generation) == 1;
     }
-
     /** Atomically decide the current pending generation and return its exact identity. */
     public KycModerationTransition moderateVolunteerKyc(int volId, String status) {
         List<KycModerationTransition> rows = jdbc.query(
@@ -158,7 +114,6 @@ public class VolunteerRepository {
             status, volId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     /** Clear only the exact document generation selected by the caller. */
     public boolean clearVolunteerKycDocument(int volId, String document, String generation) {
         return jdbc.update(
@@ -166,85 +121,62 @@ public class VolunteerRepository {
             + "WHERE id = ? AND document = ? AND kyc_generation = ?",
             volId, document, generation) == 1;
     }
-
     public void updateVolunteerLocation(int volId, double lat, double lon) {
         jdbc.update("UPDATE volunteers SET lat = ?, lon = ?, updated_at = ? WHERE id = ?",
             lat, lon, OffsetDateTime.now(), volId);
     }
-
     public Map<String, Object> getVolunteerLocation(int volId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT lat, lon, updated_at FROM volunteers WHERE id = ?", volId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
-    // ── Notifications ──────────────────────────────────────────────────────────────
-
     public List<Map<String, Object>> getNotifications(int volId) {
         return jdbc.queryForList(
             "SELECT * FROM notifications WHERE volunteer_id = ? ORDER BY created_at DESC", volId);
     }
-
     public Map<String, Object> getNotificationById(int id) {
         List<Map<String, Object>> rows = jdbc.queryForList("SELECT * FROM notifications WHERE id = ?", id);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     public void markNotificationRead(int id) {
         jdbc.update("UPDATE notifications SET read = 1 WHERE id = ?", id);
     }
-
-    /**
-     * Only an ACTIVE assignment grants a recipient access to the volunteer's live
-     * location; once the ticket is fulfilled/released, tracking must stop (privacy).
-     */
     public boolean needyHasVolunteer(int needyId, int volId) {
         return !jdbc.queryForList(
             "SELECT 1 FROM tickets WHERE needy_id = ? AND assigned_volunteer_id = ? "
             + "AND status = 'assigned' LIMIT 1", needyId, volId).isEmpty();
     }
-
-    // ── Routes ─────────────────────────────────────────────────────────────────────
-
     public List<Map<String, Object>> getRoutesByVolunteer(int volId, int limit, int offset) {
         return jdbc.queryForList(
             "SELECT * FROM volunteer_routes WHERE volunteer_id = ? ORDER BY started_at DESC LIMIT ? OFFSET ?",
             volId, limit, offset);
     }
-
     public Map<String, Object> getRouteById(int routeId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM volunteer_routes WHERE id = ?", routeId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     /** Lock a route before a read-modify-write lifecycle mutation. */
     public Map<String, Object> getRouteByIdForUpdate(int routeId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM volunteer_routes WHERE id = ? FOR UPDATE", routeId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     public Map<String, Object> getActiveRoute(int volId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress' "
             + "ORDER BY started_at DESC LIMIT 1", volId);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     public void updateRoutePoints(int routeId, String pointsJson) {
         jdbc.update("UPDATE volunteer_routes SET points = ?, last_activity_at = ? WHERE id = ?",
             pointsJson, OffsetDateTime.now(), routeId);
     }
-
-    // ── helpers ────────────────────────────────────────────────────────────────────
-
     private String rawAvailability(int volId) {
         List<String> raw = jdbc.query("SELECT availability FROM volunteers WHERE id = ?",
             (rs, n) -> rs.getString("availability"), volId);
         return raw.isEmpty() ? null : raw.get(0);
     }
-
     /** Decode the {@code availability} JSON TEXT column into a node (bad/empty → null). */
     private Map<String, Object> parseAvailability(Map<String, Object> row) {
         Object raw = row.get("availability");

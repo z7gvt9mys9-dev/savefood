@@ -1,5 +1,4 @@
 package ru.savefood.kyc;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -17,26 +16,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
 import org.springframework.stereotype.Service;
-
-/**
- * Encryption-at-rest for volunteer KYC identity documents (§58), ported from
- * kyc_crypto.py. Wire-compatible with Python's {@code cryptography.fernet}: the
- * same {@code KYC_ENCRYPTION_KEY} (a base64url-encoded 32-byte Fernet key, first
- * 16 bytes HMAC-SHA256 signing, last 16 bytes AES-128-CBC) decrypts documents
- * written by either backend.
- *
- * <p>A key is mandatory by default. Plaintext passthrough is available only
- * when explicitly enabled in a {@code dev} or {@code test} profile.
- */
 @Service
 public class KycCrypto {
-
     private static final byte VERSION = (byte) 0x80;
     private static final SecureRandom RNG = new SecureRandom();
-
     private final byte[] signingKey;
     private final byte[] encryptionKey;
-
     public KycCrypto(@Value("${savefood.kyc-encryption-key:}") String key,
                      @Value("${savefood.kyc-plaintext-enabled:false}") boolean plaintextEnabled,
                      Environment environment) {
@@ -67,11 +52,9 @@ public class KycCrypto {
         this.signingKey = Arrays.copyOfRange(raw, 0, 16);
         this.encryptionKey = Arrays.copyOfRange(raw, 16, 32);
     }
-
     public boolean enabled() {
         return encryptionKey != null;
     }
-
     /** Encrypt a freshly-saved upload in place. Plaintext passthrough is dev/test-only. */
     public void encryptFile(String path) {
         if (!enabled()) {
@@ -80,8 +63,6 @@ public class KycCrypto {
         try {
             byte[] data = Files.readAllBytes(Paths.get(path));
             byte[] token = encrypt(data);
-            // Temp file + atomic replace, so a crash mid-write can't leave a
-            // half-encrypted (unrecoverable) document.
             Path tmp = Paths.get(path + ".enc.tmp");
             Files.write(tmp, token);
             Files.move(tmp, Paths.get(path), StandardCopyOption.REPLACE_EXISTING);
@@ -89,12 +70,6 @@ public class KycCrypto {
             throw new IllegalStateException("KYC document encryption failed: " + e.getMessage(), e);
         }
     }
-
-    /**
-     * Read a stored document and return its plaintext bytes (in memory only).
-     * Tolerates a plaintext file when no key is configured, and a key-but-legacy
-     * (pre-encryption) file whose bytes aren't a valid Fernet token.
-     */
     public byte[] readDecrypted(String path) throws IOException {
         byte[] data = Files.readAllBytes(Paths.get(path));
         if (!enabled()) {
@@ -103,30 +78,25 @@ public class KycCrypto {
         try {
             return decrypt(data);
         } catch (Exception e) {
-            // Not a valid token → legacy plaintext written before the key existed.
             return data;
         }
     }
-
     private byte[] encrypt(byte[] plaintext) throws Exception {
         byte[] iv = new byte[16];
         RNG.nextBytes(iv);
         Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
         cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(encryptionKey, "AES"), new IvParameterSpec(iv));
         byte[] ciphertext = cipher.doFinal(plaintext);
-
         long timestamp = System.currentTimeMillis() / 1000L;
         ByteBuffer header = ByteBuffer.allocate(1 + 8 + 16 + ciphertext.length);
         header.put(VERSION).putLong(timestamp).put(iv).put(ciphertext);
         byte[] signed = header.array();
         byte[] hmac = hmac(signed);
-
         byte[] token = new byte[signed.length + 32];
         System.arraycopy(signed, 0, token, 0, signed.length);
         System.arraycopy(hmac, 0, token, signed.length, 32);
         return Base64.getUrlEncoder().encode(token);
     }
-
     private byte[] decrypt(byte[] token) throws Exception {
         byte[] raw = Base64.getUrlDecoder().decode(token);
         if (raw.length < 1 + 8 + 16 + 32 || raw[0] != VERSION) {
@@ -144,13 +114,11 @@ public class KycCrypto {
         cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(encryptionKey, "AES"), new IvParameterSpec(iv));
         return cipher.doFinal(ciphertext);
     }
-
     private byte[] hmac(byte[] data) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(signingKey, "HmacSHA256"));
         return mac.doFinal(data);
     }
-
     private static boolean constantTimeEquals(byte[] a, byte[] b) {
         if (a.length != b.length) {
             return false;

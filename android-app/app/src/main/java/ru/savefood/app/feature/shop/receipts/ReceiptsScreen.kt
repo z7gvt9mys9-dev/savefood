@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.receipts
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -55,36 +54,26 @@ import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.feature.shop.data.ReceiptDto
 import ru.savefood.app.feature.shop.data.ReceiptLotDraftDto
 import ru.savefood.app.feature.shop.data.ShopRepository
-
-/**
- * "Receipts / ESG" tab: OCR receipt drafts → confirmed lots, plus the ESG
- * impact summary and a CSV export (tax helper). Forecast is intentionally absent.
- */
 @Composable
 fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var confirmReceipt by remember { mutableStateOf<ReceiptDto?>(null) }
-
     val csvSavedMsg = stringResource(R.string.shop_esg_csv_saved)
     val csvFailedMsg = stringResource(R.string.shop_esg_csv_failed)
     val confirmedMsg = stringResource(R.string.shop_receipt_confirmed)
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
     }
-
     val receiptPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri -> if (uri != null) viewModel.uploadReceipt(uri) }
-
     val csvExporter = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/csv"),
     ) { uri -> if (uri != null) viewModel.exportCsv(uri, csvSavedMsg, csvFailedMsg) }
-
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -92,14 +81,12 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
             contentPadding = PaddingValues(bottom = 24.dp),
         ) {
             item { SectionHeader(title = stringResource(R.string.shop_esg_title)) }
-
             item {
                 EsgCard(
                     state = state,
                     onExport = { csvExporter.launch("savefood_donations_12m.csv") },
                 )
             }
-
             item {
                 SaveFoodButton(
                     text = stringResource(R.string.shop_receipt_upload),
@@ -109,7 +96,6 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-
             item {
                 Text(
                     stringResource(R.string.shop_receipts_section),
@@ -118,7 +104,6 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
-
             when {
                 state.loading -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { repeat(2) { ShimmerListItem() } }
@@ -144,7 +129,6 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     confirmReceipt?.let { receipt ->
         ConfirmReceiptDialog(
             receipt = receipt,
@@ -158,7 +142,6 @@ fun ReceiptsScreen(viewModel: ReceiptsViewModel = hiltViewModel()) {
         )
     }
 }
-
 @Composable
 private fun EsgCard(state: ReceiptsUiState, onExport: () -> Unit) {
     SaveFoodCard {
@@ -207,7 +190,6 @@ private fun EsgCard(state: ReceiptsUiState, onExport: () -> Unit) {
         }
     }
 }
-
 @Composable
 private fun EsgMetric(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -215,7 +197,6 @@ private fun EsgMetric(label: String, value: String) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
 @Composable
 private fun ReceiptCard(
     receipt: ReceiptDto,
@@ -238,7 +219,6 @@ private fun ReceiptCard(
                 )
                 ReceiptStatusBadge(receipt)
             }
-
             if (shopId != null) {
                 val request = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
                     .data(ShopRepository.absoluteUrl("/shops/$shopId/receipts/${receipt.id}/image"))
@@ -252,7 +232,6 @@ private fun ReceiptCard(
                     modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(12.dp)),
                 )
             }
-
             receipt.total?.let {
                 Text(
                     stringResource(R.string.shop_receipt_total, "$it ${receipt.currency ?: ""}".trim()),
@@ -265,7 +244,6 @@ private fun ReceiptCard(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
             when (receipt.status) {
                 "parsed" -> SaveFoodButton(
                     text = stringResource(R.string.shop_receipt_confirm),
@@ -289,7 +267,6 @@ private fun ReceiptCard(
         }
     }
 }
-
 @Composable
 private fun ReceiptStatusBadge(receipt: ReceiptDto) {
     val (labelRes, tone) = when (receipt.status) {
@@ -300,7 +277,6 @@ private fun ReceiptStatusBadge(receipt: ReceiptDto) {
     }
     StatusBadge(text = stringResource(labelRes), tone = tone)
 }
-
 @Composable
 private fun ConfirmReceiptDialog(
     receipt: ReceiptDto,
@@ -312,7 +288,6 @@ private fun ConfirmReceiptDialog(
     var expiry by remember { mutableStateOf("") }
     var address by remember { mutableStateOf("") }
     var timeSlot by remember { mutableStateOf("") }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.shop_receipt_confirm_title)) },

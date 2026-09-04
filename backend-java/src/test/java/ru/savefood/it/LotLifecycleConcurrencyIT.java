@@ -1,8 +1,6 @@
 package ru.savefood.it;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -17,15 +15,12 @@ import ru.savefood.volunteer.RouteRevertService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
 /** Focused regression coverage for competing lot lifecycle transitions. */
 class LotLifecycleConcurrencyIT extends PostgresIT {
-
     private ShopRepository lots;
     private RouteRevertService revert;
     private MaintenanceTasks maintenance;
     private ExecutorService executor;
-
     @BeforeEach
     void wire() {
         lots = new ShopRepository(jdbc);
@@ -34,42 +29,34 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
             "embedded", "", "/tmp/savefood-lifecycle-it", 1, 0);
         executor = Executors.newFixedThreadPool(2);
     }
-
     @AfterEach
     void stopExecutor() {
         executor.shutdownNow();
     }
-
     @Test
     void claimThatCommitsAfterExpiryScanCannotBeOverwritten() throws Exception {
         int lot = expiringLot();
         int ticket = insertOpenTicket(lot);
-
         raceClaimCommitAgainst(maintenance::expireTick, lot);
-
         assertThat(status("lots", lot)).isEqualTo("taken");
         assertThat(status("tickets", ticket)).isEqualTo("open");
         assertThat(notificationCount(lot, "lot_expired_soon")).isZero();
     }
-
     @Test
     void claimThatCommitsAfterDeleteValidationCannotBeOverwritten() throws Exception {
         int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
         int ticket = insertOpenTicket(lot);
-
         AtomicInteger deleteWins = new AtomicInteger();
         raceClaimCommitAgainst(() -> {
             if (lots.deleteLot(lot)) {
                 deleteWins.incrementAndGet();
             }
         }, lot);
-
         assertThat(status("lots", lot)).isEqualTo("taken");
         assertThat(status("tickets", ticket)).isEqualTo("open");
         assertThat(deleteWins).hasValue(0);
         assertThat(notificationCount(lot, "lot_removed")).isZero();
     }
-
     @Test
     void routeRevertBeatsAStaleConfirmationWithoutConfirmationSideEffects() throws Exception {
         int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
@@ -91,7 +78,6 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
             await(allowCommit);
         }));
         assertThat(reverted.await(5, TimeUnit.SECONDS)).isTrue();
-
         AtomicInteger confirmationSideEffects = new AtomicInteger();
         Future<Boolean> confirmation = executor.submit(() -> {
             boolean won = lots.confirmLotTransfer(lot);
@@ -102,7 +88,6 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
         });
         assertBlocked(confirmation);
         allowCommit.countDown();
-
         revertResult.get(5, TimeUnit.SECONDS);
         assertThat(staleConfirmationRead).containsEntry("status", "taken");
         assertThat(confirmation.get(5, TimeUnit.SECONDS)).isFalse();
@@ -110,7 +95,6 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
         assertThat(status("lots", lot)).isEqualTo("active");
         assertThat(status("tickets", ticket)).isEqualTo("open");
     }
-
     @Test
     void twoConcurrentConfirmationsHaveOneWinnerAndOneSetOfSideEffects() throws Exception {
         int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
@@ -119,34 +103,28 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
         CountDownLatch start = new CountDownLatch(1);
         AtomicInteger transitionWins = new AtomicInteger();
         AtomicInteger sideEffects = new AtomicInteger();
-
         Future<?> first = executor.submit(() -> confirmTogether(lot, ready, start, transitionWins, sideEffects));
         Future<?> second = executor.submit(() -> confirmTogether(lot, ready, start, transitionWins, sideEffects));
         assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
         start.countDown();
         first.get(5, TimeUnit.SECONDS);
         second.get(5, TimeUnit.SECONDS);
-
         assertThat(status("lots", lot)).isEqualTo("confirmed");
         assertThat(transitionWins).hasValue(1);
         assertThat(sideEffects).hasValue(1);
     }
-
     @Test
     void staleLifecycleAttemptsLoseWithoutSideEffects() {
         int confirmed = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
         jdbc.update("UPDATE lots SET status = 'confirmed' WHERE id = ?", confirmed);
-
         assertThat(lots.confirmLotTransfer(confirmed)).isFalse();
         assertThat(lots.deleteLot(confirmed)).isFalse();
         assertThat(status("lots", confirmed)).isEqualTo("confirmed");
         assertThat(notificationCount(confirmed, "lot_removed")).isZero();
     }
-
     @Test
     void normalExpiryDeleteConfirmationAndRevertTransitionsStillWork() {
         int shop = insertShop("Shop", 43.238, 76.889);
-
         int expiring = insertLot(shop, 5.0, "Bakery");
         jdbc.update("UPDATE lots SET expiry_date = CURRENT_DATE + 1 WHERE id = ?", expiring);
         int expiryTicket = insertOpenTicket(expiring);
@@ -154,31 +132,26 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
         assertThat(status("lots", expiring)).isEqualTo("expired");
         assertThat(status("tickets", expiryTicket)).isEqualTo("cancelled");
         assertThat(notificationCount(expiring, "lot_expired_soon")).isEqualTo(1);
-
         int removed = insertLot(shop, 5.0, "Bakery");
         int removedTicket = insertOpenTicket(removed);
         assertThat(lots.deleteLot(removed)).isTrue();
         assertThat(status("lots", removed)).isEqualTo("removed");
         assertThat(status("tickets", removedTicket)).isEqualTo("cancelled");
         assertThat(notificationCount(removed, "lot_removed")).isEqualTo(1);
-
         int confirmed = insertLot(shop, 5.0, "Bakery");
         jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW() WHERE id = ?", confirmed);
         assertThat(lots.confirmLotTransfer(confirmed)).isTrue();
         assertThat(status("lots", confirmed)).isEqualTo("confirmed");
-
         int returned = insertLot(shop, 5.0, "Bakery");
         jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW() WHERE id = ?", returned);
         revert.revertRouteLot(returned, "[{\"kind\":\"shop\",\"done\":false}]");
         assertThat(status("lots", returned)).isEqualTo("active");
     }
-
     private int expiringLot() {
         int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
         jdbc.update("UPDATE lots SET expiry_date = CURRENT_DATE + 1 WHERE id = ?", lot);
         return lot;
     }
-
     private int insertOpenTicket(int lotId) {
         int needy = insertNeedy("Recipient");
         return jdbc.queryForObject(
@@ -186,13 +159,11 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
             + "VALUES (?, 'food', ?, 1, 'open', NOW()) RETURNING id",
             Integer.class, needy, lotId);
     }
-
     private int notificationCount(int lotId, String type) {
         return jdbc.queryForObject(
             "SELECT COUNT(*) FROM notifications WHERE lot_id = ? AND type = ?", Integer.class,
             lotId, type);
     }
-
     private void raceClaimCommitAgainst(Runnable competingTransition, int lotId) throws Exception {
         CountDownLatch claimed = new CountDownLatch(1);
         CountDownLatch allowCommit = new CountDownLatch(1);
@@ -205,15 +176,12 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
             await(allowCommit);
         }));
         assertThat(claimed.await(5, TimeUnit.SECONDS)).isTrue();
-
         Future<?> transition = executor.submit(competingTransition);
         assertBlocked(transition);
         allowCommit.countDown();
-
         claim.get(5, TimeUnit.SECONDS);
         transition.get(5, TimeUnit.SECONDS);
     }
-
     private void confirmTogether(int lotId, CountDownLatch ready, CountDownLatch start,
                                  AtomicInteger wins, AtomicInteger sideEffects) {
         ready.countDown();
@@ -223,12 +191,10 @@ class LotLifecycleConcurrencyIT extends PostgresIT {
             sideEffects.incrementAndGet();
         }
     }
-
     private static void assertBlocked(Future<?> future) {
         assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))
             .isInstanceOf(TimeoutException.class);
     }
-
     private static void await(CountDownLatch latch) {
         try {
             if (!latch.await(5, TimeUnit.SECONDS)) {

@@ -1,5 +1,4 @@
 package ru.savefood.app.core.device.qr
-
 import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.compose.foundation.Image
@@ -14,13 +13,6 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
-
-/**
- * Renders [content] as a QR code. Returns an empty composable if encoding fails
- * (e.g. content too long) rather than crashing.
- *
- * @param sizePx pixel dimension of the generated square bitmap.
- */
 @Composable
 fun QrImage(
     content: String,
@@ -36,7 +28,6 @@ fun QrImage(
         contentScale = ContentScale.Fit,
     )
 }
-
 /** Encodes [content] into a square QR [Bitmap], or null on failure. */
 fun encodeQr(content: String, sizePx: Int = 512): Bitmap? = runCatching {
     val hints = mapOf(

@@ -1,11 +1,9 @@
-/* ─── Layout ─── */
 .dashboard-container {
   display: flex;
   min-height: calc(100vh - 60px);
   background: #000;
   color: #fff;
 }
-
 .sidebar {
   width: 240px;
   flex-shrink: 0;
@@ -15,7 +13,6 @@
   display: flex;
   flex-direction: column;
 }
-
 .sidebar h2 {
   font-size: 0.85rem;
   margin: 0 0 28px;
@@ -24,13 +21,11 @@
   color: #555;
   padding: 0 8px;
 }
-
 .sidebar nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-
 .sidebar nav button {
   background: none;
   border: none;
@@ -45,22 +40,18 @@
   border-radius: 6px;
   transition: color 0.2s, background 0.2s;
 }
-
 .sidebar nav button:hover { color: #ccc; background: #0d0d0d; }
-
 .sidebar nav button.active {
   color: #fff;
   background: #111;
   border-left: 2px solid #fff;
 }
-
 .main-content {
   flex: 1;
   padding: 32px 36px;
   overflow-y: auto;
   min-width: 0;
 }
-
 .content-header h1 {
   font-size: 1.6rem;
   margin: 0 0 28px;
@@ -68,25 +59,19 @@
   letter-spacing: 2px;
   color: #fff;
 }
-
-/* ─── Tab content ─── */
 .tab-content { max-width: 860px; }
-
-/* ─── Stats ─── */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 32px;
 }
-
 .stat-box {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
   border-radius: 10px;
   padding: 24px 20px;
 }
-
 .stat-value {
   display: block;
   font-size: 2rem;
@@ -94,21 +79,16 @@
   margin-bottom: 6px;
   color: #fff;
 }
-
 .stat-label {
   color: #666;
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
-
-/* ─── Forms ─── */
 .admin-form { max-width: 700px; }
-
 .form-group {
   margin-bottom: 20px;
 }
-
 .form-group label {
   display: block;
   margin-bottom: 8px;
@@ -118,9 +98,6 @@
   letter-spacing: 0.5px;
   font-weight: 600;
 }
-
-/* :not([type="checkbox"]) — чекбоксы оформляются единым правилом в index.css;
-   width:100% + appearance:none отсюда ломали отрисовку галочки. */
 .form-group input:not([type="checkbox"]):not([type="radio"]),
 .form-group select,
 .form-group textarea,
@@ -144,7 +121,6 @@
   -webkit-appearance: none;
   font-family: inherit;
 }
-
 .form-group input:not([type="checkbox"]):focus,
 .form-group select:focus,
 .form-group textarea:focus,
@@ -154,15 +130,12 @@
   border-color: #555;
   box-shadow: 0 0 0 3px rgba(255,255,255,0.04);
 }
-
 .form-group textarea,
 .admin-form textarea {
   resize: vertical;
   min-height: 100px;
   line-height: 1.5;
 }
-
-/* Custom select arrow */
 .form-group select,
 .admin-form select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23555' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
@@ -170,8 +143,6 @@
   background-position: right 14px center;
   padding-right: 36px;
 }
-
-/* File input */
 .form-group input[type="file"],
 .admin-form input[type="file"] {
   padding: 10px 12px;
@@ -190,14 +161,11 @@
   transition: background 0.2s;
 }
 .form-group input[type="file"]::file-selector-button:hover { background: #222; }
-
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
-
-/* ─── Buttons ─── */
 .btn {
   display: inline-block;
   padding: 12px 28px;
@@ -213,13 +181,10 @@
   text-align: center;
 }
 .btn:active { transform: scale(0.98); }
-
 .btn-primary { background: #fff; color: #000; }
 .btn-primary:hover { opacity: 0.88; }
-
 .btn-secondary { background: #1a1a1a; color: #ccc; border: 1px solid #2a2a2a; }
 .btn-secondary:hover { background: #222; }
-
 .btn-small {
   padding: 6px 14px;
   font-size: 0.75rem;
@@ -235,14 +200,10 @@
   transition: background 0.2s, border-color 0.2s;
 }
 .btn-small:hover { background: #1a1a1a; }
-
 .btn-danger { border-color: #c0392b; color: #e74c3c; background: rgba(192,57,43,0.08); }
 .btn-danger:hover { background: rgba(192,57,43,0.2); }
-
 .btn-success { border-color: #27ae60; color: #2ecc71; background: rgba(39,174,96,0.08); }
 .btn-success:hover { background: rgba(39,174,96,0.2); }
-
-/* ─── Warning / Info boxes ─── */
 .warning-box {
   background: rgba(243,156,18,0.08);
   border: 1px solid rgba(243,156,18,0.3);
@@ -253,7 +214,6 @@
   font-size: 0.85rem;
 }
 .warning-box p { margin: 0; }
-
 .info-section {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -263,8 +223,6 @@
 }
 .info-section h3 { margin: 0 0 8px; font-size: 1rem; }
 .info-section p { margin: 4px 0; color: #888; font-size: 0.9rem; }
-
-/* ─── Lot list ─── */
 .lot-item {
   display: flex;
   justify-content: space-between;
@@ -276,23 +234,16 @@
   margin-bottom: 12px;
   gap: 12px;
 }
-
 .lot-info h4 { margin: 0 0 6px; font-size: 0.95rem; }
 .lot-info p  { margin: 2px 0; font-size: 0.82rem; color: #888; }
-
 .lot-actions { display: flex; flex-shrink: 0; gap: 6px; flex-wrap: wrap; }
-
 .status-active { color: #f1c40f; }
 .status-taken  { color: #2ecc71; }
-
-/* ─── History table ─── */
 .history-table { width: 100%; border-collapse: collapse; }
 .history-table th,
 .history-table td { padding: 14px 12px; text-align: left; border-bottom: 1px solid #1a1a1a; }
 .history-table th { color: #555; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 1px; }
 .history-table td { font-size: 0.88rem; color: #ccc; }
-
-/* ─── Notifications ─── */
 .notification-list { display: flex; flex-direction: column; gap: 10px; }
 .notification-item {
   background: #0d0d0d;
@@ -303,8 +254,6 @@
 .notification-item.unread { border-color: #2a2a2a; background: #111; }
 .notification-item p { margin: 0 0 4px; font-size: 0.9rem; }
 .notif-time { font-size: 0.75rem; color: #555; }
-
-/* ─── Modal ─── */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -315,7 +264,6 @@
   z-index: 2000;
   padding: 16px;
 }
-
 .modal-card {
   background: #0d0d0d;
   border: 1px solid #2a2a2a;
@@ -326,8 +274,6 @@
   overflow-y: auto;
 }
 .modal-card h3 { margin: 0 0 20px; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 1px; }
-
-/* ─── Lot photo ─── */
 .lot-photo {
   width: 100%;
   max-height: 140px;
@@ -335,8 +281,6 @@
   border-radius: 8px;
   margin-bottom: 8px;
 }
-
-/* ─── Telegram section ─── */
 .tg-connect-section {
   margin-top: 24px;
   padding: 20px;
@@ -349,13 +293,9 @@
 .tg-link-box p { margin: 0; color: #888; font-size: 0.88rem; }
 .tg-btn { text-align: center; text-decoration: none; }
 .tg-hint { font-size: 0.78rem; color: #555; margin: 0; }
-
 .empty-msg { color: #444; font-size: 0.9rem; text-align: center; padding: 32px 0; }
-
-/* ─── Mobile ─── */
 @media (max-width: 768px) {
   .dashboard-container { flex-direction: column; }
-
   .sidebar {
     width: 100%;
     border-right: none;
@@ -369,15 +309,12 @@
     z-index: 100;
     background: #060606;
   }
-
   .sidebar h2 { display: none; }
-
   .sidebar nav {
     flex-direction: row;
     gap: 0;
     width: 100%;
   }
-
   .sidebar nav button {
     white-space: nowrap;
     border-radius: 0;
@@ -389,28 +326,20 @@
     text-align: center;
     min-width: max-content;
   }
-
   .sidebar nav button.active {
     background: none;
     border-left: none;
     border-bottom: 2px solid #fff;
     color: #fff;
   }
-
   .main-content { padding: 20px 16px; }
-
   .form-row { grid-template-columns: 1fr; gap: 0; }
-
   .lot-item { flex-direction: column; align-items: flex-start; }
   .lot-actions { margin-top: 10px; }
-
   .history-table { font-size: 0.8rem; }
   .history-table th, .history-table td { padding: 10px 8px; }
-
   .stats-grid { grid-template-columns: 1fr 1fr; }
 }
-
-/* Cold-chain (§47) lot badge */
 .cold-badge {
   display: inline-block;
   font-size: 0.72rem;
@@ -423,15 +352,12 @@
   margin-left: 6px;
   vertical-align: middle;
 }
-
-/* ─── Превью фотографий лота (мультизагрузка) ─── */
 .photo-preview-row {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 10px;
 }
-
 .photo-preview {
   position: relative;
   width: 86px;
@@ -441,14 +367,12 @@
   border: 1px solid #2a2a2a;
   background: #0d0d0d;
 }
-
 .photo-preview img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-
 .photo-preview-remove {
   position: absolute;
   top: 4px;
@@ -464,7 +388,6 @@
   line-height: 1;
 }
 .photo-preview-remove:hover { background: #e53935; }
-
 .photo-preview-main {
   position: absolute;
   left: 0;
@@ -478,8 +401,6 @@
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-
-/* ─── Галерея фото в карточке лота ─── */
 .lot-photo-strip {
   display: flex;
   gap: 6px;

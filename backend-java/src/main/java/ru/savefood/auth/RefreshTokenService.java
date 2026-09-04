@@ -1,5 +1,4 @@
 package ru.savefood.auth;
-
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -10,24 +9,18 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
 /** Issues and atomically rotates opaque, server-side refresh credentials. */
 @Service
 public class RefreshTokenService {
-
     public static final long REFRESH_TOKEN_LIFETIME_SECONDS = 30L * 24 * 60 * 60;
-
     private static final int TOKEN_BYTES = 32;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43}");
     private static final long RETENTION_DAYS = 7;
-
     private final JdbcTemplate jdbc;
     private final SecureRandom random = new SecureRandom();
-
     public RefreshTokenService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
-
     /** Creates a new independently revocable session for a successfully authenticated user. */
     public String issue(int userId) {
         cleanupExpiredHistory();
@@ -38,19 +31,10 @@ public class RefreshTokenService {
             UUID.randomUUID(), userId, hash(token), REFRESH_TOKEN_LIFETIME_SECONDS);
         return token;
     }
-
-    /**
-     * Atomically consumes one refresh credential and creates its successor.
-     * PostgreSQL row locking plus the consumed_at guard gives concurrent callers
-     * exactly one winner. The users row is locked and re-checked in the same
-     * statement, so deletion/blocking cannot race a successful rotation.
-     */
     public Rotation rotate(String token) {
         if (!validToken(token)) {
             return null;
         }
-        // Cleanup precedes the guarded rotation so cleanup failure can never
-        // consume a credential whose replacement was not returned to the client.
         cleanupExpiredHistory();
         String replacement = randomToken();
         List<Rotation> rotations = jdbc.query(
@@ -94,7 +78,6 @@ public class RefreshTokenService {
             hash(token), hash(replacement), REFRESH_TOKEN_LIFETIME_SECONDS);
         return rotations.isEmpty() ? null : rotations.get(0);
     }
-
     /** Preserves the established 403 contract for a current token on a blocked account. */
     public boolean isActiveTokenForBlockedUser(String token) {
         if (!validToken(token)) {
@@ -116,7 +99,6 @@ public class RefreshTokenService {
             Boolean.class, hash(token));
         return Boolean.TRUE.equals(blocked);
     }
-
     /** Revokes every current or historical credential belonging to this session. */
     public void revokeSession(String token) {
         if (!validToken(token)) {
@@ -134,7 +116,6 @@ public class RefreshTokenService {
             """,
             hash(token));
     }
-
     private void cleanupExpiredHistory() {
         jdbc.update(
             """
@@ -145,17 +126,14 @@ public class RefreshTokenService {
             """,
             RETENTION_DAYS, RETENTION_DAYS, RETENTION_DAYS);
     }
-
     private String randomToken() {
         byte[] bytes = new byte[TOKEN_BYTES];
         random.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
-
     private static boolean validToken(String token) {
         return token != null && TOKEN_PATTERN.matcher(token).matches();
     }
-
     private static byte[] hash(String token) {
         try {
             return MessageDigest.getInstance("SHA-256")
@@ -164,7 +142,6 @@ public class RefreshTokenService {
             throw new IllegalStateException("SHA-256 is unavailable", impossible);
         }
     }
-
     public record Rotation(
         String refreshToken,
         int userId,

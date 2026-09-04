@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.tracking
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,29 +53,20 @@ import ru.savefood.app.feature.needy.data.TicketDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
 import ru.savefood.app.feature.needy.ui.RatingDialog
 import ru.savefood.app.feature.needy.ui.TrackStage
-
-/**
- * "My requests" — the recipient's start screen. Polls active tickets and the
- * assigned courier's live location, showing a delivery status ladder + map.
- */
 @Composable
 fun TrackingScreen(
     onGoFindFood: () -> Unit,
     viewModel: TrackingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-
     DisposableEffect(Unit) {
         viewModel.start()
         onDispose { viewModel.stop() }
     }
-
     var cancelDialogTicket by remember { mutableStateOf<Int?>(null) }
     var rateDialogTicket by remember { mutableStateOf<TicketDto?>(null) }
-
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         SectionHeader(title = stringResource(R.string.needy_tickets_title))
-
         when {
             state.loading && state.tickets.isEmpty() -> {
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -93,8 +83,6 @@ fun TrackingScreen(
                 )
             }
             state.tickets.isEmpty() -> {
-                // Description points users to the "Find food" bottom tab; the CTA
-                // is shown only when the host wires onGoFindFood to a real action.
                 EmptyState(
                     icon = Icons.Filled.LocalShipping,
                     title = stringResource(R.string.needy_tickets_empty_title),
@@ -127,7 +115,6 @@ fun TrackingScreen(
             }
         }
     }
-
     cancelDialogTicket?.let { id ->
         ConfirmDialog(
             title = stringResource(R.string.needy_track_cancel_confirm_title),
@@ -140,7 +127,6 @@ fun TrackingScreen(
             onDismiss = { cancelDialogTicket = null },
         )
     }
-
     rateDialogTicket?.let { ticket ->
         RatingDialog(
             initialRating = ticket.rating ?: 0,
@@ -153,7 +139,6 @@ fun TrackingScreen(
         )
     }
 }
-
 @Composable
 private fun TrackingCard(
     ticket: TicketDto,
@@ -164,7 +149,6 @@ private fun TrackingCard(
 ) {
     val hasLiveLoc = volLat != null && volLon != null
     val stage = TrackStage.from(ticket.status, hasLiveLoc)
-
     SaveFoodCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(
@@ -181,14 +165,11 @@ private fun TrackingCard(
                     StatusBadge(text = stringResource(R.string.needy_track_self_pickup), tone = BadgeTone.NEUTRAL)
                 }
             }
-
             if (stage == TrackStage.CANCELLED) {
                 StatusBadge(text = stringResource(R.string.needy_track_cancelled), tone = BadgeTone.DANGER)
             } else {
                 StatusLadder(stage)
             }
-
-            // Courier card + map for assigned deliveries (not self-pickup).
             if (ticket.assignedVolunteerId != null && ticket.selfPickup != true) {
                 CourierRow(ticket.assignedVolunteerId)
                 if (hasLiveLoc) {
@@ -224,8 +205,6 @@ private fun TrackingCard(
                     )
                 }
             }
-
-            // Recipient pickup QR (handed to the courier on delivery).
             ticket.qrCode?.takeIf { it.isNotBlank() }?.let { qr ->
                 Text(
                     text = stringResource(R.string.needy_track_your_qr),
@@ -238,8 +217,6 @@ private fun TrackingCard(
                     QrImage(content = qr, modifier = Modifier.size(160.dp))
                 }
             }
-
-            // Cancel is allowed while open/assigned.
             if (ticket.status == "open" || ticket.status == "assigned") {
                 SaveFoodOutlinedButton(
                     text = stringResource(R.string.needy_track_cancel),
@@ -251,7 +228,6 @@ private fun TrackingCard(
         }
     }
 }
-
 @Composable
 private fun StatusLadder(stage: TrackStage) {
     val labels = listOf(
@@ -295,7 +271,6 @@ private fun StatusLadder(stage: TrackStage) {
         }
     }
 }
-
 @Composable
 private fun CourierRow(volunteerId: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -327,4 +302,3 @@ private fun CourierRow(volunteerId: Int) {
         }
     }
 }
-

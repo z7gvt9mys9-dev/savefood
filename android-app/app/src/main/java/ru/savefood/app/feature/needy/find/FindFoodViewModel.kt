@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.find
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,7 +13,6 @@ import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.NeedyRepository
 import ru.savefood.app.feature.needy.data.TicketCreateDto
 import javax.inject.Inject
-
 data class FindFoodUiState(
     val loading: Boolean = true,
     val error: String? = null,
@@ -23,18 +21,14 @@ data class FindFoodUiState(
     val submitting: Boolean = false,
     val submitError: String? = null,
 )
-
 @HiltViewModel
 class FindFoodViewModel @Inject constructor(
     private val repo: NeedyRepository,
     private val locationProvider: LocationProvider,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(FindFoodUiState())
     val state: StateFlow<FindFoodUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
@@ -46,13 +40,10 @@ class FindFoodViewModel @Inject constructor(
             }
         }
     }
-
     fun onSearchChange(value: String) {
         _state.update { it.copy(search = value) }
     }
-
     fun lotById(id: Int?): LotDto? = _state.value.lots.firstOrNull { it.id == id }
-
     /** Submits a ticket; invokes [onSuccess] on the created ticket id. */
     fun submitTicket(body: TicketCreateDto, onSuccess: () -> Unit) {
         viewModelScope.launch {
@@ -71,9 +62,7 @@ class FindFoodViewModel @Inject constructor(
             }
         }
     }
-
     fun clearSubmitError() = _state.update { it.copy(submitError = null) }
-
     /** One-shot current location for the wizard's "use my location" button. */
     fun fetchMyLocation(
         onResult: (lat: Double, lon: Double) -> Unit,

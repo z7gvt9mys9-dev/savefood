@@ -1,17 +1,10 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
-  // 127.0.0.1 (not localhost): Node 17+ may resolve localhost to ::1 first,
-  // while uvicorn binds IPv4 only — the proxy would 502 on every API call.
   const backend = env.VITE_API_URL || 'http://127.0.0.1:8000';
-
   const apiProxy = { target: backend, changeOrigin: true };
-  // Optional Go microservice (geows) for the hot paths: set VITE_GO_URL
-  // (e.g. http://127.0.0.1:8001) to route /ws/ and volunteer location to it
-  // in dev, mirroring the prod nginx layout. Unset → Python handles them.
   const goBackend = env.VITE_GO_URL || '';
   const hotProxy = goBackend ? { target: goBackend, changeOrigin: true } : apiProxy;
   const wsProxy = {
@@ -19,25 +12,18 @@ export default defineConfig(({ mode }) => {
     ws: true,
     changeOrigin: true,
   };
-
   return {
     plugins: [react()],
-
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
       },
     },
-
     server: {
       port: 3000,
       open: false,
-      // Cloudflare quick tunnels get a random *.trycloudflare.com hostname;
-      // without this Vite rejects the Host header and remote access breaks.
       allowedHosts: ['.trycloudflare.com'],
       proxy: {
-        // hot paths first — order matters, the generic /volunteers rule below
-        // would otherwise swallow the location endpoint
         '^/volunteers/\\d+/location$': hotProxy,
         '^/auth/.+': apiProxy,
         '^/shops($|/)': apiProxy,
@@ -49,7 +35,6 @@ export default defineConfig(({ mode }) => {
         '^/impact/': apiProxy,
         '^/push/': apiProxy,
         '^/api/': apiProxy,
-        // In-app ticket chat (§53) — the same path nginx used to miss.
         '^/tickets/': apiProxy,
         '^/uploads/': apiProxy,
         '^/needy_uploads/': apiProxy,
@@ -57,7 +42,6 @@ export default defineConfig(({ mode }) => {
         '^/ws/': wsProxy,
       },
     },
-
     build: {
       outDir: 'build',
       sourcemap: false,
@@ -81,7 +65,6 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-
     test: {
       globals: true,
       environment: 'jsdom',

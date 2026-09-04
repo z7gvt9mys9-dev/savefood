@@ -1,5 +1,4 @@
 <resources>
-    <!-- Tracking / Мои заявки -->
     <string name="needy_tickets_title">Мои заявки</string>
     <string name="needy_tickets_empty_title">Активных заявок нет</string>
     <string name="needy_tickets_empty_desc">Оформите заявку во вкладке «Найти еду», и здесь появится трекинг доставки.</string>
@@ -22,7 +21,6 @@
     <string name="needy_track_cancel_confirm_desc">Курьер перестанет везти заказ. Это действие нельзя отменить.</string>
     <string name="needy_track_rate_cta">Оценить доставку</string>
 
-    <!-- Find food / Найти еду -->
     <string name="needy_find_title">Найти еду</string>
     <string name="needy_find_tab_list">Список</string>
     <string name="needy_find_tab_map">Карта</string>
@@ -31,7 +29,6 @@
     <string name="needy_find_empty_desc">Загляните позже — магазины публикуют еду в течение дня.</string>
     <string name="needy_find_request_cta">Оформить заявку</string>
 
-    <!-- Ticket wizard -->
     <string name="needy_wizard_title">Оформление заявки</string>
     <string name="needy_wizard_step_method">Способ получения</string>
     <string name="needy_wizard_step_details">Детали</string>
@@ -53,7 +50,6 @@
     <string name="needy_wizard_address_required">Укажите адрес доставки</string>
     <string name="needy_wizard_location_required">Укажите точную геолокацию для доставки</string>
 
-    <!-- History / История -->
     <string name="needy_history_title">История</string>
     <string name="needy_history_empty_title">История пуста</string>
     <string name="needy_history_empty_desc">Завершённые получения появятся здесь.</string>
@@ -68,12 +64,10 @@
     <string name="needy_history_cancel_confirm_title">Отменить активную заявку?</string>
     <string name="needy_history_cancel_confirm_desc">Активная заявка и доставка будут отменены. Это действие нельзя отменить.</string>
 
-    <!-- Rating dialog -->
     <string name="needy_rate_title">Оцените доставку</string>
     <string name="needy_rate_comment_hint">Благодарность волонтёру (необязательно)</string>
     <string name="needy_rate_submit">Отправить оценку</string>
 
-    <!-- Profile / Профиль -->
     <string name="needy_profile_title">Профиль</string>
     <string name="needy_profile_section_personal">Анкета</string>
     <string name="needy_profile_section_address">Адрес</string>
@@ -101,7 +95,6 @@
     <string name="needy_profile_delete_confirm_title">Удалить аккаунт?</string>
     <string name="needy_profile_delete_confirm_desc">Личные данные будут стёрты безвозвратно (право на забвение).</string>
 
-    <!-- Common needy -->
     <string name="needy_choose_file">Выбрать файл</string>
     <string name="needy_retry">Повторить</string>
 </resources>

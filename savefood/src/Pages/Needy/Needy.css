@@ -1,6 +1,4 @@
 @import '../Shop/Shop.css';
-
-/* ─── Map ─── */
 .map-container {
   position: relative;
   width: 100%;
@@ -10,7 +8,6 @@
   border: 1px solid #1e1e1e;
   margin-bottom: 28px;
 }
-
 .map-no-coords {
   position: absolute;
   inset: 0;
@@ -22,14 +19,11 @@
   font-size: 0.9rem;
   pointer-events: none;
 }
-
-/* ─── Lot grid ─── */
 .lot-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
 }
-
 .lot-card-compact {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -39,33 +33,26 @@
   flex-direction: column;
   gap: 6px;
 }
-
 .lot-card-compact h4 {
   margin: 0;
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-
 .lot-card-compact p { margin: 0; font-size: 0.82rem; color: #888; }
-
 .lot-card-compact .distance {
   display: block;
   font-size: 0.78rem;
   color: #f1c40f;
   font-weight: 600;
 }
-
 .lot-card-compact .btn-small { margin: 6px 0 0; align-self: flex-start; }
-
-/* ─── Filters ─── */
 .lot-filters {
   display: flex;
   gap: 10px;
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
-
 .lot-filters select,
 .lot-filters input {
   flex: 1;
@@ -82,11 +69,8 @@
   -webkit-appearance: none;
   font-family: inherit;
 }
-
 .lot-filters select:focus,
 .lot-filters input:focus { border-color: #444; }
-
-/* ─── Order / QR ─── */
 .order-status-card {
   max-width: 560px;
   background: #0d0d0d;
@@ -95,14 +79,12 @@
   padding: 36px;
   text-align: center;
 }
-
 .status-stepper {
   display: flex;
   justify-content: center;
   gap: 40px;
   margin: 28px 0;
 }
-
 .step { color: #333; font-weight: 700; font-size: 0.88rem; text-transform: uppercase; letter-spacing: 1px; position: relative; }
 .step.active { color: #fff; }
 .step.active::after {
@@ -114,17 +96,13 @@
   height: 2px;
   background: #fff;
 }
-
 .order-details { text-align: left; background: #111; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
 .order-details p { margin: 4px 0; font-size: 0.9rem; color: #ccc; }
-
 .qr-section { margin-top: 28px; padding-top: 28px; border-top: 1px solid #1e1e1e; }
 .qr-section p { color: #888; font-size: 0.88rem; margin-bottom: 16px; }
 .ticket-qr-code { display: inline-block; padding: 16px; background: #fff; border-radius: 12px; }
 .ticket-qr-code .qr-code-text { color: #333; letter-spacing: 1px; overflow-wrap: anywhere; }
 .qr-code-text { font-family: monospace; letter-spacing: 3px; color: #666; font-size: 0.9rem; display: block; margin-top: 12px; }
-
-/* ─── History ─── */
 .history-item {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -134,8 +112,6 @@
 }
 .history-item p { margin: 2px 0; font-size: 0.88rem; color: #aaa; }
 .history-item p strong { color: #fff; }
-
-/* ─── Rating ─── */
 .rating-row {
   display: flex;
   align-items: center;
@@ -154,8 +130,6 @@
   transition: color 0.15s;
 }
 .star-btn.active, .star-btn:hover { color: #FFD700; }
-
-/* ─── Limit notice ─── */
 .limit-notice {
   background: rgba(41,128,185,0.08);
   border: 1px solid rgba(41,128,185,0.25);
@@ -166,8 +140,6 @@
   margin-top: 20px;
 }
 .limit-notice p { margin: 0; }
-
-/* ─── Delivery photo thumbnail ─── */
 .delivery-photo-thumb {
   width: 80px;
   height: 60px;
@@ -176,8 +148,6 @@
   margin-top: 8px;
   border: 1px solid #2a2a2a;
 }
-
-/* ─── Category badge ─── */
 .category-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -189,12 +159,9 @@
   border: 1px solid #4CAF5044;
   margin-bottom: 4px;
 }
-
-/* ─── Shop group ─── */
 .shop-group {
   margin-bottom: 28px;
 }
-
 .shop-group-header {
   display: flex;
   align-items: center;
@@ -203,9 +170,7 @@
   border-bottom: 1px solid #1e1e1e;
   margin-bottom: 14px;
 }
-
 .shop-group-icon { font-size: 1.2rem; }
-
 .shop-group-header h4 {
   margin: 0;
   font-size: 0.95rem;
@@ -213,23 +178,18 @@
   letter-spacing: 0.8px;
   color: #ddd;
 }
-
-/* ─── Lot actions ─── */
 .lot-actions {
   display: flex;
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
 }
-
 .btn-outline {
   background: transparent;
   border: 1px solid #444;
   color: #aaa;
 }
 .btn-outline:hover { border-color: #fff; color: #fff; }
-
-/* ─── Self-pickup banner ─── */
 .self-pickup-banner {
   display: flex;
   align-items: center;
@@ -241,8 +201,6 @@
   margin-bottom: 20px;
   text-align: left;
 }
-
-/* ─── Mobile ─── */
 @media (max-width: 768px) {
   .map-container { height: 300px; border-radius: 8px; }
   .lot-grid { grid-template-columns: 1fr; }

@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.profile
-
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -17,12 +16,9 @@ import ru.savefood.app.feature.shop.data.ShopDto
 import ru.savefood.app.feature.shop.data.ShopRepository
 import ru.savefood.app.feature.shop.data.ShopUpdateDto
 import javax.inject.Inject
-
 data class ShopProfileUiState(
     val loading: Boolean = true,
     val error: String? = null,
-    /** A secondary section (plan / notifications) failed to load while the core
-     *  profile loaded fine — shown as a non-blocking banner, not an empty state. */
     val partialError: Boolean = false,
     val shop: ShopDto? = null,
     val plan: PlanDto? = null,
@@ -31,18 +27,14 @@ data class ShopProfileUiState(
     val confirmingPickup: Boolean = false,
     val message: String? = null,
 )
-
 @HiltViewModel
 class ShopProfileViewModel @Inject constructor(
     private val repo: ShopRepository,
     private val authRepository: AuthRepository,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(ShopProfileUiState())
     val state: StateFlow<ShopProfileUiState> = _state.asStateFlow()
-
     init { load() }
-
     fun load() {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: run {
@@ -69,7 +61,6 @@ class ShopProfileViewModel @Inject constructor(
             if (partial) _state.update { it.copy(partialError = true) }
         }
     }
-
     fun save(name: String, contact: String, city: String, savedMessage: String) {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: return@launch
@@ -85,7 +76,6 @@ class ShopProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun markNotificationRead(notificationId: Int, failureMessage: String) {
         viewModelScope.launch {
             when (val res = repo.markNotificationRead(notificationId)) {
@@ -94,7 +84,6 @@ class ShopProfileViewModel @Inject constructor(
                         if (it.id == notificationId) it.copy(read = 1) else it
                     })
                 }
-                // Don't flip the row to "read" if the server rejected it; tell the user.
                 is ApiResult.Error -> {
                     Log.w(TAG, "markNotificationRead($notificationId) failed: ${res.message}")
                     _state.update { it.copy(message = failureMessage) }
@@ -102,7 +91,6 @@ class ShopProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun confirmSelfPickup(code: String, successMessage: String) {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: return@launch
@@ -115,13 +103,10 @@ class ShopProfileViewModel @Inject constructor(
             }
         }
     }
-
     fun logout() {
         viewModelScope.launch { authRepository.logout() }
     }
-
     fun clearMessage() = _state.update { it.copy(message = null) }
-
     companion object {
         private const val TAG = "ShopProfileVM"
     }

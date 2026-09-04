@@ -15,21 +15,18 @@ import TicketChat from '../../components/TicketChat';
 import MonoIcon from '../../components/MonoIcon';
 import { volunteerMapUrl } from './mapRequest';
 import './Volunteer.css';
-
 const CAT_KEYS = {
   'Выпечка': 'bakery',
   'Овощи/Фрукты': 'vegetables',
   'Готовая еда': 'prepared',
   'Молочные продукты': 'dairy',
 };
-
 const ACHIEVEMENT_ICONS = {
   first_delivery: 'award',
   kg_100: 'bag',
   night_courier: 'wait',
   sprinter: 'bicycle',
 };
-
 const LEVEL_ICONS = {
   novice: 'leaf',
   helper: 'users',
@@ -37,27 +34,12 @@ const LEVEL_ICONS = {
   guardian: 'shield',
   city_hero: 'award',
 };
-
-// Yandex Maps' balloonContent renders raw HTML, so any string interpolated
-// here must be escaped to prevent stored XSS via shop name / lot description.
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[ch]));
-
 const isMobileDevice = () =>
   (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) ||
   /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-
-// Open the device's navigation app routed to (lat, lon). On mobile we try the
-// Yandex Navigator deep link and fall back to web Yandex Maps if the app isn't
-// installed (the page stays visible, so the timeout fires). On desktop there is
-// no nav app, so we just open the web route — the on-site map is the real fallback.
-//
-// `stops` is the remaining itinerary, nearest first. Web Yandex Maps takes the
-// whole thing (`rtext=` accepts `~`-separated waypoints) and gives a real
-// traffic-aware route for the entire trip; the Navigator deep link only accepts
-// a single destination, so on mobile we hand it the next stop and the driver
-// re-opens it at each point.
 const openInNavigator = (stops) => {
   const urls = buildNavigatorUrls(stops);
   if (!urls) return;
@@ -65,8 +47,6 @@ const openInNavigator = (stops) => {
     window.open(urls.web, '_blank', 'noopener');
     return;
   }
-  // Try the Navigator app; if nothing takes over the page within 1.5 s it is not
-  // installed, so fall back to web maps.
   let opened = false;
   const onHide = () => { opened = true; };
   document.addEventListener('visibilitychange', onHide, { once: true });
@@ -77,14 +57,12 @@ const openInNavigator = (stops) => {
   window.location.href = urls.app;
   setTimeout(() => clearTimeout(fallback), 4000);
 };
-
 const displayRouteAddress = (point) => {
   if (point.kind === 'ticket') {
     return point.address || point.recipient_address || point.description || '';
   }
   return point.address || point.description || '';
 };
-
 const RoutePointIcon = ({ kind }) => (
   <span className="point-kind-icon" aria-hidden="true">
     {kind === 'shop' ? (
@@ -101,7 +79,6 @@ const RoutePointIcon = ({ kind }) => (
     )}
   </span>
 );
-
 const RouteStatusCheckbox = ({ done, current }) => (
   <span
     className={`point-checkbox${done ? ' is-checked' : current ? ' is-current' : ''}`}
@@ -117,21 +94,17 @@ const RouteStatusCheckbox = ({ done, current }) => (
     {!done && current && <span className="point-checkbox-dot" aria-hidden="true" />}
   </span>
 );
-
 const NavigatorIcon = () => (
   <svg className="navigator-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
     <path d="M16.2 3.8 11.8 16l-2.5-5.3L4 8.2l12.2-4.4Z" />
   </svg>
 );
-
 const mapLotId = (lot) => lot?.lot_id ?? lot?.lotId ?? lot?.id ?? null;
 const ticketLotId = (ticket) => ticket?.lot_id ?? ticket?.lotId ?? null;
 const isReservedMapLot = (lot) => lot?.status === 'reserved'
   || lot?.reserved === true
   || (Number(lot?.quantity) <= 0
     && (Array.isArray(lot?.open_ticket_ids) ? lot.open_ticket_ids.length > 0 : Number(lot?.open_ticket_count) > 0));
-
-// Inner component — must be rendered inside <YMaps> to use useYMaps
 const RouteMapView = ({ points }) => {
   const ymaps = useYMaps(['multiRouter.MultiRoute']);
   const mapRef = useRef(null);
@@ -140,10 +113,8 @@ const RouteMapView = ({ points }) => {
   const center = hasValidCoordinates(shopPoint?.lat, shopPoint?.lon)
     ? [shopPoint.lat, shopPoint.lon]
     : [55.75, 37.62];
-
   useEffect(() => {
     if (!ymaps || !mapRef.current) return;
-    // clean up previous route
     if (routeRef.current) {
       mapRef.current.geoObjects.remove(routeRef.current);
       routeRef.current = null;
@@ -169,7 +140,6 @@ const RouteMapView = ({ points }) => {
       }
     };
   }, [ymaps, JSON.stringify(points)]);
-
   return (
     <Map instanceRef={mapRef} state={{ center, zoom: 13 }} width="100%" height="100%">
       {points.map((p, i) => hasValidCoordinates(p.lat, p.lon) && (
@@ -183,21 +153,18 @@ const RouteMapView = ({ points }) => {
     </Map>
   );
 };
-
 const VolunteerDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const volunteerId = user?.relatedId;
   const authHeader = {};
-
   const [activeTab, setActiveTab] = useState('map');
   const [mapData, setMapData] = useState({ shops: [], tickets: [] });
   const [filterCategory, setFilterCategory] = useState('');
   const [activeRoute, setActiveRoute] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState('');
-  // Retain a scanned QR in memory only until the courier adds the proof photo.
   const [pendingDelivery, setPendingDelivery] = useState(null);
   const [loading, setLoading] = useState(false);
   const [routes, setRoutes] = useState([]);
@@ -210,20 +177,13 @@ const VolunteerDashboard = () => {
   const [thanks, setThanks] = useState(null);
   const [attemptMsgs, setAttemptMsgs] = useState({});
   const [leaderboard, setLeaderboard] = useState(null);
-  const [team, setTeam] = useState(undefined); // undefined=loading, null=no team
+  const [team, setTeam] = useState(undefined);
   const [teamName, setTeamName] = useState('');
   const [teamCode, setTeamCode] = useState('');
   const [teamBusy, setTeamBusy] = useState(false);
   const locationWatchRef = useRef(null);
   const locationIntervalRef = useRef(null);
-  // The scanner effect only depends on `scanning`, so its decode callback would
-  // capture a stale nextTicket if the route updates mid-scan — read via ref.
   const nextTicketRef = useRef(null);
-
-  // html5-qrcode's stop() may only run after start() has resolved: calling it
-  // while the camera is still warming up (user taps «Отмена» right away) throws
-  // synchronously and used to crash the dashboard. The cleanup below therefore
-  // chains the stop onto the start promise instead of racing it.
   useEffect(() => {
     if (!scanning) return;
     let disposed = false;
@@ -241,10 +201,8 @@ const VolunteerDashboard = () => {
         },
       },
       async (decodedText) => {
-        if (handled) return; // decode keeps firing ~10 fps until the camera stops
+        if (handled) return;
         const current = nextTicketRef.current;
-        // SF-{id} or SF-{id}-{secret}; the full string (incl. secret) goes to
-        // the server for verification, match[1] only routes it to the right stop.
         const match = decodedText.match(/^SF-(\d+)(?:-[A-Za-z0-9_-]+)?$/);
         if (!match || !current || parseInt(match[1]) !== current.ticket_id) {
           setScanError(t('volunteer.error_qr', { id: current?.ticket_id ?? '?' }));
@@ -252,7 +210,7 @@ const VolunteerDashboard = () => {
         }
         handled = true;
         setPendingDelivery({ ticketId: current.ticket_id, qrCode: decodedText });
-        setScanning(false); // cleanup stops the camera
+        setScanning(false);
       },
       () => {}
     );
@@ -271,18 +229,13 @@ const VolunteerDashboard = () => {
         .catch(() => {});
     };
   }, [scanning]);
-
-  // Single place that (re)loads the volunteer account into volunteerInfo —
-  // used by the initial load, the KYC upload, and the stats refresh so the
-  // fetch+set isn't copy-pasted (and can't diverge in error handling).
   const refreshVolunteerInfo = async () => {
     if (!volunteerId) return;
     try {
       const res = await authFetch(`${API_URL}/volunteers/${volunteerId}`, { headers: authHeader });
       if (res.ok) setVolunteerInfo(await res.json());
-    } catch { /* offline */ }
+    } catch {  }
   };
-
   useEffect(() => {
     if (volunteerId) {
       fetchActiveRoute();
@@ -294,18 +247,14 @@ const VolunteerDashboard = () => {
         .then(res => res.ok ? res.json() : null)
         .then(data => { if (data) setVolunteerRating(data); })
         .catch(() => {});
-      // KYC (§58): load the account so the verification banner can show when
-      // the volunteer is not yet 'approved' and routes are blocked.
       refreshVolunteerInfo();
     }
   }, [volunteerId]);
-
   useEffect(() => {
     const city = volunteerInfo?.city?.trim();
     if (city) fetchMapData(city);
     else setMapData({ shops: [], tickets: [] });
   }, [volunteerInfo?.city]);
-
   const [kycBusy, setKycBusy] = useState(false);
   const uploadKycDocument = async (file) => {
     if (!file || !volunteerId) return;
@@ -329,7 +278,6 @@ const VolunteerDashboard = () => {
       setKycBusy(false);
     }
   };
-
   useEffect(() => {
     if (!volunteerId || !activeRoute) {
       if (locationIntervalRef.current) clearInterval(locationIntervalRef.current);
@@ -351,7 +299,6 @@ const VolunteerDashboard = () => {
     locationIntervalRef.current = setInterval(sendLocation, 20000);
     return () => clearInterval(locationIntervalRef.current);
   }, [volunteerId, activeRoute?.id]);
-
   useEffect(() => {
     const on = () => setIsOnline(true);
     const off = () => setIsOnline(false);
@@ -359,12 +306,9 @@ const VolunteerDashboard = () => {
     window.addEventListener('offline', off);
     return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
-
-  // Keep the availability editor in sync with whatever the profile fetch returns.
   useEffect(() => {
     if (Array.isArray(volunteerInfo?.availability)) setAvailability(volunteerInfo.availability);
   }, [volunteerInfo]);
-
   const saveAvailability = async () => {
     if (!volunteerId) return;
     try {
@@ -374,9 +318,8 @@ const VolunteerDashboard = () => {
         body: JSON.stringify({ availability }),
       });
       if (res.ok) alert(t('volunteer.availability_saved'));
-    } catch { /* offline */ }
+    } catch {  }
   };
-
   const toggleThermalBag = async (checked) => {
     if (!volunteerId) return;
     setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: checked }));
@@ -390,9 +333,6 @@ const VolunteerDashboard = () => {
       setVolunteerInfo(v => ({ ...(v || {}), has_thermal_bag: !checked }));
     }
   };
-
-  // Carrying capacity (§14): a lot is claimed whole, so the server refuses lots
-  // heavier than this. Empty = no limit declared, which is the default.
   const setCapacity = async (value) => {
     if (!volunteerId) return;
     const capacity = value === '' ? null : Number(value);
@@ -408,7 +348,6 @@ const VolunteerDashboard = () => {
       setVolunteerInfo(v => ({ ...(v || {}), capacity_kg: previous }));
     }
   };
-
   const fetchStats = async () => {
     if (!volunteerId) return;
     try {
@@ -416,7 +355,6 @@ const VolunteerDashboard = () => {
       if (res.ok) setStats(await res.json());
     } catch {}
     await refreshVolunteerInfo();
-    // Leaderboards are public impact endpoints — no auth header needed.
     try {
       const [citiesRes, volsRes] = await Promise.all([
         fetch(`${API_URL}/impact/cities`),
@@ -436,7 +374,6 @@ const VolunteerDashboard = () => {
       if (res.ok) setThanks(await res.json());
     } catch {}
   };
-
   const teamAction = async (path, body) => {
     setTeamBusy(true);
     try {
@@ -452,11 +389,8 @@ const VolunteerDashboard = () => {
     } catch { alert(t('common.connection_error')); }
     finally { setTeamBusy(false); }
   };
-
   const handleAttemptDelivery = async (ticketId) => {
     if (!activeRoute) return;
-    // A failed-delivery attempt is an on-site event too. The server verifies
-    // this fix against the route point, so never submit a client-only attempt.
     const pos = await getCurrentPosition();
     if (!pos) {
       alert(t('volunteer.gps_no_location'));
@@ -479,7 +413,6 @@ const VolunteerDashboard = () => {
       await fetchActiveRoute();
     } catch { alert(t('common.connection_error')); }
   };
-
   const fetchMapData = async (city = volunteerInfo?.city?.trim()) => {
     if (!city) return;
     try {
@@ -493,7 +426,6 @@ const VolunteerDashboard = () => {
       }
     } catch {}
   };
-
   const fetchActiveRoute = async () => {
     try {
       const res = await authFetch(`${API_URL}/volunteers/${volunteerId}/active_route`, { headers: authHeader });
@@ -502,7 +434,6 @@ const VolunteerDashboard = () => {
       setActiveRoute(data && data.id ? data : null);
     } catch {}
   };
-
   const handleTakeTask = async (lotId) => {
     if (!volunteerId) { alert(t('volunteer.error_auth')); return; }
     setLoading(true);
@@ -521,7 +452,6 @@ const VolunteerDashboard = () => {
       setLoading(false);
     }
   };
-
   const getCurrentPosition = () => new Promise((resolve) => {
     if (!navigator.geolocation) { resolve(null); return; }
     navigator.geolocation.getCurrentPosition(
@@ -530,13 +460,9 @@ const VolunteerDashboard = () => {
       { timeout: 8000, enableHighAccuracy: true }
     );
   });
-
   const handleCompletePoint = async (ticketId = null, { qrCode = null, proofFile = null } = {}) => {
     if (!activeRoute) return false;
     const body = { volunteer_id: volunteerId, ticket_id: ticketId };
-    // Every point completion is GPS-verified server-side (§13): ticket points
-    // additionally require the recipient's QR, shop point requires presence
-    // at the shop (otherwise «Я забрал» from home would disarm the §27 antifraud).
     if (ticketId != null) {
       body.qr_code = qrCode;
     }
@@ -580,7 +506,6 @@ const VolunteerDashboard = () => {
       return false;
     }
   };
-
   const handleDeliveryPhoto = async (file) => {
     if (!file || !pendingDelivery) return;
     setLoading(true);
@@ -594,7 +519,6 @@ const VolunteerDashboard = () => {
       setLoading(false);
     }
   };
-
   const handleFinishRoute = async () => {
     if (!activeRoute) return;
     try {
@@ -610,14 +534,12 @@ const VolunteerDashboard = () => {
       }
     } catch {}
   };
-
   const points = activeRoute?.points || [];
   const shopPoint = points.find(p => p.kind === 'shop');
   const isShopDone = shopPoint?.done ?? false;
   const pendingTickets = points.filter(p => p.kind === 'ticket' && !p.done);
   const nextTicket = pendingTickets[0] || null;
   nextTicketRef.current = nextTicket;
-
   const checkGPS = async () => {
     if (!hasValidCoordinates(nextTicket?.lat, nextTicket?.lon)) { setGpsStatus('error'); return 'error'; }
     setGpsStatus('checking');
@@ -634,7 +556,6 @@ const VolunteerDashboard = () => {
       );
     });
   };
-
   const CATEGORIES = ['', 'Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
   const mapShops = Array.isArray(mapData.shops) ? mapData.shops : [];
   const mapTickets = Array.isArray(mapData.tickets) ? mapData.tickets : [];
@@ -643,14 +564,10 @@ const VolunteerDashboard = () => {
     .map(lot => mapLotId(lot))
     .filter(id => id !== null && id !== undefined)
     .map(String));
-  // A new map API may expose a zero-quantity reservation through tickets before
-  // it has a full shop/lot card. Keep that delivery task actionable instead of
-  // rendering it as a marker only.
   const unlistedTicketTasks = mapTickets.filter(ticket => {
     const lotId = ticketLotId(ticket);
     return lotId !== null && lotId !== undefined && !listedMapLotIds.has(String(lotId));
   });
-
   const renderMap = () => (
     <div className="volunteer-tab">
       <div className="map-container-mobile">
@@ -778,7 +695,6 @@ const VolunteerDashboard = () => {
       </div>
     </div>
   );
-
   const renderRoute = () => (
     <div className="volunteer-tab route-page">
       {!activeRoute ? (
@@ -804,11 +720,7 @@ const VolunteerDashboard = () => {
               <h2>{!isShopDone ? t('volunteer.pickup_at_shop') : nextTicket ? t('volunteer.deliver_to_recipient') : t('volunteer.route_complete_msg')}</h2>
               <span className="badge">{t('volunteer.in_transit')}</span>
             </div>
-
             {(() => {
-              // Everything still ahead: the shop until pickup is confirmed, then
-              // every undelivered stop in visiting order. On desktop this opens as
-              // one multi-waypoint route instead of the next point only.
               const remaining = [
                 ...(!isShopDone && shopPoint ? [shopPoint] : []),
                 ...points.filter(p => p.kind === 'ticket' && !p.done),
@@ -826,7 +738,6 @@ const VolunteerDashboard = () => {
                 </button>
               );
             })()}
-
             <div className="route-points">
               {points.map((p, i) => {
                 const address = displayRouteAddress(p);
@@ -869,14 +780,12 @@ const VolunteerDashboard = () => {
                 );
               })}
             </div>
-
             {isShopDone && nextTicket?.ticket_id && (
               <div style={{ marginTop: 12 }}>
                 <h4 style={{ margin: '0 0 4px' }}>{t('volunteer.chat_title')}</h4>
                 <TicketChat ticketId={nextTicket.ticket_id} me="volunteer" ns="volunteer" />
               </div>
             )}
-
             <div className="navigation-actions">
               {!isShopDone ? (
                 <button className="btn btn-primary btn-full" onClick={() => handleCompletePoint(null)}>
@@ -950,7 +859,6 @@ const VolunteerDashboard = () => {
       )}
     </div>
   );
-
   const kycStatus = volunteerInfo?.status;
   const renderKycBanner = () => {
     if (!volunteerInfo || kycStatus === 'approved') return null;
@@ -976,7 +884,6 @@ const VolunteerDashboard = () => {
       </div>
     );
   };
-
   return (
     <div className="mobile-container">
       <main className="mobile-content">
@@ -995,7 +902,6 @@ const VolunteerDashboard = () => {
               <span><MonoIcon name="snow" /> {t('volunteer.thermal_bag')}</span>
             </label>
             <p style={{ fontSize: '0.78rem', color: '#888', marginTop: -8, marginBottom: 14 }}>{t('volunteer.thermal_bag_hint')}</p>
-
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <span><MonoIcon name="bag" /> {t('volunteer.capacity')}</span>
               <select
@@ -1009,7 +915,6 @@ const VolunteerDashboard = () => {
               </select>
             </label>
             <p style={{ fontSize: '0.78rem', color: '#888', marginBottom: 14 }}>{t('volunteer.capacity_hint')}</p>
-
             <div style={{ background: '#1a1a26', border: '1px solid #2a2a3a', borderRadius: 12, padding: 12, marginBottom: 16 }}>
               <h4 style={{ margin: '0 0 4px' }}><MonoIcon name="calendar" /> {t('volunteer.availability_title')}</h4>
               <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 10px' }}>{t('volunteer.availability_hint')}</p>
@@ -1241,7 +1146,6 @@ const VolunteerDashboard = () => {
                 </p>
               </div>
             </div>
-
             <div className="profile-section">
               <h4><MonoIcon name="id" /> {t('volunteer.kyc_section')}</h4>
               <p className="profile-hint">
@@ -1255,7 +1159,6 @@ const VolunteerDashboard = () => {
                   onChange={(e) => { uploadKycDocument(e.target.files?.[0]); e.target.value = ''; }} />
               </label>
             </div>
-
             <div className="profile-section">
               <h4><MonoIcon name="gear" /> {t('volunteer.equipment_title')}</h4>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
@@ -1268,7 +1171,6 @@ const VolunteerDashboard = () => {
               </label>
               <p className="profile-hint" style={{ marginTop: 6 }}>{t('volunteer.thermal_bag_hint')}</p>
             </div>
-
             <div className="profile-section">
               <h4><MonoIcon name="calendar" /> {t('volunteer.availability_title')}</h4>
               <p className="profile-hint">{t('volunteer.availability_hint')}</p>
@@ -1291,10 +1193,8 @@ const VolunteerDashboard = () => {
                 <button className="btn-small btn-success" onClick={saveAvailability}>{t('volunteer.availability_save')}</button>
               </div>
             </div>
-
             <AccountLinks dashboardPath="/volunteer" />
             <PushToggle />
-
             <button
               className="profile-logout-btn"
               onClick={() => { logout(); navigate('/'); }}
@@ -1304,7 +1204,6 @@ const VolunteerDashboard = () => {
           </div>
         )}
       </main>
-
       <nav className="mobile-nav">
         <button className={activeTab === 'map' ? 'active' : ''} onClick={() => setActiveTab('map')}>{t('volunteer.map')}</button>
         <button className={activeTab === 'route' ? 'active' : ''} onClick={() => { setActiveTab('route'); fetchActiveRoute(); }}>{t('volunteer.route')}</button>
@@ -1315,5 +1214,4 @@ const VolunteerDashboard = () => {
     </div>
   );
 };
-
 export default VolunteerDashboard;

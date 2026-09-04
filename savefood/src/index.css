@@ -1,7 +1,5 @@
 :root {
   color-scheme: dark;
-
-  /* Ember palette — shared by public pages and product surfaces. */
   --ink: #100e0c;
   --ink-raised: #171310;
   --ink-soft: #201a15;
@@ -27,8 +25,6 @@
   --font-ui: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-
-  /* Stable semantic aliases for existing application styles. */
   --sf-background: var(--ink);
   --sf-surface: var(--ink-raised);
   --sf-surface-soft: var(--ink-soft);
@@ -44,28 +40,23 @@
   --white: var(--paper);
   --transition: all 0.2s ease;
 }
-
 *,
 *::before,
 *::after {
   box-sizing: border-box;
 }
-
 html,
 body {
   min-width: 320px;
-  /* Clip off-canvas controls without creating a competing scroll container. */
   overflow-x: hidden;
   overflow-x: clip;
 }
-
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 100px;
   scrollbar-color: var(--ember-deep) var(--ink);
   scrollbar-width: thin;
 }
-
 body {
   margin: 0;
   color: var(--paper);
@@ -79,7 +70,6 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
 body::before {
   position: fixed;
   z-index: 999;
@@ -93,7 +83,6 @@ body::before {
   background-size: 13px 13px, 17px 17px;
   mix-blend-mode: soft-light;
 }
-
 button,
 input,
 textarea,
@@ -101,42 +90,34 @@ select {
   color: inherit;
   font: inherit;
 }
-
 button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
-
 a {
   color: inherit;
 }
-
 img {
   display: block;
   max-width: 100%;
 }
-
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
   text-wrap: balance;
 }
-
 code {
   font-family: var(--font-mono);
 }
-
 ::selection {
   color: var(--ink);
   background: var(--honey);
 }
-
 :focus-visible {
   outline: 2px solid var(--honey);
   outline-offset: 4px;
 }
-
 :where(input:not([type='checkbox'], [type='radio']), textarea, select) {
   color: var(--paper);
   background: var(--ink);
@@ -147,24 +128,20 @@ code {
     box-shadow 0.16s ease,
     background-color 0.16s ease;
 }
-
 :where(input:not([type='checkbox'], [type='radio']), textarea, select):focus {
   background: var(--ink-raised);
   border-color: var(--ember);
   box-shadow: 0 0 0 3px rgba(244, 111, 53, 0.12);
   outline: none;
 }
-
 :where(input, textarea)::placeholder {
   color: #746b62;
   opacity: 1;
 }
-
 :where(input, textarea, select):disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
-
 :where(.btn) {
   min-height: 46px;
   border-radius: 999px;
@@ -174,38 +151,27 @@ code {
     background-color 0.16s ease,
     border-color 0.16s ease;
 }
-
 :where(.btn):hover:not(:disabled) {
   transform: translateY(-1px);
 }
-
 :where(.btn):active:not(:disabled) {
   transform: translateY(0);
 }
-
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
-
 *::-webkit-scrollbar-track {
   background: var(--ink);
 }
-
 *::-webkit-scrollbar-thumb {
   background: var(--ember-deep);
   border: 3px solid var(--ink);
   border-radius: 999px;
 }
-
 *::-webkit-scrollbar-thumb:hover {
   background: var(--ember);
 }
-
-/* ─────────────────────────────────────────────────────────────────────────────
-   Единый чекбокс для всего приложения. Селектор и поведение сохранены:
-   страничные поля по-прежнему исключают checkbox из width: 100%.
-   ───────────────────────────────────────────────────────────────────────────── */
 input[type='checkbox'] {
   display: inline-block;
   width: 20px;
@@ -226,32 +192,26 @@ input[type='checkbox'] {
     border-color 0.15s,
     box-shadow 0.15s;
 }
-
 input[type='checkbox']:hover:not(:disabled) {
   border-color: var(--ember);
 }
-
 input[type='checkbox']:checked {
   background-color: var(--ember);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='10' viewBox='0 0 12 10'%3E%3Cpath d='M1 5.2 4.2 8.4 11 1.6' stroke='%23100e0c' stroke-width='2.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   border-color: var(--ember);
 }
-
 input[type='checkbox']:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(244, 198, 96, 0.34);
 }
-
 input[type='checkbox']:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
-
   *,
   *::before,
   *::after {

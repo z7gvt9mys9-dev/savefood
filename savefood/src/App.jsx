@@ -14,7 +14,6 @@ import AboutPage from './Pages/AboutPage';
 import ImpactPage from './Pages/ImpactPage';
 import TermsPage from './Pages/TermsPage';
 import PrivacyPage from './Pages/PrivacyPage';
-
 function App() {
   return (
     <AuthProvider>
@@ -29,25 +28,21 @@ function App() {
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/auth" element={<AuthPage />} />
-              
               <Route path="/shop" element={
                 <ProtectedRoute allowedRoles={['shop']}>
                   <ShopDashboard />
                 </ProtectedRoute>
               } />
-              
               <Route path="/needy" element={
                 <ProtectedRoute allowedRoles={['needy']}>
                   <NeedyDashboard />
                 </ProtectedRoute>
               } />
-              
               <Route path="/volunteer" element={
                 <ProtectedRoute allowedRoles={['volunteer']}>
                   <VolunteerDashboard />
                 </ProtectedRoute>
               } />
-              
               <Route path="/admin" element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <AdminPanel />
@@ -61,5 +56,4 @@ function App() {
     </AuthProvider>
   );
 }
-
 export default App;

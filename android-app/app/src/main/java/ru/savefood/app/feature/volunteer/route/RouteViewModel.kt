@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.route
-
 import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -17,36 +16,29 @@ import ru.savefood.app.core.device.location.LocationProvider
 import ru.savefood.app.feature.volunteer.data.RouteDto
 import ru.savefood.app.feature.volunteer.data.VolunteerRepository
 import javax.inject.Inject
-
 data class RouteUiState(
     val loading: Boolean = true,
     val error: String? = null,
     val route: RouteDto? = null,
     val volunteerId: Int? = null,
-    val busyPointTicketId: Int? = null,  // ticket point currently being completed/attempted
+    val busyPointTicketId: Int? = null,
     val pickupBusy: Boolean = false,
     val finishing: Boolean = false,
     val actionError: String? = null,
     val trackingActive: Boolean = false,
-    /** Set when location updates repeatedly fail to reach the server, so the
-     *  recipient's live map is frozen. Cleared on the next successful push. */
     val trackingError: Boolean = false,
 ) {
     /** A real route exists only when the server returned an id (active_route is {} otherwise). */
     val hasRoute: Boolean get() = route?.id != null
 }
-
 @HiltViewModel
 class RouteViewModel @Inject constructor(
     private val repo: VolunteerRepository,
     private val locationProvider: LocationProvider,
 ) : ViewModel() {
-
     private val _state = MutableStateFlow(RouteUiState())
     val state: StateFlow<RouteUiState> = _state.asStateFlow()
-
     private var trackingJob: Job? = null
-
     fun load() {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId()
@@ -65,7 +57,6 @@ class RouteViewModel @Inject constructor(
             }
         }
     }
-
     /** Periodically pushes the volunteer's location while a route is active (§27). */
     private fun startTracking(volunteerId: Int) {
         if (trackingJob?.isActive == true) return
@@ -74,8 +65,6 @@ class RouteViewModel @Inject constructor(
             var consecutiveFailures = 0
             locationProvider.updates(TRACKING_INTERVAL_MS)
                 .catch { e ->
-                    // The location stream itself failed (e.g. updates couldn't be
-                    // requested). Don't let the courier think tracking is live.
                     Log.w(TAG, "Location updates stream failed", e)
                     _state.update { it.copy(trackingActive = false, trackingError = true) }
                 }
@@ -88,8 +77,6 @@ class RouteViewModel @Inject constructor(
                         is ApiResult.Error -> {
                             consecutiveFailures++
                             Log.w(TAG, "Location push failed ($consecutiveFailures): ${res.message}")
-                            // Tolerate transient blips; surface only sustained failure so
-                            // the recipient's live map being frozen doesn't go unnoticed.
                             if (consecutiveFailures >= MAX_TRACKING_FAILURES) {
                                 _state.update { it.copy(trackingError = true) }
                             }
@@ -98,13 +85,11 @@ class RouteViewModel @Inject constructor(
                 }
         }
     }
-
     fun stopTracking() {
         trackingJob?.cancel()
         trackingJob = null
         _state.update { it.copy(trackingActive = false, trackingError = false) }
     }
-
     /** Completes the shop pickup point. Requires the volunteer's current GPS fix. */
     fun completePickup() {
         val route = _state.value.route ?: return
@@ -132,11 +117,6 @@ class RouteViewModel @Inject constructor(
             }
         }
     }
-
-    /**
-     * Confirms a delivery: QR already scanned by the caller, GPS read here.
-     * [onDone] is invoked on success so the screen can leave the QR/photo flow.
-     */
     fun confirmDelivery(ticketId: Int, qrCode: String, photoUri: Uri, onDone: () -> Unit) {
         val routeId = _state.value.route?.id ?: return
         val volunteerId = _state.value.volunteerId ?: return
@@ -171,7 +151,6 @@ class RouteViewModel @Inject constructor(
             }
         }
     }
-
     /** Records a failed delivery attempt (no one answered). */
     fun attemptDelivery(ticketId: Int) {
         val routeId = _state.value.route?.id ?: return
@@ -191,7 +170,6 @@ class RouteViewModel @Inject constructor(
             }
         }
     }
-
     fun finishRoute(onFinished: () -> Unit) {
         val routeId = _state.value.route?.id ?: return
         val volunteerId = _state.value.volunteerId ?: return
@@ -209,14 +187,11 @@ class RouteViewModel @Inject constructor(
             }
         }
     }
-
     fun clearActionError() = _state.update { it.copy(actionError = null) }
-
     override fun onCleared() {
         stopTracking()
         super.onCleared()
     }
-
     companion object {
         private const val TAG = "RouteViewModel"
         private const val TRACKING_INTERVAL_MS = 15_000L

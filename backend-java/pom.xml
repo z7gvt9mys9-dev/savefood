@@ -22,12 +22,8 @@
         <jjwt.version>0.12.6</jjwt.version>
         <sentry.version>7.14.0</sentry.version>
         <testcontainers.version>1.20.4</testcontainers.version>
-        <!-- Newer than the Boot 3.3.5 defaults so Mockito's inline mock maker
-             works on current JDKs (Byte Buddy must know the running JVM). -->
         <mockito.version>5.23.0</mockito.version>
         <byte-buddy.version>1.18.10</byte-buddy.version>
-        <!-- Docker Desktop 29 works with Testcontainers' docker-java transport
-             through this compatible API level; callers may override -Dapi.version. -->
         <api.version>1.51</api.version>
     </properties>
 
@@ -40,7 +36,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <!-- WebSocket for /ws/needy/{id} notification stream (needy module). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-websocket</artifactId>
@@ -50,10 +45,6 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Schema management (replaces the removed alembic chain + Python init_db
-             DDL): runs classpath:db/migration/V*__*.sql at startup. Existing
-             databases are baselined at version 1 (V1__baseline.sql is skipped);
-             an empty database executes it. See src/main/resources/db/migration. -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -64,14 +55,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- BCrypt only (no Spring Security auto-config): hashes are wire-compatible
-             with the Python passlib bcrypt context used by backend/auth.py. -->
         <dependency>
             <groupId>org.springframework.security</groupId>
             <artifactId>spring-security-crypto</artifactId>
         </dependency>
 
-        <!-- JWT (HS256) — wire-compatible with the Python python-jose tokens. -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>
             <artifactId>jjwt-api</artifactId>
@@ -90,16 +78,11 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- In-process cache behind CacheService. Deliberately not Redis: the hot
-             reads are small and short-TTL, and a second network hop plus an extra
-             container buys nothing at this scale. Swap the CacheService body if a
-             multi-instance deployment ever needs a shared cache. -->
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
         </dependency>
 
-        <!-- Error reporting (§39). Inert without SENTRY_DSN. -->
         <dependency>
             <groupId>io.sentry</groupId>
             <artifactId>sentry-spring-boot-starter-jakarta</artifactId>
@@ -112,10 +95,6 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Integration tests run against a real Postgres: the transactional
-             chains they cover (lot revert, reservation TTL, displacement reset)
-             are guarded by partial unique indexes and RETURNING clauses that no
-             in-memory substitute reproduces faithfully. -->
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>postgresql</artifactId>
@@ -148,8 +127,6 @@
         </plugins>
     </build>
     <profiles>
-        <!-- Integration tests need a Docker daemon, so they are opt-in and stay
-             out of the fast unit job: `./mvnw -Pintegration verify`. -->
         <profile>
             <id>integration</id>
             <build>

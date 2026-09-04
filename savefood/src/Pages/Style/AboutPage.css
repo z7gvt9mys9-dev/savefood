@@ -3,14 +3,11 @@
   color: #fff;
   min-height: 100vh;
 }
-
-/* ─── Hero ─── */
 .about-hero {
   text-align: center;
   padding: 80px 24px 60px;
   border-bottom: 1px solid #1a1a1a;
 }
-
 .about-hero h1 {
   font-size: clamp(2rem, 5vw, 3.5rem);
   font-weight: 800;
@@ -18,7 +15,6 @@
   letter-spacing: 3px;
   margin: 0 0 20px;
 }
-
 .about-lead {
   font-size: clamp(1rem, 2.5vw, 1.25rem);
   color: #888;
@@ -26,14 +22,11 @@
   margin: 0 auto;
   line-height: 1.7;
 }
-
-/* ─── Sections ─── */
 .about-section {
   padding: 64px 24px;
   max-width: 1100px;
   margin: 0 auto;
 }
-
 .about-section--dark {
   background: #060606;
   max-width: 100%;
@@ -51,9 +44,6 @@
   margin: 0 auto 40px;
   padding: 0 24px;
 }
-
-/* Заголовки секций («Как это работает», «Кто может участвовать»,
-   «Контакты» и остальные) выровнены по центру страницы. */
 .about-section h2 {
   font-size: clamp(1.4rem, 3vw, 2rem);
   text-transform: uppercase;
@@ -61,32 +51,24 @@
   margin: 0 0 36px;
   text-align: center;
 }
-
 .about-section p {
   color: #aaa;
   line-height: 1.8;
   margin: 0 0 16px;
 }
 .about-section p strong { color: #fff; }
-
-/* ─── Grid 2 ─── */
 .about-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 60px;
   align-items: center;
 }
-
-/* «Наша миссия» живёт в колонке грида — центрирование внутри полуширины
-   выглядит как сдвиг, поэтому здесь заголовок остаётся слева. */
 .about-grid-2 h2 { text-align: left; }
-
 .about-values {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
-
 .value-item {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -98,8 +80,6 @@
   font-size: 0.9rem;
 }
 .value-item b { color: #fff; font-size: 0.95rem; }
-
-/* ─── Steps ─── */
 .steps-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -108,7 +88,6 @@
   margin: 0 auto;
   padding: 0 24px;
 }
-
 .step-card {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -116,7 +95,6 @@
   padding: 32px 24px;
   text-align: center;
 }
-
 .step-num {
   display: block;
   font-size: 2.5rem;
@@ -126,23 +104,18 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: -1px;
 }
-
 .step-card h3 {
   font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 1px;
   margin: 0 0 12px;
 }
-
 .step-card p { color: #888; font-size: 0.9rem; margin: 0; line-height: 1.6; }
-
-/* ─── Stats ─── */
 .about-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
 }
-
 .about-stat {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
@@ -150,7 +123,6 @@
   padding: 30px 20px;
   text-align: center;
 }
-
 .about-stat-value {
   display: block;
   font-size: 2.5rem;
@@ -158,15 +130,12 @@
   color: #fff;
   margin-bottom: 8px;
 }
-
 .about-stat-label {
   font-size: 0.8rem;
   color: #666;
   text-transform: uppercase;
   letter-spacing: 1px;
 }
-
-/* ─── Roles ─── */
 .roles-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -175,17 +144,14 @@
   margin: 0 auto;
   padding: 0 24px;
 }
-
 .role-card {
   background: #0d0d0d;
   border: 1px solid #1e1e1e;
   border-radius: 12px;
   padding: 32px 24px;
 }
-
 .role-card h3 { font-size: 1.1rem; margin: 0 0 12px; }
 .role-card p { color: #888; font-size: 0.9rem; line-height: 1.6; margin: 0 0 20px; }
-
 .role-cta {
   display: inline-block;
   border: 1px solid #fff;
@@ -199,8 +165,6 @@
   transition: background 0.2s, color 0.2s;
 }
 .role-cta:hover { background: #fff; color: #000; }
-
-/* ─── Privacy ─── */
 .about-privacy {
   max-width: 700px;
   font-size: 0.95rem;
@@ -208,8 +172,6 @@
   margin-right: auto;
   text-align: center;
 }
-
-/* ─── CTA ─── */
 .about-cta-section {
   text-align: center;
   padding: 80px 24px;
@@ -222,11 +184,8 @@
   margin: 0 0 12px;
 }
 .about-cta-section p { color: #888; margin: 0 0 32px; }
-
 .about-cta-section .about-cta-btn {
   display: inline-block;
-  /* Override the global `.btn-primary { width: 100% }` (leaked from Auth.css),
-     which together with the horizontal padding overflowed the viewport. */
   width: auto;
   max-width: 100%;
   box-sizing: border-box;
@@ -241,8 +200,6 @@
   transition: opacity 0.2s;
 }
 .about-cta-btn:hover { opacity: 0.85; }
-
-/* ─── Highlight on anchor navigation ─── */
 @keyframes highlight-pulse {
   0%   { box-shadow: inset 0 0 0 3px #fff; background: rgba(255,255,255,0.05); }
   50%  { box-shadow: inset 0 0 0 3px rgba(255,255,255,0.5); background: rgba(255,255,255,0.02); }
@@ -252,10 +209,6 @@
   animation: highlight-pulse 2s ease-out forwards;
   transition: none;
 }
-
-/* ─── FAQ ─── */
-/* margin: 0 auto — блок был прижат к левому краю и «съезжал»
-   относительно центрированного заголовка секции. */
 .faq-list { display: flex; flex-direction: column; gap: 16px; max-width: 760px; margin: 0 auto; }
 .faq-item {
   background: #0a0a0a;
@@ -265,8 +218,6 @@
 }
 .faq-item h4 { margin: 0 0 8px; font-size: 0.95rem; color: #fff; }
 .faq-item p  { margin: 0; font-size: 0.88rem; color: #888; line-height: 1.6; }
-
-/* ─── Contacts ─── */
 .contacts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -296,11 +247,8 @@
 }
 .contact-item a:hover { text-decoration: underline; }
 .contact-item p { margin: 0; color: #888; font-size: 0.88rem; line-height: 1.5; }
-
-/* ─── Mobile ─── */
 @media (max-width: 768px) {
   .about-hero { padding: 48px 20px 40px; }
-
   .about-grid-2 { grid-template-columns: 1fr; gap: 32px; }
   .steps-row { grid-template-columns: 1fr; }
   .about-stats { grid-template-columns: 1fr 1fr; }

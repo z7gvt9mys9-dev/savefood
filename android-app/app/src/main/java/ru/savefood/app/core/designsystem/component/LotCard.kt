@@ -1,5 +1,4 @@
 package ru.savefood.app.core.designsystem.component
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,11 +22,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-
-/**
- * Reusable food-lot card. Takes primitives (not a domain DTO) so the design
- * system stays decoupled from the data layer.
- */
 @Composable
 fun LotCard(
     title: String,
@@ -80,7 +74,6 @@ fun LotCard(
         }
     }
 }
-
 @Composable
 private fun IconRow(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {

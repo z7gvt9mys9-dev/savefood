@@ -1,9 +1,7 @@
 package ru.savefood.webhook;
-
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
-
 /** Central limits for outgoing partner webhooks. */
 @Component
 @ConfigurationProperties(prefix = "savefood.webhook")
@@ -15,7 +13,6 @@ public class WebhookProperties {
     private Duration initialBackoff = Duration.ofMillis(100);
     private int maxPerShop = 20;
     private int maxInFlightPerShop = 2;
-
     public int getWorkerCount() { return workerCount; }
     public void setWorkerCount(int workerCount) { this.workerCount = workerCount; }
     public int getQueueCapacity() { return queueCapacity; }
@@ -30,7 +27,6 @@ public class WebhookProperties {
     public void setMaxPerShop(int maxPerShop) { this.maxPerShop = maxPerShop; }
     public int getMaxInFlightPerShop() { return maxInFlightPerShop; }
     public void setMaxInFlightPerShop(int maxInFlightPerShop) { this.maxInFlightPerShop = maxInFlightPerShop; }
-
     void validate() {
         if (workerCount < 1 || queueCapacity < 1 || requestTimeout == null || requestTimeout.isNegative()
             || requestTimeout.isZero() || maxRetries < 0 || initialBackoff == null

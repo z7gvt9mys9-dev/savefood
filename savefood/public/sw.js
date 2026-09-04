@@ -1,6 +1,5 @@
 const CACHE_NAME = 'savefood-cache-v4';
 const KEEP_CACHES = [CACHE_NAME];
-
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
@@ -11,7 +10,6 @@ self.addEventListener('install', event => {
     ]))
   );
 });
-
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -19,22 +17,15 @@ self.addEventListener('activate', event => {
     ).then(() => self.clients.claim())
   );
 });
-
-// A logout may happen while the worker is stopped or being upgraded, so both
-// the page and worker issue this deletion. Cache Storage must not retain data
-// belonging to the previous person on a shared device.
 const clearSavefoodCaches = () => caches.keys()
   .then(keys => Promise.all(keys
     .filter(key => key.startsWith('savefood-'))
     .map(key => caches.delete(key))));
-
 self.addEventListener('message', event => {
   if (event.data?.type === 'CLEAR_SESSION_CACHE') {
     event.waitUntil(clearSavefoodCaches());
   }
 });
-
-// Web Push (VAPID): payload is JSON {title, body, url} from backend/push_service.py
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) {}
@@ -45,7 +36,6 @@ self.addEventListener('push', event => {
     })
   );
 });
-
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const url = (event.notification.data && event.notification.data.url) || '/';
@@ -57,17 +47,9 @@ self.addEventListener('notificationclick', event => {
     })
   );
 });
-
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
-
-  // Never intercept authenticated requests. In particular, route points and
-  // ticket chat contain home-address data and must not land in Cache Storage.
   if (event.request.method !== 'GET' || event.request.headers.has('authorization')) return;
-
-  // Pass API, WebSocket upgrades, and cross-origin requests straight to network.
-  // `/tickets` is owner-protected too; keeping it explicit avoids a future
-  // cache-first fallback accidentally storing chat history.
   if (
     url.pathname.startsWith('/auth') ||
     url.pathname.startsWith('/push') ||
@@ -86,10 +68,8 @@ self.addEventListener('fetch', event => {
     url.pathname.startsWith('/ws') ||
     url.origin !== self.location.origin
   ) {
-    return; // let browser handle it normally
+    return;
   }
-
-  // Network-first for navigation (HTML)
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request).catch(() =>
@@ -98,15 +78,10 @@ self.addEventListener('fetch', event => {
     );
     return;
   }
-
-  // Cache only the compiled application shell/assets. A broad cache-first
-  // fallback is unsafe because a newly added authenticated endpoint could be
-  // persisted before this allow-list is updated.
   const isStaticAsset = url.pathname.startsWith('/assets/')
     || url.pathname === '/manifest.json'
     || /\.(?:css|js|mjs|woff2?|ttf|svg|png|jpe?g|webp|ico)$/i.test(url.pathname);
   if (!isStaticAsset) return;
-
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;

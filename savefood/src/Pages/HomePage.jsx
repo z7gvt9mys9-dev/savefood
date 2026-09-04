@@ -12,36 +12,29 @@ import {
   normalizeLandingLanguage,
   personalizeLandingMarkup,
 } from './HomePage.locale';
-
 const bodyMatch = landingDocument.match(/<body>([\s\S]*)<\/body>/i);
 const landingMarkup = bodyMatch ? bodyMatch[1] : landingDocument;
 const ROLE_PATHS = { shop: '/shop', volunteer: '/volunteer', needy: '/needy', admin: '/admin' };
-
 const animateLanguageWords = (root) => {
   const document = root.ownerDocument;
   const showText = document.defaultView.NodeFilter.SHOW_TEXT;
   const walker = document.createTreeWalker(root, showText);
   const textNodes = [];
   const wordIndexes = new Map();
-
   while (walker.nextNode()) textNodes.push(walker.currentNode);
-
   textNodes.forEach((textNode) => {
     if (!textNode.textContent.trim()) return;
     const parent = textNode.parentElement;
     if (!parent || parent.closest('script, style, svg, [hidden], [aria-hidden="true"], .sr-only')) return;
-
     const group = parent.closest('h1, h2, h3, p, a, button, li, strong, summary, label, [role="tabpanel"]') || parent;
     let wordIndex = wordIndexes.get(group) || 0;
     const words = document.createElement('span');
     words.className = 'language-words';
-
     textNode.textContent.split(/(\s+)/).forEach((part) => {
       if (!part || /^\s+$/.test(part)) {
         words.append(part);
         return;
       }
-
       const word = document.createElement('span');
       word.className = 'language-word';
       word.style.setProperty('--language-word-order', String(Math.min(wordIndex, 12)));
@@ -49,16 +42,10 @@ const animateLanguageWords = (root) => {
       words.append(word);
       wordIndex += 1;
     });
-
     wordIndexes.set(group, wordIndex);
     textNode.replaceWith(words);
   });
 };
-
-/**
- * The public landing page keeps its production markup and styles next to this
- * component so changes in design references cannot affect the live product.
- */
 export default function HomePage() {
   const rootRef = useRef(null);
   const previousLanguageRef = useRef(null);
@@ -72,12 +59,10 @@ export default function HomePage() {
     user,
     copy,
   ), [copy, language, user?.role]);
-
   useEffect(() => {
     const previousLanguage = previousLanguageRef.current;
     previousLanguageRef.current = language;
     if (!previousLanguage || previousLanguage === language) return undefined;
-
     const root = rootRef.current;
     if (!root) return undefined;
     root.classList.remove('is-language-entering');
@@ -87,11 +72,9 @@ export default function HomePage() {
     const timer = window.setTimeout(() => root.classList.remove('is-language-entering'), 760);
     return () => window.clearTimeout(timer);
   }, [language]);
-
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return undefined;
-
     const query = (selector) => root.querySelector(selector);
     const queryAll = (selector) => Array.from(root.querySelectorAll(selector));
     const header = query('[data-header]');
@@ -102,7 +85,6 @@ export default function HomePage() {
     let scrollFrame;
     let impactTimer;
     let alive = true;
-
     const headerActions = query('.header-actions');
     if (headerActions && !query('[data-language]')) {
       const languageSwitcherMarkup = `
@@ -121,7 +103,6 @@ export default function HomePage() {
       });
     };
     setLanguageButton(language);
-
     const showToast = (message) => {
       window.clearTimeout(toastTimer);
       toast.textContent = message;
@@ -137,19 +118,16 @@ export default function HomePage() {
       const target = query(hash);
       if (!target) return;
       window.cancelAnimationFrame(scrollFrame);
-
       const start = window.scrollY;
       const headerOffset = (header?.offsetHeight || 0) + 16;
       const destination = Math.max(0, target.getBoundingClientRect().top + start - headerOffset);
       const distance = destination - start;
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
       if (reduceMotion || Math.abs(distance) < 2) {
         window.scrollTo(0, destination);
         if (window.location.hash !== hash) window.history.pushState(null, '', hash);
         return;
       }
-
       const duration = Math.min(900, Math.max(620, Math.abs(distance) * 0.32));
       const startedAt = window.performance.now();
       document.documentElement.classList.add('is-programmatic-scrolling');
@@ -302,7 +280,6 @@ export default function HomePage() {
       const proof = queryAll('.proof-item strong');
       [format(kg), format(meals), `${co2Display.value} ${co2Display.unit}`, format(deliveries)]
         .forEach((value, index) => { if (proof[index]) proof[index].textContent = value; });
-
       const main = impact.querySelector('.impact-main__header');
       const value = main?.querySelector('strong');
       if (value) {
@@ -331,7 +308,6 @@ export default function HomePage() {
           return bar;
         }));
       }
-
       const metrics = impact.querySelectorAll('.impact-metric');
       const co2Value = metrics[0]?.querySelector('strong');
       if (co2Value) {
@@ -395,7 +371,6 @@ export default function HomePage() {
     };
     clearImpactDemo();
     void loadImpact();
-
     menuButton?.addEventListener('click', onMenuToggle);
     navigation?.addEventListener('click', closeMenu);
     root.addEventListener('click', onClick);
@@ -403,7 +378,6 @@ export default function HomePage() {
     window.addEventListener('scroll', onScroll, { passive: true });
     queryAll('[data-current-year]').forEach((node) => { node.textContent = String(new Date().getFullYear()); });
     onScroll();
-
     return () => {
       menuButton?.removeEventListener('click', onMenuToggle);
       navigation?.removeEventListener('click', closeMenu);
@@ -417,6 +391,5 @@ export default function HomePage() {
       alive = false;
     };
   }, [copy, i18n, language, logout, navigate, user?.role]);
-
   return <div ref={rootRef} className="ember-page" lang={language} dangerouslySetInnerHTML={{ __html: markup }} />;
 }

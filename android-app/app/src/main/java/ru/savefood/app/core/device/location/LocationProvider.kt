@@ -1,5 +1,4 @@
 package ru.savefood.app.core.device.location
-
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
@@ -19,25 +18,15 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import ru.savefood.app.core.device.isPermissionGranted
 import kotlin.coroutines.resume
-
-/**
- * Thin Hilt-injectable wrapper over FusedLocationProvider.
- *
- * Both APIs degrade gracefully when location permission is absent:
- * [lastLocation] returns null and [updates] emits nothing (closes immediately),
- * so callers never crash on a missing grant.
- */
 @Singleton
 class LocationProvider @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val client: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
-
     private fun hasLocationPermission(): Boolean =
         context.isPermissionGranted(Manifest.permission.ACCESS_FINE_LOCATION) ||
             context.isPermissionGranted(Manifest.permission.ACCESS_COARSE_LOCATION)
-
     /** One-shot current location, or null if unavailable / permission missing. */
     @SuppressLint("MissingPermission")
     suspend fun lastLocation(): Location? {
@@ -50,11 +39,6 @@ class LocationProvider @Inject constructor(
             }
         }.getOrNull()
     }
-
-    /**
-     * Stream of location fixes at the requested [intervalMs].
-     * Emits nothing and closes immediately when permission is missing.
-     */
     @SuppressLint("MissingPermission")
     fun updates(intervalMs: Long): Flow<Location> = callbackFlow {
         if (!hasLocationPermission()) {

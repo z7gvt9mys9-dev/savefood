@@ -1,5 +1,4 @@
 package ru.savefood.needy;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -21,33 +20,15 @@ import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
-
-/**
- * Java port of the {@code @router.websocket("/ws/needy/{id}")} stream in
- * routes.py. Auth is a handshake message (not a query-string token) so the JWT
- * never lands in access logs: the client connects then immediately sends
- * {@code {"type":"auth","token":"…","since_id":<optional int>}} within
- * {@code AUTH_TIMEOUT}s, else the socket is dropped. After auth the server polls
- * the recipient's notifications every ~3s and pushes new rows. A per-recipient cap
- * ({@code MAX_WS_PER_USER}) protects the poll loop and connection pool.
- *
- * <p>Where Python multiplexes a single coroutine over {@code receive}/poll, this
- * uses a scheduled poll per session plus the container's own disconnect callback;
- * the observable protocol (ready frame, notification frames, close codes) is
- * identical.
- */
 @Component
 public class NeedyWebSocketHandler extends TextWebSocketHandler {
-
     private static final Logger log = Logger.getLogger(NeedyWebSocketHandler.class.getName());
     private static final int MAX_WS_PER_USER = 3;
     private static final long AUTH_TIMEOUT_SECONDS = 5;
     private static final long POLL_SECONDS = 3;
-
     private final JwtService jwtService;
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper = new ObjectMapper();
-
     private final Map<Integer, AtomicInteger> connections = new ConcurrentHashMap<>();
     private final Map<String, SessionState> sessions = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2, r -> {
@@ -55,12 +36,10 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
         t.setDaemon(true);
         return t;
     });
-
     public NeedyWebSocketHandler(JwtService jwtService, JdbcTemplate jdbc) {
         this.jwtService = jwtService;
         this.jdbc = jdbc;
     }
-
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws IOException {
         Integer needyId = parseNeedyId(session.getUri());
@@ -68,7 +47,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             session.close(CloseStatus.POLICY_VIOLATION);
             return;
         }
-        // Reject before counting up when the per-user cap is already hit.
         AtomicInteger counter = connections.computeIfAbsent(needyId, k -> new AtomicInteger());
         if (counter.get() >= MAX_WS_PER_USER) {
             session.close(new CloseStatus(CloseStatus.POLICY_VIOLATION.getCode(), "Too many connections"));
@@ -77,26 +55,21 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
         counter.incrementAndGet();
         SessionState state = new SessionState(needyId);
         sessions.put(session.getId(), state);
-        // Drop the socket if the auth handshake doesn't arrive in time.
         state.authTimeout = scheduler.schedule(() -> {
             if (!state.authenticated) {
                 closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             }
         }, AUTH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
-
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         SessionState state = sessions.get(session.getId());
         if (state == null) {
             return;
         }
-        // Once authenticated, inbound frames are just keepalives (Python only reads
-        // them to notice a disconnect); the container handles disconnect for us.
         if (state.authenticated) {
             return;
         }
-
         JsonNode first;
         try {
             first = mapper.readTree(message.getPayload());
@@ -108,7 +81,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
-
         String token = first.path("token").asText(null);
         CurrentUser user = token == null ? null : jwtService.decode(token);
         user = currentUser(user);
@@ -119,7 +91,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(session, CloseStatus.POLICY_VIOLATION);
             return;
         }
-        // Optional resume cursor; otherwise start from MAX(id).
         long lastId;
         JsonNode since = first.get("since_id");
         if (since != null && since.isInt() && since.asInt() >= 0) {
@@ -132,16 +103,12 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
         if (state.authTimeout != null) {
             state.authTimeout.cancel(false);
         }
-
         if (!send(session, Map.of("type", "ready", "last_id", lastId))) {
             return;
         }
-        // Poll for new notifications; the loop also serves as a liveness write —
-        // a dead socket surfaces on the next send and tears the session down.
         state.poll = scheduler.scheduleWithFixedDelay(
             () -> pollOnce(session, state), POLL_SECONDS, POLL_SECONDS, TimeUnit.SECONDS);
     }
-
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         SessionState state = sessions.remove(session.getId());
@@ -159,7 +126,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             counter.updateAndGet(v -> Math.max(0, v - 1));
         }
     }
-
     private void pollOnce(WebSocketSession session, SessionState state) {
         if (!session.isOpen()) {
             return;
@@ -182,7 +148,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             log.warning("[needy-ws] poll for needy " + state.needyId + " failed: " + e.getMessage());
         }
     }
-
     /** @return true if the frame was sent; false (and closes the socket) on failure. */
     private boolean send(WebSocketSession session, Map<String, Object> payload) {
         try {
@@ -199,7 +164,6 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             return false;
         }
     }
-
     private CurrentUser currentUser(CurrentUser tokenUser) {
         if (tokenUser == null) {
             return null;
@@ -211,13 +175,11 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             tokenUser.userId());
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     private long currentMaxId(int needyId) {
         Long max = jdbc.queryForObject(
             "SELECT COALESCE(MAX(id), 0) FROM notifications WHERE needy_id = ?", Long.class, needyId);
         return max == null ? 0L : max;
     }
-
     private static Integer parseNeedyId(URI uri) {
         if (uri == null) {
             return null;
@@ -233,22 +195,18 @@ public class NeedyWebSocketHandler extends TextWebSocketHandler {
             return null;
         }
     }
-
     private static void closeQuietly(WebSocketSession session, CloseStatus status) {
         try {
             session.close(status);
         } catch (IOException ignored) {
-            // already closing/closed
         }
     }
-
     private static final class SessionState {
         final int needyId;
         volatile boolean authenticated;
         volatile long lastId;
         volatile ScheduledFuture<?> authTimeout;
         volatile ScheduledFuture<?> poll;
-
         SessionState(int needyId) {
             this.needyId = needyId;
         }

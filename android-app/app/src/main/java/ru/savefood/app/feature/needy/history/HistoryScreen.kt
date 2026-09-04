@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.history
-
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -45,24 +44,20 @@ import ru.savefood.app.core.designsystem.component.BadgeTone
 import ru.savefood.app.feature.needy.data.TicketDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
 import ru.savefood.app.feature.needy.ui.RatingDialog
-
 /** "History" tab: completed pickup details and active-request cancellation. */
 @Composable
 fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
             viewModel.clearMessage()
         }
     }
-
     var rateTicket by remember { mutableStateOf<TicketDto?>(null) }
     var ticketToCancel by remember { mutableStateOf<TicketDto?>(null) }
     var photoForTicket by remember { mutableStateOf<Int?>(null) }
-
     val photoPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent(),
     ) { uri ->
@@ -70,11 +65,9 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
         if (uri != null && ticketId != null) viewModel.uploadPhoto(ticketId, uri)
         photoForTicket = null
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             SectionHeader(title = stringResource(R.string.needy_history_title))
-
             when {
                 state.loading -> Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     repeat(3) { ShimmerListItem() }
@@ -112,7 +105,6 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     rateTicket?.let { ticket ->
         RatingDialog(
             initialRating = ticket.rating ?: 0,
@@ -125,7 +117,6 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
             },
         )
     }
-
     ticketToCancel?.let { ticket ->
         ConfirmDialog(
             title = stringResource(R.string.needy_history_cancel_confirm_title),
@@ -139,7 +130,6 @@ fun HistoryScreen(viewModel: HistoryViewModel = hiltViewModel()) {
         )
     }
 }
-
 @Composable
 private fun HistoryCard(
     ticket: TicketDto,
@@ -150,7 +140,6 @@ private fun HistoryCard(
 ) {
     val isFulfilled = ticket.status == "fulfilled"
     val canRate = isFulfilled && ticket.assignedVolunteerId != null
-
     SaveFoodCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
@@ -171,7 +160,6 @@ private fun HistoryCard(
             (ticket.fulfilledAt ?: ticket.createdAt).let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
             ticket.rating?.let { r ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Star, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
@@ -182,7 +170,6 @@ private fun HistoryCard(
                     )
                 }
             }
-
             ticket.deliveryPhotoStatus?.let { ps ->
                 val label = when (ps) {
                     "approved" -> stringResource(R.string.needy_history_photo_approved)
@@ -191,7 +178,6 @@ private fun HistoryCard(
                 }
                 Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
             if (isFulfilled) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (canRate) {
@@ -208,7 +194,6 @@ private fun HistoryCard(
                     }
                 }
             }
-
             if (HistoryTicketActions.actionFor(ticket) == HistoryTicketAction.CANCEL_ACTIVE_REQUEST) {
                 TextButton(onClick = onCancel, enabled = !busy) {
                     Text(
@@ -220,7 +205,6 @@ private fun HistoryCard(
         }
     }
 }
-
 @Composable
 private fun statusLabel(status: String): String = when (status) {
     "fulfilled" -> stringResource(R.string.needy_track_stage_delivered)

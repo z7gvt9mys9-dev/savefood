@@ -1,5 +1,4 @@
 import React from 'react';
-
 const EmptyState = ({ icon, title, description, action, onAction }) => (
   <div style={{
     display: 'flex',
@@ -48,5 +47,4 @@ const EmptyState = ({ icon, title, description, action, onAction }) => (
     )}
   </div>
 );
-
 export default EmptyState;

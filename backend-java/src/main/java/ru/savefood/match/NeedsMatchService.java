@@ -1,5 +1,4 @@
 package ru.savefood.match;
-
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,27 +13,11 @@ import ru.savefood.util.Html;
 import ru.savefood.volunteer.AvailabilityService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * «Карта потребностей», ported from needs_match.py: when a shop publishes a lot,
- * notify active recipients in the same city whose stated preferences match
- * the lot's category, and the volunteers who marked the current time as
- * available. Runs fire-and-forget (a daemon executor here, a daemon thread in
- * Python) so lot creation never waits on the fan-out.
- *
- * <p>The in-app feed notifications (DB inserts) are ported in full, and the
- * external fan-out mirrors the Python source: Telegram reaches every match
- * (best-effort, each send isolated), while the extra targeted Web Push goes only
- * to recipients who kept the §48 geo-push toggle on.
- */
 @Service
 public class NeedsMatchService {
-
     private static final Logger log = Logger.getLogger(NeedsMatchService.class.getName());
-
     private static final int MAX_NOTIFIED_PER_LOT = 20;
     private static final int MAX_VOLUNTEERS_PER_LOT = 10;
-
     private final JdbcTemplate jdbc;
     private final AvailabilityService availability;
     private final TelegramService telegram;
@@ -44,7 +27,6 @@ public class NeedsMatchService {
         t.setDaemon(true);
         return t;
     });
-
     public NeedsMatchService(JdbcTemplate jdbc, AvailabilityService availability,
                              TelegramService telegram, PushDispatchService push) {
         this.jdbc = jdbc;
@@ -52,7 +34,6 @@ public class NeedsMatchService {
         this.telegram = telegram;
         this.push = push;
     }
-
     /** Fire-and-forget entry point, the analogue of {@code start_needs_match}. */
     public void startNeedsMatch(int lotId) {
         pool.submit(() -> {
@@ -68,16 +49,9 @@ public class NeedsMatchService {
             }
         });
     }
-
-    /**
-     * Delegates to the shared catalogue so the needs-map and the routing
-     * scorer can never drift apart again (they used to keep two different
-     * keyword tables). Kept as a static seam for the unit tests.
-     */
     static boolean matchesPreferences(String category, String preferences) {
         return FoodCategories.preferenceSignal(category, preferences) == FoodCategories.Signal.MATCH;
     }
-
     void notifyMatchingNeedy(int lotId) {
         List<Map<String, Object>> lots = jdbc.queryForList(
             "SELECT l.id, l.description, l.category, l.city, s.name AS shop_name "
@@ -98,10 +72,7 @@ public class NeedsMatchService {
             + "WHERE n.status IN ('active', 'pending', 'approved', 'rejected') "
             + "AND np.preferences IS NOT NULL AND TRIM(np.preferences) <> '' "
             + "AND np.city IS NOT NULL AND np.city = ?", lot.get("city"));
-
         List<Integer> matched = new ArrayList<>();
-        // Geo-push subscription (§48): in-app feed + Telegram reach every match, but
-        // the browser/PWA Web Push only goes to recipients who kept the toggle on.
         List<Integer> pushTargets = new ArrayList<>();
         for (Map<String, Object> c : candidates) {
             if (matchesPreferences(category, (String) c.get("preferences"))) {
@@ -133,20 +104,17 @@ public class NeedsMatchService {
             try {
                 telegram.notifyNeedy(needyId, "□ " + safe);
             } catch (RuntimeException ignore) {
-                // best-effort, like the Python try/except: pass
             }
         }
         for (Integer needyId : pushTargets) {
             try {
                 push.notifyRole("needy", needyId, text, "/");
             } catch (RuntimeException ignore) {
-                // best-effort
             }
         }
         log.info("[needs_match] lot " + lotId + " matched " + matched.size()
             + " recipients (" + pushTargets.size() + " web-push)");
     }
-
     void notifyAvailableVolunteers(int lotId) {
         List<Map<String, Object>> lots = jdbc.queryForList(
             "SELECT l.id, l.description, l.category, l.city, "
@@ -157,13 +125,10 @@ public class NeedsMatchService {
             return;
         }
         Map<String, Object> lot = lots.get(0);
-        // Only volunteers who FILLED the calendar are pinged: an empty calendar
-        // means «не беспокоить», not «доступен всегда» — push must be opt-in.
         List<Map<String, Object>> candidates = jdbc.queryForList(
             "SELECT id, lat, lon, availability FROM volunteers "
             + "WHERE availability IS NOT NULL AND TRIM(availability) NOT IN ('', '[]') "
             + "AND city IS NOT NULL AND city = ?", lot.get("city"));
-
         List<Map<String, Object>> available = new ArrayList<>();
         for (Map<String, Object> v : candidates) {
             Object av = v.get("availability");
@@ -197,12 +162,10 @@ public class NeedsMatchService {
             try {
                 telegram.notifyVolunteer(((Number) v.get("id")).intValue(), "□ " + safe);
             } catch (RuntimeException ignore) {
-                // best-effort, like the Python try/except: pass
             }
         }
         log.info("[needs_match] lot " + lotId + " pinged " + targets.size() + " available volunteers");
     }
-
     private static double distance(Map<String, Object> v, double sLat, double sLon) {
         Double lat = toDouble(v.get("lat"));
         Double lon = toDouble(v.get("lon"));
@@ -211,12 +174,10 @@ public class NeedsMatchService {
         }
         return haversine(lat, lon, sLat, sLon);
     }
-
     /** Great-circle distance in metres (utils.py haversine). */
     static double haversine(double lat1, double lon1, double lat2, double lon2) {
         return ru.savefood.util.Geo.haversineMeters(lat1, lon1, lat2, lon2);
     }
-
     private static Double toDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : null;
     }

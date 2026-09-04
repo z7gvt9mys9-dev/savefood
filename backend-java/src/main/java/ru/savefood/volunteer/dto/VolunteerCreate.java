@@ -1,5 +1,4 @@
 package ru.savefood.volunteer.dto;
-
 /** Port of schemas.py {@code VolunteerCreate} (POST /volunteers/register). */
 public record VolunteerCreate(
     String name,

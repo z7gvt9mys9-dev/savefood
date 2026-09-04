@@ -1,5 +1,4 @@
 package ru.savefood.background;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
@@ -24,40 +23,20 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
-/**
- * Port of backend/background.py — the maintenance ticks (lot expiry, route
- * timeouts, GPS anti-fraud, reservation TTL, KYC retry/retention) that the
- * Python {@code worker} process runs. Here they are Spring {@code @Scheduled}
- * methods on the same cadence the Python loops use.
- *
- * <p><b>Disabled by default</b> ({@code savefood.background-tasks=off}): during the
- * migration the authoritative worker stays the Python {@code python -m
- * backend.worker}, and running both would double-fire every tick. Flip
- * {@code savefood.background-tasks=embedded} only once the Python worker is turned
- * off (its {@code BACKGROUND_TASKS=off}) so exactly one scheduler owns the DB.
- */
 @Service
 public class MaintenanceTasks {
-
     private static final Logger log = Logger.getLogger(MaintenanceTasks.class.getName());
-
-    // Route-release timeouts (§8/§9), matching background.py.
     private static final int REASSIGN_TIMEOUT_MINUTES = 90;
     private static final int MAX_ROUTE_DURATION_MINUTES = 240;
-    // Anti-fraud tuning (§27).
     private static final int ANTIFRAUD_CHECK_AFTER_MINUTES = 15;
     private static final int ANTIFRAUD_GRACE_MINUTES = 15;
     private static final double ANTIFRAUD_DRIFT_THRESHOLD_M = 300;
     private static final int DEFAULT_RESERVATION_TTL_BATCH = 100;
     private static final int MAX_RESERVATION_TTL_BATCH = 200;
-
     private record AntifraudAction(String kind, int volunteerId, Integer lotId) {
     }
-
     private record ReservationExpiryNotification(int needyId, String message) {
     }
-
     private final ObjectMapper mapper = new ObjectMapper();
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
@@ -65,14 +44,12 @@ public class MaintenanceTasks {
     private final KycService kyc;
     private final TelegramService telegram;
     private final SensitiveFileCleanup sensitiveFiles;
-
     private final boolean enabled;
     private final String supportChatId;
     private final String volunteerKycDir;
     private final int kycRetryBatch;
     private final int kycRetentionHours;
     private final int reservationTtlBatch;
-
     @Autowired
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
                             RouteRevertService revert, KycService kyc, TelegramService telegram,
@@ -96,7 +73,6 @@ public class MaintenanceTasks {
         this.kycRetentionHours = kycRetentionHours;
         this.reservationTtlBatch = Math.max(1, Math.min(reservationTtlBatch, MAX_RESERVATION_TTL_BATCH));
     }
-
     /** Constructor retained for focused tests unrelated to filesystem cleanup. */
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
                             RouteRevertService revert, KycService kyc, TelegramService telegram,
@@ -105,7 +81,6 @@ public class MaintenanceTasks {
         this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
             volunteerKycDir, kycRetryBatch, kycRetentionHours, DEFAULT_RESERVATION_TTL_BATCH);
     }
-
     /** Constructor with an explicit reservation batch size for focused tests. */
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
                             RouteRevertService revert, KycService kyc, TelegramService telegram,
@@ -114,9 +89,6 @@ public class MaintenanceTasks {
         this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
             volunteerKycDir, kycRetryBatch, kycRetentionHours, reservationTtlBatch);
     }
-
-    // ── expire_tick (every 30 min) ───────────────────────────────────────────
-
     @Scheduled(fixedDelay = 30 * 60_000, initialDelay = 60_000)
     public void expireTick() {
         if (!enabled) {
@@ -151,7 +123,6 @@ public class MaintenanceTasks {
                         n++;
                     }
                 } catch (RuntimeException ignore) {
-                    // mirror the per-lot try/except in expire_soon_lots
                 }
             }
             if (n > 0) {
@@ -161,9 +132,6 @@ public class MaintenanceTasks {
             log.warning("[background] expire tick failed: " + e.getMessage());
         }
     }
-
-    // ── reassign_tick (every 10 min) ─────────────────────────────────────────
-
     @Scheduled(fixedDelay = 10 * 60_000, initialDelay = 90_000)
     public void reassignTick() {
         if (!enabled) {
@@ -177,16 +145,9 @@ public class MaintenanceTasks {
                 REASSIGN_TIMEOUT_MINUTES, MAX_ROUTE_DURATION_MINUTES);
             for (Map<String, Object> row : rows) {
                 int routeId = ((Number) row.get("id")).intValue();
-                // Per-route transaction = the SAVEPOINT isolation of the Python tick:
-                // a failed revert rolls back only this route and leaves it
-                // 'in_progress' for the next tick instead of stranding the lot.
                 Map<String, Object> timedOutRoute;
                 try {
                     timedOutRoute = tx.execute(s -> {
-                        // The outer scan is intentionally cheap and stale. Lock
-                        // the current row, re-evaluate its timeout predicate, then
-                        // take tickets only after the route lock (the same order as
-                        // complete/attempt/finish interactive requests).
                         List<Map<String, Object>> locked = jdbc.queryForList(
                             "SELECT * FROM volunteer_routes WHERE id = ? AND status = 'in_progress' AND ("
                             + "COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP "
@@ -219,7 +180,6 @@ public class MaintenanceTasks {
                         telegram.sendMessage(supportChatId, "! Маршрут #" + routeId + " волонтёра "
                             + timedOutRoute.get("volunteer_id") + " переназначен по таймауту.");
                     } catch (Exception ignore) {
-                        // best-effort
                     }
                 }
             }
@@ -227,9 +187,6 @@ public class MaintenanceTasks {
             log.warning("[background] reassign tick failed: " + e.getMessage());
         }
     }
-
-    // ── antifraud_tick (every 3 min) ─────────────────────────────────────────
-
     @Scheduled(fixedDelay = 3 * 60_000, initialDelay = 120_000)
     public void antifraudTick() {
         if (!enabled) {
@@ -255,13 +212,9 @@ public class MaintenanceTasks {
             }
         }
     }
-
     private void antifraudOne(Map<String, Object> snapshot) {
         int routeId = ((Number) snapshot.get("id")).intValue();
         AntifraudAction action = tx.execute(s -> {
-            // The periodic scan is only a candidate list. Lock the live route
-            // before reading points or writing a warning/reset, then take ticket
-            // locks through RouteRevertService afterwards (route → ticket order).
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT vr.*, v.lat AS v_lat, v.lon AS v_lon FROM volunteer_routes vr "
                     + "JOIN volunteers v ON v.id = vr.volunteer_id "
@@ -283,7 +236,6 @@ public class MaintenanceTasks {
                     }
                 }
             }
-            // Pickup confirmed → drift monitoring is over for this route.
             if (shopPoint == null || shopPoint.path("done").asBoolean(false)
                     || !shopPoint.path("lat").isNumber() || !shopPoint.path("lon").isNumber()) {
                 return null;
@@ -301,7 +253,6 @@ public class MaintenanceTasks {
             boolean movingAway = distM > ((Number) row.get("start_dist_m")).doubleValue()
                 + ANTIFRAUD_DRIFT_THRESHOLD_M;
             Object pingAt = row.get("antifraud_ping_at");
-
             if (!movingAway) {
                 if (pingAt != null) {
                     jdbc.update("UPDATE volunteer_routes SET antifraud_ping_at = NULL "
@@ -322,9 +273,8 @@ public class MaintenanceTasks {
             }
             Instant pinged = toInstant(pingAt);
             if (pinged == null || Instant.now().isBefore(pinged.plusSeconds(ANTIFRAUD_GRACE_MINUTES * 60L))) {
-                return null;  // still inside the grace window (or legacy invalid timestamp)
+                return null;
             }
-            // No reaction: release tickets, revive the lot, close the route — atomically.
             revert.revertRouteLot(lotId, pointsJson);
             int updated = jdbc.update("UPDATE volunteer_routes SET points = ?, status = 'timed_out', "
                 + "finished_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'in_progress'",
@@ -345,7 +295,6 @@ public class MaintenanceTasks {
             try {
                 telegram.notifyVolunteer(action.volunteerId(), antifraudPingMessage(action.lotId()));
             } catch (Exception ignore) {
-                // best-effort
             }
             return;
         }
@@ -355,13 +304,9 @@ public class MaintenanceTasks {
                     + action.volunteerId() + " снят (удалялся от магазина, лот #" + action.lotId()
                     + " возвращён).");
             } catch (Exception ignore) {
-                // best-effort
             }
         }
     }
-
-    // ── reservation_ttl_tick (every 5 min) ───────────────────────────────────
-
     @Scheduled(fixedDelay = 5 * 60_000, initialDelay = 150_000)
     public void reservationTtlTick() {
         if (!enabled) {
@@ -370,10 +315,6 @@ public class MaintenanceTasks {
         List<ReservationExpiryNotification> deliveries;
         try {
             deliveries = tx.execute(s -> {
-                // startRoute takes lot -> ticket locks. Claim a bounded set of
-                // affected lots in that same order, skipping work owned by another
-                // expiry/assignment transaction, then lock at most one batch of
-                // their eligible tickets.
                 List<Integer> lotIds = jdbc.query(
                     "SELECT l.id FROM lots l WHERE EXISTS (SELECT 1 FROM tickets t "
                     + "WHERE t.lot_id = l.id AND t.status = 'open' "
@@ -399,14 +340,12 @@ public class MaintenanceTasks {
                     Integer lotId = t.get("lot_id") == null ? null : ((Number) t.get("lot_id")).intValue();
                     Number quantity = (Number) t.get("quantity");
                     boolean selfPickup = Boolean.TRUE.equals(t.get("self_pickup"));
-
                     int cancelled = jdbc.update("UPDATE tickets SET status = 'cancelled' WHERE id = ? "
                         + "AND status = 'open' AND assigned_volunteer_id IS NULL "
                         + "AND assigned_volunteer IS NULL", id);
                     if (cancelled != 1) {
                         continue;
                     }
-
                     if (lotId != null) {
                         jdbc.update("UPDATE lots SET quantity = quantity + ? WHERE id = ? AND status = 'active'",
                             quantity, lotId);
@@ -429,19 +368,13 @@ public class MaintenanceTasks {
             log.warning("[background] reservation_ttl tick failed: " + e.getMessage());
             return;
         }
-        // TransactionTemplate returns only after the database commit succeeds.
-        // Telegram is best-effort and cannot extend database lock lifetime.
         for (ReservationExpiryNotification delivery : deliveries) {
             try {
                 telegram.notifyNeedy(delivery.needyId(), delivery.message());
             } catch (Exception ignore) {
-                // best-effort; expiry, inventory and in-app notification stay committed
             }
         }
     }
-
-    // ── kyc_retry_tick (every 15 min) ────────────────────────────────────────
-
     @Scheduled(fixedDelay = 15 * 60_000, initialDelay = 180_000)
     public void kycRetryTick() {
         if (!enabled) {
@@ -465,13 +398,10 @@ public class MaintenanceTasks {
             log.warning("[background] kyc_retry tick failed: " + e.getMessage());
         }
     }
-
-    // ── kyc_doc_retention_tick (hourly; disabled unless retention > 0) ────────
-
     @Scheduled(fixedDelay = 60 * 60_000, initialDelay = 300_000)
     public void kycDocRetentionTick() {
         if (!enabled || kycRetentionHours <= 0) {
-            return;  // documents are retained encrypted for accountability by default
+            return;
         }
         try {
             for (Map<String, Object> row : jdbc.queryForList(
@@ -486,13 +416,11 @@ public class MaintenanceTasks {
             log.warning("[background] kyc_doc_retention tick failed: " + e.getMessage());
         }
     }
-
     /** Guarded winner step for one retention candidate, kept visible for focused tests. */
     boolean purgeVolunteerKycDocument(int id, String document, String generation) {
         return Boolean.TRUE.equals(tx.execute(status ->
             purgeVolunteerKycDocumentInTransaction(id, document, generation)));
     }
-
     private boolean purgeVolunteerKycDocumentInTransaction(int id, String document, String generation) {
         int won = jdbc.update(
             "UPDATE volunteers SET document = NULL, kyc_generation = NULL "
@@ -514,13 +442,9 @@ public class MaintenanceTasks {
         try {
             telegram.notifyVolunteer(id, "◷ " + msg);
         } catch (Exception ignore) {
-            // best-effort
         }
         return true;
     }
-
-    // ── helpers ──────────────────────────────────────────────────────────────
-
     /** Cancel every still-open reservation on a lot leaving the витрина (§57, Q5). */
     private void cancelLotOpenTickets(int lotId, String reason) {
         List<Map<String, Object>> cancelled = jdbc.queryForList(
@@ -533,7 +457,6 @@ public class MaintenanceTasks {
                 + ". Выберите другой лот — недельный лимит не потрачен.", now());
         }
     }
-
     /** Resolve a stored doc reference to a path INSIDE uploadDir, or null (traversal guard). */
     private static String safeDocPath(String uploadDir, String doc) {
         if (doc == null || doc.isBlank()) {
@@ -547,7 +470,6 @@ public class MaintenanceTasks {
             return null;
         }
     }
-
     private JsonNode readJson(String s) {
         if (s == null || s.isBlank()) {
             return null;
@@ -558,13 +480,11 @@ public class MaintenanceTasks {
             return null;
         }
     }
-
     private static String antifraudPingMessage(Integer lotId) {
         return "! Всё в порядке? Вы взяли лот #" + lotId + ", но удаляетесь от магазина. "
             + "Если планы изменились — завершите маршрут, чтобы еда вернулась на витрину. "
             + "Иначе маршрут будет снят автоматически через " + ANTIFRAUD_GRACE_MINUTES + " минут.";
     }
-
     private static Instant toInstant(Object value) {
         if (value instanceof Timestamp timestamp) {
             return timestamp.toInstant();
@@ -577,11 +497,9 @@ public class MaintenanceTasks {
         }
         return null;
     }
-
     private static Timestamp now() {
         return Timestamp.from(Instant.now());
     }
-
     /** Great-circle distance in metres (utils.py haversine). */
     private static double haversine(double lat1, double lon1, double lat2, double lon2) {
         return ru.savefood.util.Geo.haversineMeters(lat1, lon1, lat2, lon2);

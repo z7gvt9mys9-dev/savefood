@@ -1,20 +1,12 @@
 package ru.savefood.app.core.common
-
 import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
-
 /** Lightweight result type for repository calls — keeps ViewModels free of try/catch. */
 sealed interface ApiResult<out T> {
     data class Success<T>(val data: T) : ApiResult<T>
     data class Error(val message: String, val code: Int? = null) : ApiResult<Nothing>
 }
-
-/**
- * Runs a suspending API call and maps exceptions to [ApiResult.Error]. Network
- * (IOException) and HTTP (HttpException) failures get human-readable messages;
- * cancellation is rethrown so coroutine scoping still works.
- */
 suspend fun <T> safeApiCall(block: suspend () -> T): ApiResult<T> = try {
     ApiResult.Success(block())
 } catch (e: CancellationException) {

@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Keep all app data, including encrypted session preferences, off cloud and
-     device-to-device backups on Android 12+. -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="root" path="." />

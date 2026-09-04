@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-
 const inputStyle = {
   width: '100%',
   padding: '12px',
@@ -10,7 +9,6 @@ const inputStyle = {
   boxSizing: 'border-box',
   fontSize: '0.9rem',
 };
-
 const labelStyle = {
   display: 'block',
   marginBottom: '5px',
@@ -18,12 +16,9 @@ const labelStyle = {
   fontSize: '0.85rem',
   color: '#ccc',
 };
-
 const SUGGEST_KEY = import.meta.env.VITE_YANDEX_SUGGEST_API_KEY || '';
 const GEOCODER_KEY = import.meta.env.VITE_YANDEX_MAPS_API_KEY || '';
-
 const EMPTY_COORDS = { lat: null, lon: null, city: null };
-
 const geocodeBy = async (param) => {
   const res = await fetch(
     `https://geocode-maps.yandex.ru/1.x/?apikey=${GEOCODER_KEY}&format=json&lang=ru_RU&results=1&${param}`
@@ -40,9 +35,6 @@ const geocodeBy = async (param) => {
     city: pick('locality') || pick('area') || pick('province') || null,
   };
 };
-
-// Resolve coordinates + city for a picked suggestion via the Yandex HTTP Geocoder.
-// Prefer the suggest result's `uri` (exact match), fall back to the address text.
 const geocode = async (item) => {
   if (!GEOCODER_KEY) return EMPTY_COORDS;
   try {
@@ -55,13 +47,11 @@ const geocode = async (item) => {
     return EMPTY_COORDS;
   }
 };
-
 const validCoordinate = (value) => (
   value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
     ? null
     : Number(value)
 );
-
 const AddressInput = ({
   value,
   onChange,
@@ -88,10 +78,6 @@ const AddressInput = ({
     city: initialCity || null,
   });
   const geocodeRequestRef = useRef(0);
-
-  // Profiles are fetched after this component mounts. Keep the controlled
-  // fields in sync with those values, including their coordinates, so changing
-  // an apartment/floor cannot accidentally wipe a previously selected point.
   useEffect(() => {
     setQuery(value || '');
     setLatLon({
@@ -100,11 +86,9 @@ const AddressInput = ({
       city: initialCity || null,
     });
   }, [value, initialLat, initialLon, initialCity]);
-
   useEffect(() => setApartment(initialApartment || ''), [initialApartment]);
   useEffect(() => setFloorNum(initialFloorNum || ''), [initialFloorNum]);
   useEffect(() => setEntrance(initialEntrance || ''), [initialEntrance]);
-
   useEffect(() => {
     const fetchSuggestions = async () => {
       if (query.length > 3 && SUGGEST_KEY) {
@@ -122,7 +106,6 @@ const AddressInput = ({
           })));
           setShowSuggestions(true);
         } catch {
-          // ignore
         }
       } else {
         setSuggestions([]);
@@ -131,7 +114,6 @@ const AddressInput = ({
     const timer = setTimeout(fetchSuggestions, 300);
     return () => clearTimeout(timer);
   }, [query]);
-
   const emit = (overrides = {}) => {
     const next = {
       address: query,
@@ -145,14 +127,11 @@ const AddressInput = ({
     };
     onChange(next);
   };
-
   const handleSelect = async (s) => {
     const requestId = ++geocodeRequestRef.current;
     setQuery(s.address);
     setShowSuggestions(false);
     const coords = await geocode(s);
-    // A slow geocoder response for an old suggestion must not attach its point
-    // to text the user typed in the meantime.
     if (requestId !== geocodeRequestRef.current) return;
     setLatLon(coords);
     onChange({
@@ -165,28 +144,20 @@ const AddressInput = ({
       entrance,
     });
   };
-
   const handleApartment = (v) => { setApartment(v); emit({ apartment: v }); };
   const handleFloor = (v) => { setFloorNum(v); emit({ floor_num: v }); };
   const handleEntrance = (v) => { setEntrance(v); emit({ entrance: v }); };
-
   const handleAddressInput = (event) => {
     const address = event.target.value;
-    // Coordinates are only valid for the exact address selected from the
-    // geocoder. Clear them as soon as the street/house text changes; otherwise
-    // an edit from address A to B sends B with A's GPS point.
     geocodeRequestRef.current += 1;
     setQuery(address);
     setLatLon(EMPTY_COORDS);
     setShowSuggestions(false);
     emit({ address, ...EMPTY_COORDS });
   };
-
   return (
     <div style={{ marginBottom: '18px' }}>
       {label && <label style={labelStyle}>{label}</label>}
-
-      {/* Улица / дом с автодополнением */}
       <div style={{ position: 'relative', marginBottom: '10px' }}>
         <input
           type="text"
@@ -233,7 +204,6 @@ const AddressInput = ({
           </ul>
         )}
       </div>
-
       {showUnitFields && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
           <div>
@@ -276,5 +246,4 @@ const AddressInput = ({
     </div>
   );
 };
-
 export default AddressInput;

@@ -1,5 +1,4 @@
 package ru.savefood.push;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Jwts;
@@ -40,27 +39,10 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Port of the dispatch half of backend/push_service.py — the Web Push (VAPID,
- * RFC 8291 {@code aes128gcm}) and Firebase Cloud Messaging (HTTP v1) sends that
- * the storage-only {@link PushService} deliberately left on the Python notifier.
- *
- * <p>{@link #notifyRole} mirrors {@code notify_role}: it fans the message out to
- * every configured channel (Web Push and/or FCM), each independently a no-op
- * without its own config or recipients, and runs off the request thread. Dead
- * Web Push endpoints (404/410) and stale FCM tokens (404/UNREGISTERED) are pruned.
- *
- * <p>The Web Push crypto is implemented with JDK primitives (ECDH P-256, HKDF via
- * HmacSHA256, AES-128-GCM) and the VAPID JWT (ES256) via jjwt; validate against a
- * live push endpoint before flipping the {@code /push} module off Python.
- */
 @Service
 public class PushDispatchService {
-
     private static final Logger log = Logger.getLogger(PushDispatchService.class.getName());
     private static final String FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
-
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
@@ -73,21 +55,16 @@ public class PushDispatchService {
         return t;
     });
     private final SecureRandom random = new SecureRandom();
-
     private final JdbcTemplate jdbc;
     private final String vapidPublicKey;
     private final String vapidPrivateKey;
     private final String vapidSubject;
-
     private final boolean fcmEnabled;
     private final String fcmProjectId;
     private final String fcmCredentialsJson;
     private final String fcmCredentialsFile;
-
-    // Cached FCM OAuth2 access token (refreshed a minute before expiry).
     private volatile String fcmToken;
     private volatile Instant fcmTokenExp = Instant.EPOCH;
-
     public PushDispatchService(
             JdbcTemplate jdbc,
             @Value("${savefood.push.vapid-public-key:}") String vapidPublicKey,
@@ -106,32 +83,23 @@ public class PushDispatchService {
         this.fcmCredentialsJson = fcmCredentialsJson;
         this.fcmCredentialsFile = fcmCredentialsFile;
     }
-
     public boolean isConfigured() {
         return !vapidPublicKey.isEmpty() && !vapidPrivateKey.isEmpty();
     }
-
     public boolean fcmIsConfigured() {
         return fcmEnabled && !fcmProjectId.isEmpty()
             && (!fcmCredentialsJson.isEmpty() || !fcmCredentialsFile.isEmpty());
     }
-
     /** Telegram messages carry HTML (&lt;b&gt;…&lt;/b&gt;); browser pushes are plain. */
     static String stripHtml(String text) {
         return text == null ? "" : text.replaceAll("<[^>]+>", "");
     }
-
-    /**
-     * Push to the account bound to (role, related_id). Dispatches to every
-     * configured channel off the calling thread; each is a no-op without config.
-     */
     public void notifyRole(String role, Integer relatedId, String text, String url) {
         if (relatedId == null || relatedId == 0) {
             return;
         }
         String body = stripHtml(text);
         String link = (url == null || url.isEmpty()) ? "/" : url;
-
         if (isConfigured()) {
             try {
                 Integer userId = jdbc.query(
@@ -148,9 +116,6 @@ public class PushDispatchService {
             pool.submit(() -> sendFcmToRole(role, relatedId, "SaveFood", body, link));
         }
     }
-
-    // ── Web Push (RFC 8291 aes128gcm + RFC 8292 VAPID) ───────────────────────
-
     private void sendToUser(int userId, String title, String body, String url) {
         List<Map<String, Object>> subs = jdbc.queryForList(
             "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?", userId);
@@ -195,7 +160,6 @@ public class PushDispatchService {
             }
         }
     }
-
     /** RFC 8291 aes128gcm body: header(salt|rs|idlen|key) || AES-128-GCM(record). */
     private byte[] encrypt(byte[] plaintext, byte[] uaPublic, byte[] authSecret) throws Exception {
         ECParameterSpec p256 = p256Params();
@@ -203,37 +167,29 @@ public class PushDispatchService {
         kpg.initialize(new ECGenParameterSpec("secp256r1"));
         KeyPair as = kpg.generateKeyPair();
         byte[] asPublic = encodeUncompressed((ECPublicKey) as.getPublic());
-
         KeyAgreement ka = KeyAgreement.getInstance("ECDH");
         ka.init(as.getPrivate());
         ka.doPhase(decodePublic(uaPublic, p256), true);
         byte[] ecdh = ka.generateSecret();
-
-        // ikm = HKDF(salt=auth, ikm=ecdh, info="WebPush: info\0"||ua||as, 32)
         byte[] keyInfo = concat("WebPush: info\0".getBytes(StandardCharsets.US_ASCII), uaPublic, asPublic);
         byte[] ikm = hkdf(authSecret, ecdh, keyInfo, 32);
-
         byte[] salt = new byte[16];
         random.nextBytes(salt);
-        byte[] prk = hmac(salt, ikm);  // HKDF-Extract
+        byte[] prk = hmac(salt, ikm);
         byte[] cek = hkdfExpand(prk, "Content-Encoding: aes128gcm\0".getBytes(StandardCharsets.US_ASCII), 16);
         byte[] nonce = hkdfExpand(prk, "Content-Encoding: nonce\0".getBytes(StandardCharsets.US_ASCII), 12);
-
-        // Single record: plaintext || 0x02 delimiter.
         byte[] record = concat(plaintext, new byte[]{0x02});
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(cek, "AES"), new GCMParameterSpec(128, nonce));
         byte[] ciphertext = cipher.doFinal(record);
-
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(salt);
-        out.write(new byte[]{0x00, 0x00, 0x10, 0x00});  // rs = 4096, uint32 BE
-        out.write(asPublic.length);                       // idlen
+        out.write(new byte[]{0x00, 0x00, 0x10, 0x00});
+        out.write(asPublic.length);
         out.write(asPublic);
         out.write(ciphertext);
         return out.toByteArray();
     }
-
     private String vapidJwt(String endpoint) throws Exception {
         URI u = URI.create(endpoint);
         String aud = u.getScheme() + "://" + u.getHost();
@@ -244,7 +200,6 @@ public class PushDispatchService {
             .signWith(vapidSigningKey(), Jwts.SIG.ES256)
             .compact();
     }
-
     private ECPrivateKey vapidSigningKey() throws Exception {
         byte[] s = b64urlDecode(vapidPrivateKey);
         ECParameterSpec p256 = p256Params();
@@ -252,9 +207,6 @@ public class PushDispatchService {
         return (ECPrivateKey) kf.generatePrivate(
             new ECPrivateKeySpec(new java.math.BigInteger(1, s), p256));
     }
-
-    // ── FCM (Firebase Cloud Messaging, HTTP v1) ──────────────────────────────
-
     private void sendFcmToRole(String role, int relatedId, String title, String body, String url) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT token FROM fcm_tokens WHERE role = ? AND related_id = ?", role, relatedId);
@@ -275,7 +227,7 @@ public class PushDispatchService {
                 Map<String, Object> message = Map.of("message", Map.of(
                     "token", token,
                     "notification", Map.of("title", title, "body", body),
-                    "data", Map.of("url", url)));  // FCM data is string-only
+                    "data", Map.of("url", url)));
                 HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(10))
                     .header("Authorization", "Bearer " + accessToken)
@@ -297,7 +249,6 @@ public class PushDispatchService {
             }
         }
     }
-
     private synchronized String fcmAccessToken() throws Exception {
         if (fcmToken != null && Instant.now().isBefore(fcmTokenExp)) {
             return fcmToken;
@@ -308,7 +259,6 @@ public class PushDispatchService {
         String clientEmail = sa.path("client_email").asText();
         String tokenUri = sa.path("token_uri").asText("https://oauth2.googleapis.com/token");
         var privateKey = parsePkcs8Rsa(sa.path("private_key").asText());
-
         Instant now = Instant.now();
         String assertion = Jwts.builder()
             .issuer(clientEmail)
@@ -318,7 +268,6 @@ public class PushDispatchService {
             .expiration(Date.from(now.plus(Duration.ofHours(1))))
             .signWith(privateKey, Jwts.SIG.RS256)
             .compact();
-
         String form = "grant_type="
             + java.net.URLEncoder.encode("urn:ietf:params:oauth:grant-type:jwt-bearer", StandardCharsets.UTF_8)
             + "&assertion=" + assertion;
@@ -333,7 +282,6 @@ public class PushDispatchService {
         fcmTokenExp = now.plusSeconds(Math.max(60, json.path("expires_in").asLong(3600) - 60));
         return fcmToken;
     }
-
     private static java.security.interfaces.RSAPrivateKey parsePkcs8Rsa(String pem) throws Exception {
         String b64 = pem.replace("-----BEGIN PRIVATE KEY-----", "")
             .replace("-----END PRIVATE KEY-----", "")
@@ -342,35 +290,27 @@ public class PushDispatchService {
         return (java.security.interfaces.RSAPrivateKey) KeyFactory.getInstance("RSA")
             .generatePrivate(new PKCS8EncodedKeySpec(der));
     }
-
-    // ── crypto helpers ───────────────────────────────────────────────────────
-
     /** HKDF (extract + expand) per RFC 5869, output length L (<=32). */
     private static byte[] hkdf(byte[] salt, byte[] ikm, byte[] info, int length) throws Exception {
         return hkdfExpand(hmac(salt, ikm), info, length);
     }
-
     private static byte[] hkdfExpand(byte[] prk, byte[] info, int length) throws Exception {
         byte[] t = hmac(prk, concat(info, new byte[]{0x01}));
         byte[] out = new byte[length];
         System.arraycopy(t, 0, out, 0, length);
         return out;
     }
-
     private static byte[] hmac(byte[] key, byte[] data) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(key, "HmacSHA256"));
         return mac.doFinal(data);
     }
-
     private static ECParameterSpec p256Params() throws Exception {
         AlgorithmParameters ap = AlgorithmParameters.getInstance("EC");
         ap.init(new ECGenParameterSpec("secp256r1"));
         return ap.getParameterSpec(ECParameterSpec.class);
     }
-
     private static ECPublicKey decodePublic(byte[] uncompressed, ECParameterSpec params) throws Exception {
-        // 0x04 || X(32) || Y(32)
         byte[] x = new byte[32];
         byte[] y = new byte[32];
         System.arraycopy(uncompressed, 1, x, 0, 32);
@@ -379,7 +319,6 @@ public class PushDispatchService {
         return (ECPublicKey) KeyFactory.getInstance("EC")
             .generatePublic(new ECPublicKeySpec(point, params));
     }
-
     private static byte[] encodeUncompressed(ECPublicKey key) {
         ECPoint w = key.getW();
         byte[] x = toFixed(w.getAffineX(), 32);
@@ -390,7 +329,6 @@ public class PushDispatchService {
         System.arraycopy(y, 0, out, 33, 32);
         return out;
     }
-
     private static byte[] toFixed(java.math.BigInteger v, int len) {
         byte[] b = v.toByteArray();
         byte[] out = new byte[len];
@@ -401,7 +339,6 @@ public class PushDispatchService {
         }
         return out;
     }
-
     private static byte[] concat(byte[]... parts) {
         int n = 0;
         for (byte[] p : parts) {
@@ -415,14 +352,12 @@ public class PushDispatchService {
         }
         return out;
     }
-
     /** Tolerant base64url decode (browsers send unpadded url-safe keys). */
     private static byte[] b64urlDecode(String s) {
         String t = s.replace('+', '-').replace('/', '_');
         int pad = (4 - t.length() % 4) % 4;
         return Base64.getUrlDecoder().decode(t + "=".repeat(pad));
     }
-
     private static String stripPadding(String s) {
         int i = s.indexOf('=');
         return i < 0 ? s : s.substring(0, i);

@@ -1,5 +1,4 @@
 package ru.savefood.forecast;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DateTimeException;
@@ -12,26 +11,15 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * Write-off forecast, ported from forecast.py: the average kg per category the
- * shop listed on the same weekday over the last {@link #BASIS_WEEKS} weeks. The
- * divisor is the fixed window length, so weeks with zero write-offs count as
- * zeros and one lucky Friday can't inflate the average forever.
- */
 @Service
 public class ForecastService {
-
     private static final int BASIS_WEEKS = 8;
     private static final double MIN_AVG_KG = 1.0;
-
     private static final Map<Integer, String> ISO_DOW_NAMES_RU = Map.of(
         1, "понедельник", 2, "вторник", 3, "среда", 4, "четверг",
         5, "пятница", 6, "суббота", 7, "воскресенье");
-
     private final JdbcTemplate jdbc;
     private final ZoneId zone;
-
     public ForecastService(JdbcTemplate jdbc, @Value("${savefood.local-tz:Europe/Moscow}") String localTz) {
         this.jdbc = jdbc;
         try {
@@ -40,7 +28,6 @@ public class ForecastService {
             throw new IllegalStateException("Invalid savefood.local-tz: " + localTz, e);
         }
     }
-
     public Map<String, Object> shopForecast(int shopId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT EXTRACT(ISODOW FROM l.created_at AT TIME ZONE ?)::int AS isodow, l.category, "
@@ -50,15 +37,12 @@ public class ForecastService {
             + "AND l.created_at >= CURRENT_TIMESTAMP - make_interval(weeks => ?) "
             + "GROUP BY 1, 2",
             zone.getId(), shopId, BASIS_WEEKS);
-        // «Friday» must mean the shop's local Friday, not the server's UTC one.
         int todayIsoDow = isoDowAt(Instant.now(), zone);
         return buildForecast(rows, todayIsoDow, BASIS_WEEKS);
     }
-
     static int isoDowAt(Instant instant, ZoneId zone) {
         return instant.atZone(zone).getDayOfWeek().getValue();
     }
-
     static Map<String, Object> buildForecast(List<Map<String, Object>> rows, int todayIsoDow,
                                              int basisWeeks) {
         int tomorrow = todayIsoDow % 7 + 1;
@@ -68,7 +52,6 @@ public class ForecastService {
         out.put("tomorrow", dayBlock(rows, tomorrow, basisWeeks));
         return out;
     }
-
     private static Map<String, Object> dayBlock(List<Map<String, Object>> rows, int isodow,
                                                 int basisWeeks) {
         List<Map<String, Object>> items = new ArrayList<>();
@@ -92,15 +75,12 @@ public class ForecastService {
         block.put("items", items);
         return block;
     }
-
     private static int toInt(Object v) {
         return v instanceof Number n ? n.intValue() : 0;
     }
-
     private static double toDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : 0.0;
     }
-
     private static double round1(double x) {
         return BigDecimal.valueOf(x).setScale(1, RoundingMode.HALF_EVEN).doubleValue();
     }

@@ -1,5 +1,4 @@
 package ru.savefood.admin;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
@@ -41,17 +40,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-/**
- * Java port of backend/admin/routes.py — the admin/moderation surface. Every
- * handler takes an {@code @Admin CurrentUser}, the analogue of
- * {@code Depends(require_admin)}: a valid admin token is required, blocked users
- * and non-admins are rejected before the body runs.
- */
 @RestController
 @RequestMapping("/admin")
 public class AdminController {
-
     private final JdbcTemplate jdbc;
     private final VolunteerRepository volunteerRepo;
     private final EsgService esgService;
@@ -63,7 +54,6 @@ public class AdminController {
     /** Legacy public dir is read only to clean up pre-private-storage rows. */
     private final String volunteerUploadDir;
     private final String deliveryPhotoUploadDir;
-
     @Autowired
     public AdminController(JdbcTemplate jdbc, VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
@@ -82,7 +72,6 @@ public class AdminController {
         this.volunteerUploadDir = volunteerUploadDir;
         this.deliveryPhotoUploadDir = deliveryPhotoUploadDir;
     }
-
     /** Constructor retained for focused controller tests without file cleanup. */
     public AdminController(JdbcTemplate jdbc, VolunteerRepository volunteerRepo, EsgService esgService,
                            AuditService audit, RouteRevertService routeRevert,
@@ -91,9 +80,6 @@ public class AdminController {
         this(jdbc, volunteerRepo, esgService, audit, routeRevert, availability, telegram,
             null, volunteerUploadDir, deliveryPhotoUploadDir);
     }
-
-    // ── Moderation ───────────────────────────────────────────────────────────
-
     /** Manual identity-document moderation for volunteers only. */
     @PatchMapping("/volunteers/{volunteerId}/moderation")
     public Map<String, Object> moderateVolunteer(@PathVariable int volunteerId,
@@ -112,7 +98,6 @@ public class AdminController {
             + "удостоверяющий личность, чтобы брать маршруты.");
         return updated;
     }
-
     /** Identity-document moderation queue for volunteers (§58). */
     @GetMapping("/volunteers")
     public List<Map<String, Object>> listVolunteers(@RequestParam(required = false) String status,
@@ -126,7 +111,6 @@ public class AdminController {
         }
         return jdbc.queryForList("SELECT " + columns + " FROM volunteers ORDER BY created_at DESC");
     }
-
     private static String requireDecision(ModerationDecision payload) {
         String status = payload == null || payload.status() == null ? "" : payload.status().strip();
         if (!"approved".equals(status) && !"rejected".equals(status)) {
@@ -134,17 +118,10 @@ public class AdminController {
         }
         return status;
     }
-
     private static String reasonSuffix(ModerationDecision payload) {
         String reason = payload == null ? null : payload.reason();
         return reason == null || reason.isBlank() ? "" : " — " + reason.strip();
     }
-
-    /**
-     * In-app row + best-effort external ping, mirroring the Auto-KYC wording so a
-     * manual decision is indistinguishable from an automatic one to the applicant.
-     *
-     */
     private void notifyVolunteerModerationOutcome(int volunteerId, String status,
                                                   String approvedMsg, String rejectedMsg) {
         boolean approved = "approved".equals(status);
@@ -157,12 +134,8 @@ public class AdminController {
             String prefixed = (approved ? "✓ " : "! ") + message;
             telegram.notifyVolunteer(volunteerId, prefixed);
         } catch (RuntimeException ignore) {
-            // best-effort, like the Auto-KYC path
         }
     }
-
-    // ── Delivery photo moderation (public Impact feed, §36.1) ──────────────────
-
     @GetMapping("/delivery_photos")
     public List<Map<String, Object>> listDeliveryPhotos(
             @RequestParam(defaultValue = "pending") String status, @Admin CurrentUser user) {
@@ -178,16 +151,12 @@ public class AdminController {
             + "ORDER BY t.fulfilled_at DESC NULLS LAST LIMIT 100",
             status);
         for (Map<String, Object> row : rows) {
-            // Opaque enough for the authenticated moderator queue and required
-            // as an optimistic-concurrency token for approve/reject. It is not a
-            // public image URL; images are still read only through photo_url.
             row.put("photo_ref", row.get("delivery_photo"));
             row.remove("delivery_photo");
             row.put("photo_url", "/admin/delivery_photos/" + row.get("ticket_id") + "/image");
         }
         return rows;
     }
-
     /** Pending proof images are visible to an authenticated moderator only. */
     @GetMapping("/delivery_photos/{ticketId}/image")
     public ResponseEntity<Resource> deliveryPhotoImage(@PathVariable int ticketId, @Admin CurrentUser user) {
@@ -203,7 +172,6 @@ public class AdminController {
         return ResponseEntity.ok().contentType(mediaTypeFor(path.getFileName().toString()))
             .body(new FileSystemResource(path));
     }
-
     @PostMapping("/delivery_photos/{ticketId}/approve")
     public Map<String, Object> approveDeliveryPhoto(@PathVariable int ticketId,
                                                      @RequestParam("photo_ref") String photoRef,
@@ -211,9 +179,6 @@ public class AdminController {
         if (photoRef == null || photoRef.isBlank()) {
             throw new ApiException(422, "photo_ref обязателен");
         }
-        // Conditional status + exact reference is an optimistic lock. A courier
-        // may upload a replacement while the moderator is looking at the old
-        // image; that old decision must never approve the new file unseen.
         int rows = jdbc.update(
             "UPDATE tickets SET delivery_photo_status = 'approved', "
             + "delivery_photo_reviewed_at = NOW() "
@@ -227,7 +192,6 @@ public class AdminController {
             "Admin approved delivery photo for ticket #" + ticketId);
         return Map.of("ok", true, "status", "approved");
     }
-
     @PostMapping("/delivery_photos/{ticketId}/reject")
     @Transactional
     public Map<String, Object> rejectDeliveryPhoto(@PathVariable int ticketId,
@@ -236,9 +200,6 @@ public class AdminController {
         if (photoRef == null || photoRef.isBlank()) {
             throw new ApiException(422, "photo_ref обязателен");
         }
-        // Delete only after this exact pending photo was atomically rejected.
-        // Deleting before/without the conditional update could erase a newer
-        // courier replacement uploaded between list and moderation action.
         int rows = jdbc.update(
             "UPDATE tickets SET delivery_photo_status = 'rejected', "
             + "delivery_photo_reviewed_at = NOW() "
@@ -248,13 +209,11 @@ public class AdminController {
             throw new ApiException(409,
                 "Фото уже изменилось или обработано — обновите очередь перед решением");
         }
-        // The exact rejected reference is durably tracked in this transaction.
         deliveryPhotos.deleteAfterCommit(photoRef);
         audit.log(user.sub(), "photo_reject", "ticket", ticketId,
             "Admin rejected delivery photo for ticket #" + ticketId);
         return Map.of("ok", true, "status", "rejected");
     }
-
     @GetMapping("/stats")
     public Map<String, Object> adminStats(@Admin CurrentUser user) {
         double kgSaved = nz(jdbc.queryForObject(
@@ -272,7 +231,6 @@ public class AdminController {
             "SELECT AVG(EXTRACT(EPOCH FROM (finished_at - started_at)) / 60) "
             + "FROM volunteer_routes WHERE status = 'finished' AND finished_at IS NOT NULL",
             Double.class));
-
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("kg_food_saved", kgSaved);
         out.put("deliveries_completed", deliveries);
@@ -282,14 +240,10 @@ public class AdminController {
             round1(totalLots != 0 ? (double) expiredLots / totalLots * 100 : 0.0));
         return out;
     }
-
-    // ── Supply / demand heatmap (§51) ──────────────────────────────────────────
-
     @GetMapping("/heatmap")
     public List<Map<String, Object>> supplyDemandHeatmap(@Admin CurrentUser user) {
         String lotCity = "COALESCE(NULLIF(TRIM(city), ''), 'Без города')";
         String npCity = "COALESCE(NULLIF(TRIM(np.city), ''), 'Без города')";
-
         Map<String, Map<String, Object>> supply = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
                 "SELECT " + lotCity + " AS city, COUNT(*) AS active_lots, "
@@ -297,7 +251,6 @@ public class AdminController {
                 + "FROM lots WHERE status = 'active' GROUP BY 1")) {
             supply.put((String) r.get("city"), r);
         }
-
         Map<String, Integer> demandTickets = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
                 "SELECT " + npCity + " AS city, COUNT(*) AS open_tickets "
@@ -305,7 +258,6 @@ public class AdminController {
                 + "WHERE t.status = 'open' GROUP BY 1")) {
             demandTickets.put((String) r.get("city"), toInt(r.get("open_tickets")));
         }
-
         Map<String, Integer> activeNeedy = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
                 "SELECT " + npCity + " AS city, COUNT(*) AS active_needy "
@@ -313,14 +265,11 @@ public class AdminController {
                 + "GROUP BY 1")) {
             activeNeedy.put((String) r.get("city"), toInt(r.get("active_needy")));
         }
-
         Map<String, Integer> volunteers = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList(
                 "SELECT " + lotCity + " AS city, COUNT(*) AS volunteers FROM volunteers GROUP BY 1")) {
             volunteers.put((String) r.get("city"), toInt(r.get("volunteers")));
         }
-
-        // Availability calendar (§54): volunteers free *right now* per city.
         Map<String, Integer> availableNow = new HashMap<>();
         for (Map<String, Object> r : jdbc.queryForList("SELECT city, availability FROM volunteers")) {
             String c = trimOrDefault((String) r.get("city"));
@@ -329,13 +278,11 @@ public class AdminController {
                 availableNow.merge(c, 1, Integer::sum);
             }
         }
-
         Set<String> cities = new HashSet<>();
         cities.addAll(supply.keySet());
         cities.addAll(demandTickets.keySet());
         cities.addAll(activeNeedy.keySet());
         cities.addAll(volunteers.keySet());
-
         List<Map<String, Object>> rows = new ArrayList<>();
         for (String c : cities) {
             Map<String, Object> s = supply.get(c);
@@ -349,15 +296,12 @@ public class AdminController {
             row.put("active_needy", activeNeedy.getOrDefault(c, 0));
             row.put("volunteers", volunteers.getOrDefault(c, 0));
             row.put("volunteers_available", availableNow.getOrDefault(c, 0));
-            row.put("gap", openTickets - activeLots); // >0 = unmet demand
+            row.put("gap", openTickets - activeLots);
             rows.add(row);
         }
         rows.sort((a, b) -> Integer.compare((int) b.get("gap"), (int) a.get("gap")));
         return rows;
     }
-
-    // ── Routes dispatcher ──────────────────────────────────────────────────────
-
     @GetMapping("/routes")
     public List<Map<String, Object>> listActiveRoutes(@Admin CurrentUser user) {
         return jdbc.queryForList(
@@ -366,7 +310,6 @@ public class AdminController {
             + "FROM volunteer_routes vr LEFT JOIN volunteers v ON vr.volunteer_id = v.id "
             + "WHERE vr.status = 'in_progress' ORDER BY vr.started_at DESC");
     }
-
     @PostMapping("/routes/{routeId}/reset")
     @Transactional
     public Map<String, Object> resetRoute(@PathVariable int routeId, @Admin CurrentUser user) {
@@ -376,8 +319,6 @@ public class AdminController {
             throw new ApiException(404, "Route not found");
         }
         Map<String, Object> route = routes.get(0);
-        // Only an in-progress route can be reset: resetting a finished one would
-        // flip its (already delivered) lot back to 'active' on the map.
         if (!"in_progress".equals(route.get("status"))) {
             throw new ApiException(400, "Маршрут уже завершён или сброшен");
         }
@@ -391,17 +332,9 @@ public class AdminController {
         audit.log(user.sub(), "route_reset", "route", routeId, "Admin reset route #" + routeId);
         return Map.of("ok", true);
     }
-
-    // ── Lot management ──────────────────────────────────────────────────────────
-
     @PostMapping("/lots/{lotId}/reset")
     @Transactional
     public Map<String, Object> resetLot(@PathVariable int lotId, @Admin CurrentUser user) {
-        // A direct lot reset is only for an orphaned, unexpired claim. Routes own
-        // their own safe recovery through resetRoute/RouteRevertService; a route
-        // record here can mean the food was already picked up even if it is no
-        // longer in progress. Assigned/fulfilled tickets are likewise evidence of
-        // delivery work which this endpoint must not silently detach.
         List<Integer> reset = jdbc.query(
             "UPDATE lots l SET status = 'active', taken_at = NULL, taken_by = NULL "
             + "WHERE l.id = ? AND l.status = 'taken' "
@@ -419,20 +352,15 @@ public class AdminController {
             }
             throw new ApiException(409, "Lot cannot be reset from its current state");
         }
-        // Only the UPDATE ... RETURNING winner gets this side effect.
         audit.log(user.sub(), "lot_reset", "lot", lotId, "Admin reset lot #" + lotId);
         return Map.of("ok", true);
     }
-
-    // ── User management ─────────────────────────────────────────────────────────
-
     @GetMapping("/users")
     public List<Map<String, Object>> listUsers(@Admin CurrentUser user) {
         return jdbc.queryForList(
             "SELECT id, username, role, related_id, is_blocked, created_at "
             + "FROM users ORDER BY created_at DESC");
     }
-
     @PostMapping("/users/{userId}/block")
     public Map<String, Object> blockUser(@PathVariable int userId, @Admin CurrentUser user) {
         if (jdbc.update("UPDATE users SET is_blocked = TRUE WHERE id = ?", userId) == 0) {
@@ -441,7 +369,6 @@ public class AdminController {
         audit.log(user.sub(), "user_block", "user", userId, "Admin blocked user #" + userId);
         return Map.of("ok", true);
     }
-
     @PostMapping("/users/{userId}/unblock")
     public Map<String, Object> unblockUser(@PathVariable int userId, @Admin CurrentUser user) {
         if (jdbc.update("UPDATE users SET is_blocked = FALSE WHERE id = ?", userId) == 0) {
@@ -450,21 +377,16 @@ public class AdminController {
         audit.log(user.sub(), "user_unblock", "user", userId, "Admin unblocked user #" + userId);
         return Map.of("ok", true);
     }
-
-    // ── ESG & billing ───────────────────────────────────────────────────────────
-
     @GetMapping("/esg")
     public Map<String, Object> adminEsg(@RequestParam(defaultValue = "12") int months,
                                         @Admin CurrentUser user) {
         return esgService.globalReport(months);
     }
-
     @GetMapping("/shops")
     public List<Map<String, Object>> listShops(@Admin CurrentUser user) {
         return jdbc.queryForList(
             "SELECT id, name, contact, city, plan, created_at FROM shops ORDER BY created_at DESC");
     }
-
     @PatchMapping("/shops/{shopId}/plan")
     public Map<String, Object> setShopPlan(@PathVariable int shopId, @RequestBody PlanUpdate payload,
                                            @Admin CurrentUser user) {
@@ -478,7 +400,6 @@ public class AdminController {
             "Admin set plan '" + payload.plan() + "' for shop #" + shopId);
         return Map.of("ok", true, "plan", payload.plan());
     }
-
     @GetMapping("/audit")
     public List<Map<String, Object>> getAuditLog(@RequestParam(defaultValue = "50") int limit,
                                                  @RequestParam(defaultValue = "0") int offset,
@@ -487,34 +408,25 @@ public class AdminController {
             "SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
             Clamp.clamp(limit, 1, 100), Math.max(0, offset));
     }
-
-    // ── helpers ─────────────────────────────────────────────────────────────────
-
     private static double round1(double x) {
         return BigDecimal.valueOf(x).setScale(1, RoundingMode.HALF_EVEN).doubleValue();
     }
-
     private static int toInt(Object v) {
         return v instanceof Number n ? n.intValue() : 0;
     }
-
     private static double toDouble(Object v) {
         return v instanceof Number n ? n.doubleValue() : 0.0;
     }
-
     private static double nz(Double v) {
         return v == null ? 0.0 : v;
     }
-
     private static int nz(Integer v) {
         return v == null ? 0 : v;
     }
-
     private static String trimOrDefault(String city) {
         String c = city == null ? "" : city.trim();
         return c.isEmpty() ? "Без города" : c;
     }
-
     private Path deliveryPhotoPath(String ref) {
         if (ref == null || ref.isBlank()) {
             return null;
@@ -532,7 +444,6 @@ public class AdminController {
             return null;
         }
     }
-
     private static MediaType mediaTypeFor(String filename) {
         String f = filename.toLowerCase(java.util.Locale.ROOT);
         if (f.endsWith(".png")) {

@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.route
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,28 +57,19 @@ import ru.savefood.app.core.device.location.rememberLocationPermissionState
 import ru.savefood.app.core.device.qr.QrScannerScreen
 import ru.savefood.app.feature.volunteer.data.RoutePointDto
 import ru.savefood.app.feature.volunteer.ui.VolunteerConfirmDialog
-
 private const val ROUTE_MAIN = "route/main"
 private const val ROUTE_SCAN = "route/scan"
 private const val ROUTE_PHOTO = "route/photo"
-
 /** "My route" tab: pickup → deliveries with QR + photo confirmation (nested nav). */
 @Composable
 fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
     val nav = rememberNavController()
     val locationPermission = rememberLocationPermissionState { granted ->
-        // The tracking flow is intentionally not started until Android has
-        // granted location. Reloading also restarts it for an active route.
         if (granted) viewModel.load()
     }
-
-    // Reload whenever the tab is shown; tracking starts inside the VM on success.
     LaunchedEffect(Unit) { viewModel.load() }
-
-    // Holds the QR scanned for the ticket awaiting photo confirmation.
     var pendingTicketId by remember { mutableStateOf<Int?>(null) }
     var pendingQr by remember { mutableStateOf<String?>(null) }
-
     NavHost(navController = nav, startDestination = ROUTE_MAIN) {
         composable(ROUTE_MAIN) {
             RouteMain(
@@ -127,7 +117,6 @@ fun RouteScreen(viewModel: RouteViewModel = hiltViewModel()) {
         }
     }
 }
-
 @Composable
 private fun RouteMain(
     viewModel: RouteViewModel,
@@ -138,7 +127,6 @@ private fun RouteMain(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var finishDialog by remember { mutableStateOf(false) }
-
     val noLocationMsg = stringResource(R.string.vol_route_no_location)
     LaunchedEffect(state.actionError) {
         state.actionError?.let {
@@ -146,7 +134,6 @@ private fun RouteMain(
             viewModel.clearActionError()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.loading -> EmptyState(
@@ -154,13 +141,11 @@ private fun RouteMain(
                 title = stringResource(R.string.vol_route_title),
                 description = null,
             )
-
             !state.hasRoute -> EmptyState(
                 icon = Icons.Filled.Route,
                 title = stringResource(R.string.vol_route_empty_title),
                 description = stringResource(R.string.vol_route_empty_desc),
             )
-
             else -> {
                 val points = state.route?.points.orEmpty()
                 val shopPoints = points.filter { it.kind == "shop" }
@@ -211,8 +196,6 @@ private fun RouteMain(
                         )
                     }
                     item {
-                        // Finishing is always allowed; the server releases any
-                        // unfinished points back to the open queue.
                         SaveFoodButton(
                             text = stringResource(R.string.vol_route_finish),
                             loading = state.finishing,
@@ -225,7 +208,6 @@ private fun RouteMain(
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     if (finishDialog) {
         VolunteerConfirmDialog(
             title = stringResource(R.string.vol_route_finish_confirm_title),
@@ -239,7 +221,6 @@ private fun RouteMain(
         )
     }
 }
-
 @Composable
 private fun RoutePointCard(
     point: RoutePointDto,
@@ -288,9 +269,7 @@ private fun RoutePointCard(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-
             if (!done) {
-                // Hand navigation to a maps app: it knows the traffic, we don't.
                 val lat = point.lat
                 val lon = point.lon
                 if (lat != null && lon != null) {
@@ -337,7 +316,6 @@ private fun RoutePointCard(
         }
     }
 }
-
 @Composable
 private fun IconLine(text: String) {
     androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
@@ -355,12 +333,6 @@ private fun IconLine(text: String) {
         )
     }
 }
-
-/**
- * Captures a delivery photo (CameraX) before confirming. The proof is uploaded
- * to private server storage; only a moderation-approved fulfilled delivery can
- * ever be exposed on the public impact feed.
- */
 @Composable
 private fun DeliveryPhotoScreen(
     onConfirm: (android.net.Uri) -> Unit,
@@ -372,7 +344,6 @@ private fun DeliveryPhotoScreen(
     val granted by rememberCameraPermissionState()
     val imageCapture = rememberImageCapture()
     var capturedPhoto by remember { mutableStateOf<CapturedPhoto?>(null) }
-
     Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             stringResource(R.string.vol_route_photo_title),

@@ -1,17 +1,12 @@
 package ru.savefood.app.feature.volunteer.data
-
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-
-// ── Map (GET /volunteers/map) ────────────────────────────────────────────────
-
 /** Top-level payload of GET /volunteers/map. */
 @Serializable
 data class VolunteerMapDto(
     val shops: List<MapShopDto> = emptyList(),
     val tickets: List<MapTicketDto> = emptyList(),
 )
-
 /** A shop pin with its active lots. */
 @Serializable
 data class MapShopDto(
@@ -22,7 +17,6 @@ data class MapShopDto(
     val kind: String? = null,
     val lots: List<MapLotDto> = emptyList(),
 )
-
 /** A single active lot attached to a shop pin. */
 @Serializable
 data class MapLotDto(
@@ -35,7 +29,6 @@ data class MapLotDto(
     @SerialName("route_available") val routeAvailable: Boolean? = null,
     @SerialName("open_delivery_tickets") val openDeliveryTickets: Int? = null,
 )
-
 /** An open delivery request (coordinates coarsened ~500m on the server). */
 @Serializable
 data class MapTicketDto(
@@ -59,9 +52,6 @@ data class MapTicketDto(
     @SerialName("shop_kind") val shopKind: String? = null,
     @SerialName("route_available") val routeAvailable: Boolean? = null,
 )
-
-// ── Lots (GET /lots) — shape mirrors backend LotOut ─────────────────────────
-
 @Serializable
 data class LotDto(
     val id: Int,
@@ -81,23 +71,18 @@ data class LotDto(
     @SerialName("shop_lat") val shopLat: Double? = null,
     @SerialName("shop_lon") val shopLon: Double? = null,
 )
-
-// ── Routes ───────────────────────────────────────────────────────────────────
-
 /** Body for POST /volunteers/{id}/start_route. */
 @Serializable
 data class StartRouteRequestDto(
     @SerialName("lot_id") val lotId: Int,
     @SerialName("max_stops") val maxStops: Int? = null,
 )
-
 /** Response of POST /volunteers/{id}/start_route. */
 @Serializable
 data class StartRouteResponseDto(
     @SerialName("route_id") val routeId: Int,
     val points: List<RoutePointDto> = emptyList(),
 )
-
 /** A point on the active route. Shop point has kind="shop", ticket_id=null. */
 @Serializable
 data class RoutePointDto(
@@ -115,7 +100,6 @@ data class RoutePointDto(
     val entrance: String? = null,
     @SerialName("addr_detail") val addrDetail: String? = null,
 )
-
 /** The active route (GET /volunteers/{id}/active_route — {} when none). */
 @Serializable
 data class RouteDto(
@@ -127,7 +111,6 @@ data class RouteDto(
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("finished_at") val finishedAt: String? = null,
 )
-
 /** Body for complete_point / attempt_delivery (CompletePointRequest). */
 @Serializable
 data class CompletePointRequestDto(
@@ -137,41 +120,31 @@ data class CompletePointRequestDto(
     val lon: Double? = null,
     @SerialName("qr_code") val qrCode: String? = null,
 )
-
 /** Body for POST /volunteers/route/{id}/finish (FinishRouteRequest). */
 @Serializable
 data class FinishRouteRequestDto(
     @SerialName("volunteer_id") val volunteerId: Int,
 )
-
 @Serializable
 data class AttemptDeliveryResponseDto(
     val ok: Boolean = false,
     @SerialName("attempt_count") val attemptCount: Int? = null,
     val released: Boolean? = null,
 )
-
 @Serializable
 data class OkDto(val ok: Boolean = false)
-
-// ── Location ──────────────────────────────────────────────────────────────────
-
 /** Body for PATCH /volunteers/{id}/location (LocationUpdate). */
 @Serializable
 data class LocationUpdateDto(
     val lat: Double,
     val lon: Double,
 )
-
-// ── Profile / KYC ─────────────────────────────────────────────────────────────
-
 @Serializable
 data class AvailabilityWindowDto(
     val day: Int,
     val start: String,
     val end: String,
 )
-
 /** Volunteer profile (GET /volunteers/{id} → VolunteerOut). */
 @Serializable
 data class VolunteerDto(
@@ -189,7 +162,6 @@ data class VolunteerDto(
     @SerialName("kyc_notes") val kycNotes: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )
-
 /** Body for PATCH /volunteers/{id} (VolunteerUpdate). */
 @Serializable
 data class VolunteerUpdateDto(
@@ -201,22 +173,17 @@ data class VolunteerUpdateDto(
     @SerialName("has_thermal_bag") val hasThermalBag: Boolean? = null,
     val availability: List<AvailabilityWindowDto>? = null,
 )
-
 @Serializable
 data class KycUploadResponseDto(
     val ok: Boolean = false,
     val status: String? = null,
 )
-
-// ── Rating / stats / thanks ───────────────────────────────────────────────────
-
 /** GET /volunteers/{id}/rating. */
 @Serializable
 data class RatingDto(
     val average: Double? = null,
     val count: Int = 0,
 )
-
 /** GET /volunteers/{id}/stats. */
 @Serializable
 data class StatsDto(
@@ -228,7 +195,6 @@ data class StatsDto(
     val achievements: List<String>,
     val level: VolunteerLevelDto,
 )
-
 /** Server-calculated progress returned in GET /volunteers/{id}/stats.level. */
 @Serializable
 data class VolunteerLevelDto(
@@ -238,7 +204,6 @@ data class VolunteerLevelDto(
     @SerialName("points_to_next") val pointsToNext: Double,
     val progress: Double,
 )
-
 /** A thank-you note (GET /volunteers/{id}/thanks). */
 @Serializable
 data class ThanksDto(
@@ -247,15 +212,11 @@ data class ThanksDto(
     val category: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
 )
-
-// ── Team ──────────────────────────────────────────────────────────────────────
-
 /** GET /volunteers/{id}/team and team mutations → {"team": TeamDto|null}. */
 @Serializable
 data class TeamEnvelopeDto(
     val team: TeamDto? = null,
 )
-
 @Serializable
 data class TeamDto(
     val id: Int,
@@ -266,15 +227,10 @@ data class TeamDto(
     val deliveries: Int? = null,
     val kg: Double? = null,
 )
-
 @Serializable
 data class TeamCreateDto(val name: String)
-
 @Serializable
 data class TeamJoinDto(val code: String)
-
-// ── History ───────────────────────────────────────────────────────────────────
-
 /** A past route (GET /volunteers/{id}/history). */
 @Serializable
 data class RouteHistoryDto(
@@ -286,9 +242,6 @@ data class RouteHistoryDto(
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("finished_at") val finishedAt: String? = null,
 )
-
-// ── Notifications ─────────────────────────────────────────────────────────────
-
 /** A volunteer notification (GET /volunteers/{id}/notifications). */
 @Serializable
 data class NotificationDto(

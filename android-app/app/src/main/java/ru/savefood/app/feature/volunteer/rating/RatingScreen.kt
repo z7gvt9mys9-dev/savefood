@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.volunteer.rating
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,19 +42,16 @@ import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.feature.volunteer.data.StatsDto
 import ru.savefood.app.feature.volunteer.data.TeamDto
 import ru.savefood.app.feature.volunteer.data.ThanksDto
-
 @Composable
 fun RatingScreen(viewModel: RatingViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-
     LaunchedEffect(state.teamError) {
         state.teamError?.let {
             snackbar.showSnackbar(it)
             viewModel.clearTeamError()
         }
     }
-
     Box(modifier = Modifier.fillMaxSize()) {
         when {
             state.error != null -> EmptyState(
@@ -93,7 +89,6 @@ fun RatingScreen(viewModel: RatingViewModel = hiltViewModel()) {
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
-
 @Composable
 private fun LevelCard(stats: StatsDto) {
     SaveFoodCard {
@@ -141,7 +136,6 @@ private fun LevelCard(stats: StatsDto) {
         }
     }
 }
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AchievementsCard(stats: StatsDto) {
@@ -161,7 +155,6 @@ private fun AchievementsCard(stats: StatsDto) {
         }
     }
 }
-
 @Composable
 private fun achievementLabel(code: String): String = when (code) {
     "first_delivery" -> stringResource(R.string.vol_ach_first_delivery)
@@ -170,7 +163,6 @@ private fun achievementLabel(code: String): String = when (code) {
     "sprinter" -> stringResource(R.string.vol_ach_sprinter)
     else -> code
 }
-
 @Composable
 private fun ThanksCard(thanks: List<ThanksDto>) {
     SaveFoodCard {
@@ -197,7 +189,6 @@ private fun ThanksCard(thanks: List<ThanksDto>) {
         }
     }
 }
-
 @Composable
 private fun TeamCard(
     team: TeamDto?,
@@ -268,9 +259,7 @@ private fun TeamCard(
         }
     }
 }
-
 private fun formatKg(kg: Double): String =
     if (kg == kg.toLong().toDouble()) kg.toLong().toString() else "%.1f".format(kg)
-
 private fun formatPoints(points: Double): String =
     if (points == points.toLong().toDouble()) points.toLong().toString() else "%.1f".format(points)

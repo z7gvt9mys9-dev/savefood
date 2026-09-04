@@ -1,4 +1,3 @@
-// Top-level build file — plugins declared here with `apply false`, applied per-module.
 plugins {
     alias(libs.plugins.android.application) apply false
     alias(libs.plugins.kotlin.android) apply false

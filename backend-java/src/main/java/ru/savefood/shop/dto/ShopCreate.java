@@ -1,5 +1,4 @@
 package ru.savefood.shop.dto;
-
 /** POST /shops/register body (schemas.py ShopCreate). */
 public record ShopCreate(
     String name,

@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.needy.find
-
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -47,17 +46,8 @@ import ru.savefood.app.core.device.map.MapMarker
 import ru.savefood.app.core.device.map.YandexMap
 import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.NeedyRepository
-
 private const val ROUTE_LIST = "find/list"
 private const val ROUTE_WIZARD = "find/wizard"
-
-/**
- * "Find food" tab: list/map of active lots + a request wizard (nested nav).
- *
- * Wrapped in a [SharedTransitionLayout] so tapping a lot card runs a container
- * transform — the card morphs into the wizard's lot summary (shared key
- * `lot-<id>`) — instead of a hard screen swap.
- */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun FindFoodScreen(viewModel: FindFoodViewModel = hiltViewModel()) {
@@ -94,7 +84,6 @@ fun FindFoodScreen(viewModel: FindFoodViewModel = hiltViewModel()) {
         }
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LotsScreen(
@@ -105,10 +94,8 @@ private fun LotsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by remember { mutableIntStateOf(0) }
-
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         SectionHeader(title = stringResource(R.string.needy_find_title))
-
         OutlinedTextField(
             value = state.search,
             onValueChange = viewModel::onSearchChange,
@@ -118,18 +105,15 @@ private fun LotsScreen(
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
         )
-
         PrimaryTabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.needy_find_tab_list)) })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.needy_find_tab_map)) })
         }
-
         when {
             state.loading -> Column(
                 modifier = Modifier.padding(top = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) { repeat(3) { ShimmerListItem() } }
-
             state.error != null -> EmptyState(
                 icon = Icons.Filled.Restaurant,
                 title = stringResource(R.string.common_error_generic),
@@ -137,19 +121,16 @@ private fun LotsScreen(
                 actionLabel = stringResource(R.string.needy_retry),
                 onAction = viewModel::load,
             )
-
             state.lots.isEmpty() -> EmptyState(
                 icon = Icons.Filled.Restaurant,
                 title = stringResource(R.string.needy_find_empty_title),
                 description = stringResource(R.string.needy_find_empty_desc),
             )
-
             tab == 0 -> LotList(state.lots, onRequest, sharedScope, animatedScope)
             else -> LotMap(state.lots, onRequest)
         }
     }
 }
-
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 private fun LotList(
@@ -182,7 +163,6 @@ private fun LotList(
         }
     }
 }
-
 @Composable
 private fun LotMap(lots: List<LotDto>, onRequest: (Int?) -> Unit) {
     val markers = lots.mapNotNull { lot ->

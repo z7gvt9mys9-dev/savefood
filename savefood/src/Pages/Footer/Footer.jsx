@@ -2,14 +2,11 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import './Footer.css';
-
 const Footer = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
-
   if (location.pathname === '/') return null;
-
   const smoothScrollTo = (targetY, duration = 900) => {
     const startY = window.scrollY;
     const diff = targetY - startY;
@@ -24,14 +21,12 @@ const Footer = () => {
     };
     requestAnimationFrame(step);
   };
-
   const highlightEl = (el) => {
     el.classList.remove('highlight-active');
     void el.offsetWidth;
     el.classList.add('highlight-active');
     setTimeout(() => el.classList.remove('highlight-active'), 2000);
   };
-
   const handleHashLink = (path, hash) => (e) => {
     e.preventDefault();
     const scrollToHash = () => {
@@ -43,7 +38,6 @@ const Footer = () => {
         setTimeout(() => highlightEl(el), 600);
       }
     };
-
     if (location.pathname === path) {
       scrollToHash();
     } else {
@@ -51,7 +45,6 @@ const Footer = () => {
       setTimeout(scrollToHash, 200);
     }
   };
-
   return (
     <footer className="footer">
       <div className="container">
@@ -98,5 +91,4 @@ const Footer = () => {
     </footer>
   );
 };
-
 export default Footer;

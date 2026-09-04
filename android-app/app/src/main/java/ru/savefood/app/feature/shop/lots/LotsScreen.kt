@@ -1,5 +1,4 @@
 package ru.savefood.app.feature.shop.lots
-
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,22 +52,15 @@ import ru.savefood.app.feature.shop.data.LotDto
 import ru.savefood.app.feature.shop.data.LotUpdateDto
 import ru.savefood.app.feature.shop.ui.LotStatusBadge
 import ru.savefood.app.feature.shop.ui.ShopConfirmDialog
-
-/**
- * "Lots" tab (shop start): active lots with edit/delete, QR-based transfer
- * confirmation for picked-up lots, and a history sub-tab.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var tab by remember { mutableIntStateOf(0) }
-
     var editLot by remember { mutableStateOf<LotDto?>(null) }
     var deleteLot by remember { mutableStateOf<LotDto?>(null) }
     var transferLot by remember { mutableStateOf<LotDto?>(null) }
-
     LaunchedEffect(state.message) {
         state.message?.let {
             snackbar.showSnackbar(it)
@@ -76,20 +68,16 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
         }
     }
     LaunchedEffect(tab) { if (tab == 1 && state.history.isEmpty()) viewModel.loadHistory() }
-
     val savedMsg = stringResource(R.string.shop_lot_saved)
     val deletedMsg = stringResource(R.string.shop_lot_deleted)
     val transferMsg = stringResource(R.string.shop_lot_transfer_done)
-
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             SectionHeader(title = stringResource(R.string.shop_lots_title))
-
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.shop_lots_tab_active)) })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.shop_lots_tab_history)) })
             }
-
             if (tab == 0) {
                 ActiveLots(
                     state = state,
@@ -104,7 +92,6 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
-
     editLot?.let { lot ->
         EditLotDialog(
             lot = lot,
@@ -113,7 +100,6 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
             onDismiss = { editLot = null },
         )
     }
-
     deleteLot?.let { lot ->
         ShopConfirmDialog(
             title = stringResource(R.string.shop_lot_delete_title),
@@ -123,7 +109,6 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
             onDismiss = { deleteLot = null },
         )
     }
-
     transferLot?.let { lot ->
         TransferQrDialog(
             lot = lot,
@@ -133,7 +118,6 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
         )
     }
 }
-
 @Composable
 private fun ActiveLots(
     state: LotsUiState,
@@ -147,7 +131,6 @@ private fun ActiveLots(
             modifier = Modifier.padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) { repeat(3) { ShimmerListItem() } }
-
         state.error != null -> EmptyState(
             icon = Icons.Filled.Inventory2,
             title = stringResource(R.string.common_error_generic),
@@ -155,13 +138,11 @@ private fun ActiveLots(
             actionLabel = stringResource(R.string.common_retry),
             onAction = onRetry,
         )
-
         state.lots.isEmpty() -> EmptyState(
             icon = Icons.Filled.Inventory2,
             title = stringResource(R.string.shop_lots_empty_title),
             description = stringResource(R.string.shop_lots_empty_desc),
         )
-
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -179,7 +160,6 @@ private fun ActiveLots(
         }
     }
 }
-
 @Composable
 private fun HistoryLots(state: LotsUiState) {
     when {
@@ -187,13 +167,11 @@ private fun HistoryLots(state: LotsUiState) {
             modifier = Modifier.padding(top = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) { repeat(3) { ShimmerListItem() } }
-
         state.history.isEmpty() -> EmptyState(
             icon = Icons.Filled.Inventory2,
             title = stringResource(R.string.shop_history_empty_title),
             description = stringResource(R.string.shop_history_empty_desc),
         )
-
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize().padding(top = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -205,7 +183,6 @@ private fun HistoryLots(state: LotsUiState) {
         }
     }
 }
-
 @Composable
 private fun ShopLotCard(
     lot: LotDto,
@@ -253,7 +230,6 @@ private fun ShopLotCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-
             if (!readOnly) {
                 if (lot.status == "taken") {
                     SaveFoodButton(
@@ -288,7 +264,6 @@ private fun ShopLotCard(
         }
     }
 }
-
 @Composable
 private fun EditLotDialog(
     lot: LotDto,
@@ -302,7 +277,6 @@ private fun EditLotDialog(
     var address by remember { mutableStateOf(lot.address.orEmpty()) }
     var comment by remember { mutableStateOf(lot.comment.orEmpty()) }
     var requiresCold by remember { mutableStateOf(lot.requiresCold == true) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.shop_lot_edit_title)) },
@@ -366,7 +340,6 @@ private fun EditLotDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) } },
     )
 }
-
 @Composable
 private fun TransferQrDialog(
     lot: LotDto,

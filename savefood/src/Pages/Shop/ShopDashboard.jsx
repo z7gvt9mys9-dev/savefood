@@ -11,25 +11,21 @@ import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL, authFetch } from '../../api';
 import './Shop.css';
-
 const CAT_KEYS = {
   'Выпечка': 'bakery',
   'Овощи/Фрукты': 'vegetables',
   'Готовая еда': 'prepared',
   'Молочные продукты': 'dairy',
 };
-
 const ShopDashboard = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
   const shopId = user?.relatedId;
-
   const [activeTab, setActiveTab] = useState('overview');
   const [lots, setLots] = useState([]);
   const [history, setHistory] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [shopInfo, setShopInfo] = useState({});
-  // Photos of the lot being created: up to MAX_LOT_PHOTOS files with previews.
   const [photoFiles, setPhotoFiles] = useState([]);
   const [editLot, setEditLot] = useState(null);
   const [labelLot, setLabelLot] = useState(null);
@@ -42,7 +38,6 @@ const ShopDashboard = () => {
   const [pickupScanError, setPickupScanError] = useState('');
   const [plan, setPlan] = useState(null);
   const [forecast, setForecast] = useState(null);
-  // OCR receipt flow: upload photo → review parsed lot drafts → confirm
   const [receiptFile, setReceiptFile] = useState(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
   const [receipt, setReceipt] = useState(null);
@@ -50,14 +45,12 @@ const ShopDashboard = () => {
   const [receiptCommon, setReceiptCommon] = useState({ expiry_date: '', address: '', time_slot: '18:00 - 20:00' });
   const [esgReport, setEsgReport] = useState(null);
   const [esgError, setEsgError] = useState(null);
-  // Enterprise partner API: keys + webhooks management
   const [apiKeys, setApiKeys] = useState([]);
   const [webhooks, setWebhooks] = useState([]);
   const [newSecret, setNewSecret] = useState(null);
   const [newHook, setNewHook] = useState({ url: '', events: ['*'] });
   const [newHookSecret, setNewHookSecret] = useState(null);
   const [apiBusy, setApiBusy] = useState(false);
-
   const [newLot, setNewLot] = useState({
     description: '',
     quantity: 1,
@@ -66,7 +59,6 @@ const ShopDashboard = () => {
     address: '',
     time_slot: '18:00 - 20:00',
   });
-
   const fetchShopData = () => {
     if (!shopId) return;
     const authHeader = {};
@@ -74,39 +66,30 @@ const ShopDashboard = () => {
       .then(res => res.json())
       .then(data => setShopInfo(data))
       .catch(() => {});
-
     authFetch(`${API_URL}/shops/${shopId}/lots`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setLots(Array.isArray(data) ? data : []))
       .catch(() => {});
-
     authFetch(`${API_URL}/shops/${shopId}/history?limit=20&offset=0`, { headers: authHeader })
       .then(res => res.json())
       .then(data => { const arr = Array.isArray(data) ? data : []; setHistory(arr); setHistoryHasMore(arr.length === 20); setHistoryOffset(arr.length); })
       .catch(() => {});
-
     authFetch(`${API_URL}/shops/${shopId}/notifications`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setNotifications(Array.isArray(data) ? data : []))
       .catch(() => {});
-
     authFetch(`${API_URL}/shops/${shopId}/plan`, { headers: authHeader })
       .then(res => res.json())
       .then(data => setPlan(data && data.plan ? data : null))
       .catch(() => {});
-
     authFetch(`${API_URL}/shops/${shopId}/forecast`, { headers: authHeader })
       .then(res => res.ok ? res.json() : null)
       .then(data => setForecast(data))
       .catch(() => {});
   };
-
   useEffect(() => {
     fetchShopData();
   }, [shopId]);
-
-  // Opening the notifications tab marks everything as read — otherwise the
-  // unread badge only ever grows (the read endpoint was never called).
   useEffect(() => {
     if (activeTab !== 'notifications' || !shopId) return;
     const unread = notifications.filter(n => !n.read);
@@ -119,8 +102,6 @@ const ShopDashboard = () => {
     });
     setNotifications(prev => prev.map(n => ({ ...n, read: 1 })));
   }, [activeTab, shopId]);
-
-  // ESG report is loaded lazily — only when the tab is opened (pro+ plans).
   useEffect(() => {
     if (activeTab !== 'esg' || !shopId) return;
     setEsgError(null);
@@ -132,8 +113,6 @@ const ShopDashboard = () => {
       })
       .catch(() => setEsgError(t('common.connection_error')));
   }, [activeTab, shopId]);
-
-  // Partner API tab: load keys + webhooks lazily (enterprise plan only).
   useEffect(() => {
     if (activeTab !== 'api' || !shopId || !plan?.api) return;
     const authHeader = {};
@@ -146,7 +125,6 @@ const ShopDashboard = () => {
       .then(data => setWebhooks(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, [activeTab, shopId, plan?.api]);
-
   const handleCreateApiKey = async () => {
     setApiBusy(true);
     try {
@@ -161,7 +139,6 @@ const ShopDashboard = () => {
     } catch { alert(t('common.connection_error')); }
     finally { setApiBusy(false); }
   };
-
   const handleRevokeApiKey = async (keyId) => {
     if (!window.confirm(t('shop.api_revoke_confirm'))) return;
     try {
@@ -172,7 +149,6 @@ const ShopDashboard = () => {
       if (res.ok) setApiKeys(prev => prev.map(k => k.id === keyId ? { ...k, revoked: true } : k));
     } catch {}
   };
-
   const handleCreateWebhook = async (e) => {
     e.preventDefault();
     setApiBusy(true);
@@ -190,7 +166,6 @@ const ShopDashboard = () => {
     } catch { alert(t('common.connection_error')); }
     finally { setApiBusy(false); }
   };
-
   const handleDeleteWebhook = async (hookId) => {
     if (!window.confirm(t('shop.api_hook_delete_confirm'))) return;
     try {
@@ -201,7 +176,6 @@ const ShopDashboard = () => {
       if (res.ok) setWebhooks(prev => prev.filter(h => h.id !== hookId));
     } catch {}
   };
-
   const handleUploadReceipt = async (e) => {
     e.preventDefault();
     if (!receiptFile || !shopId) return;
@@ -228,7 +202,6 @@ const ShopDashboard = () => {
       setReceiptBusy(false);
     }
   };
-
   const handleConfirmReceipt = async (e) => {
     e.preventDefault();
     if (!receipt || receiptDrafts.length === 0) return;
@@ -267,18 +240,15 @@ const ShopDashboard = () => {
       setReceiptBusy(false);
     }
   };
-
   const widgetUrl = `${API_URL}/impact/widget/${shopId}.svg`;
   const embedCode = `<a href="https://savefood.kz" target="_blank" rel="noopener">\n  <img src="${widgetUrl}" alt="SaveFood impact" width="320" height="120" />\n</a>`;
-
   const copyEmbed = () => {
     try {
       navigator.clipboard.writeText(embedCode);
       setEmbedCopied(true);
       setTimeout(() => setEmbedCopied(false), 2000);
-    } catch { /* clipboard unavailable */ }
+    } catch {  }
   };
-
   const downloadEsgCsv = async () => {
     try {
       const res = await authFetch(`${API_URL}/shops/${shopId}/esg/report.csv?months=12`, {
@@ -296,8 +266,6 @@ const ShopDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
-  // Print just the label block (QR + lot details) in a clean popup window.
   const printLabel = () => {
     const node = document.getElementById('lot-label-printable');
     if (!node) return;
@@ -312,18 +280,14 @@ const ShopDashboard = () => {
     );
     win.document.close();
   };
-
   const MAX_LOT_PHOTOS = 5;
-
   const addPhotoFiles = (fileList) => {
     const incoming = Array.from(fileList || []).filter(f => f.type.startsWith('image/'));
     setPhotoFiles(prev => [...prev, ...incoming].slice(0, MAX_LOT_PHOTOS));
   };
-
   const removePhotoFile = (idx) => {
     setPhotoFiles(prev => prev.filter((_, i) => i !== idx));
   };
-
   const handleCreateLot = async (e) => {
     e.preventDefault();
     if (!shopId) { alert(t('shop.error_no_shop')); return; }
@@ -340,11 +304,8 @@ const ShopDashboard = () => {
     if (newLot.address) fd.append('address', newLot.address);
     if (newLot.time_slot) fd.append('time_slot', newLot.time_slot);
     fd.append('requires_cold', String(!!newLot.requires_cold));
-    // Все фотографии уходят полем `files`; первое также дублируется в `file`,
-    // чтобы старый бэкенд (одно фото) продолжал принимать форму.
     photoFiles.forEach(f => fd.append('files', f));
     if (photoFiles[0]) fd.append('file', photoFiles[0]);
-
     try {
       const res = await authFetch(`${API_URL}/shops/${shopId}/lots/upload`, {
         method: 'POST',
@@ -365,9 +326,6 @@ const ShopDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
-  // Close a self-pickup ticket by the recipient's QR/code (SF-<id>). Without
-  // this, self-pickup tickets stay open forever and block new requests.
   const handleConfirmSelfPickup = async (e) => {
     e.preventDefault();
     if (!pickupCode.trim()) return;
@@ -391,12 +349,6 @@ const ShopDashboard = () => {
       setPickupBusy(false);
     }
   };
-
-  // Camera scan for the recipient's QR (SF-{id}-{secret}) — the secret is too
-  // long to type, so scanning is the primary path; the text field is a fallback.
-  // stop() may only run after start() has resolved: racing them (user taps
-  // «Отмена» while the camera is warming up) threw synchronously and broke the
-  // page, so the cleanup chains onto the start promise.
   useEffect(() => {
     if (!pickupScanning) return;
     let disposed = false;
@@ -435,7 +387,6 @@ const ShopDashboard = () => {
         .catch(() => {});
     };
   }, [pickupScanning]);
-
   const handleConfirmTransfer = async (lotId) => {
     try {
       const res = await authFetch(`${API_URL}/lots/${lotId}/confirm_transfer`, {
@@ -448,7 +399,6 @@ const ShopDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const handleSaveEdit = async (e) => {
     e.preventDefault();
     if (!editLot) return;
@@ -479,7 +429,6 @@ const ShopDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const handleDeleteLot = async (lotId) => {
     if (!window.confirm(t('shop.confirm_delete'))) return;
     try {
@@ -493,9 +442,7 @@ const ShopDashboard = () => {
       alert(t('common.connection_error'));
     }
   };
-
   const catLabel = cat => t(`categories.${CAT_KEYS[cat]}`, { defaultValue: cat });
-
   const renderOverview = () => (
     <div className="tab-content">
       <OnboardingChecklist
@@ -511,7 +458,6 @@ const ShopDashboard = () => {
           <span className="stat-label">{t('shop.active_lots')}</span>
         </div>
         <div className="stat-box">
-          {/* only lots actually handed over count as "saved" — not expired/removed */}
           <span className="stat-value">{history.filter(l => l.status === 'taken' || l.status === 'confirmed').reduce((acc, l) => acc + (l.quantity || 0), 0)} {t('shop.kg')}</span>
           <span className="stat-label">{t('shop.saved_food')}</span>
         </div>
@@ -576,7 +522,6 @@ const ShopDashboard = () => {
       <PushToggle />
     </div>
   );
-
   const renderCreateLot = () => (
     <div className="tab-content">
       <form className="admin-form" onSubmit={handleCreateLot}>
@@ -591,7 +536,6 @@ const ShopDashboard = () => {
             required
           />
         </div>
-
         <div className="form-row">
           <div className="form-group">
             <label>{t('shop.category')}</label>
@@ -614,7 +558,6 @@ const ShopDashboard = () => {
             />
           </div>
         </div>
-
         <div className="form-row">
           <div className="form-group">
             <label>{t('shop.expiry')}</label>
@@ -636,13 +579,11 @@ const ShopDashboard = () => {
             />
           </div>
         </div>
-
         <AddressInput
           label={t('shop.address_label')}
           value={newLot.address || shopInfo.address}
           onChange={(addr) => setNewLot({...newLot, address: addr.address})}
         />
-
         <div className="form-group">
           <label>{t('shop.photos')}{shopInfo.kind === 'private' && ' *'}</label>
           <input
@@ -671,7 +612,6 @@ const ShopDashboard = () => {
             </div>
           )}
         </div>
-
         <div className="form-group">
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
             <input
@@ -683,18 +623,14 @@ const ShopDashboard = () => {
             <MonoIcon name="snow" /> {t('shop.cold_chain')}
           </label>
         </div>
-
         <div className="warning-box">
           <p>{t('shop.auto_hide')}</p>
         </div>
-
         <button type="submit" className="btn btn-primary">{t('shop.publish')}</button>
       </form>
     </div>
   );
-
   const WEBHOOK_EVENTS = ['*', 'lot.taken', 'lot.confirmed', 'receipt.parsed'];
-
   const renderApi = () => (
     <div className="tab-content">
       <h3>{t('shop.api_title')}</h3>
@@ -734,7 +670,6 @@ const ShopDashboard = () => {
               </table>
             )}
           </div>
-
           <div className="info-section">
             <h3>{t('shop.api_hooks_title')}</h3>
             <p style={{ opacity: 0.75, fontSize: '0.85rem' }}>{t('shop.api_hooks_hint')}</p>
@@ -791,14 +726,12 @@ const ShopDashboard = () => {
       )}
     </div>
   );
-
   const renderUpgradeNotice = () => (
     <div className="warning-box" style={{ marginTop: 16 }}>
       <p><MonoIcon name="diamond" /> {t('shop.plan_upgrade_hint')}</p>
       <p style={{ opacity: 0.8 }}>{t('shop.plan_current')}: {plan?.label || '—'}</p>
     </div>
   );
-
   const renderOcr = () => (
     <div className="tab-content">
       {plan && !plan.ocr ? (
@@ -895,7 +828,6 @@ const ShopDashboard = () => {
       )}
     </div>
   );
-
   const renderEsg = () => (
     <div className="tab-content">
       {esgError ? (
@@ -954,7 +886,6 @@ const ShopDashboard = () => {
           )}
           <p style={{ marginTop: 16, fontSize: '0.85rem', opacity: 0.7 }}>{t('shop.esg_methodology')}: {esgReport.methodology}</p>
           <button className="btn-small" style={{ marginTop: 8 }} onClick={downloadEsgCsv}><MonoIcon name="download" /> {t('shop.download_csv')}</button>
-
           <div style={{ marginTop: 24, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
             <h4>{t('shop.embed_title')}</h4>
             <img src={`${API_URL}/impact/widget/${shopId}.svg`} alt="SaveFood widget" style={{ maxWidth: 320, display: 'block', margin: '8px 0' }} />
@@ -972,7 +903,6 @@ const ShopDashboard = () => {
       )}
     </div>
   );
-
   const renderActiveLots = () => (
     <div className="tab-content">
       <div className="lot-list">
@@ -1001,7 +931,6 @@ const ShopDashboard = () => {
       </div>
     </div>
   );
-
   const renderNotifications = () => (
     <div className="tab-content">
       <h3>{t('common.notifications')}</h3>
@@ -1019,7 +948,6 @@ const ShopDashboard = () => {
       )}
     </div>
   );
-
   const renderHistory = () => (
     <div className="tab-content">
       {history.length === 0 ? (
@@ -1056,7 +984,6 @@ const ShopDashboard = () => {
       )}
     </div>
   );
-
   return (
     <div className="dashboard-container">
       {editLot && (
@@ -1158,7 +1085,6 @@ const ShopDashboard = () => {
           </button>
         </nav>
       </aside>
-
       <main className="main-content">
         <header className="content-header">
           <h1>{activeTab === 'overview' ? t('shop.overview') : activeTab === 'create' ? t('shop.add_lot') : activeTab === 'ocr' ? t('shop.ocr_tab') : activeTab === 'active' ? t('shop.lots') : activeTab === 'esg' ? t('shop.esg_tab') : activeTab === 'api' ? t('shop.api_tab') : activeTab === 'notifications' ? t('shop.notifications') : t('shop.history')}</h1>
@@ -1175,5 +1101,4 @@ const ShopDashboard = () => {
     </div>
   );
 };
-
 export default ShopDashboard;

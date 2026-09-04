@@ -1,5 +1,4 @@
 package ru.savefood.telegram;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import java.net.URI;
 import java.util.List;
@@ -14,43 +13,11 @@ import ru.savefood.util.Html;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-
-/**
- * The inbound half of the Telegram channel (§16), restored after the Python
- * aiogram bot was removed with the rest of that stack.
- *
- * <p>Without this, the whole channel was one-way and therefore dead end-to-end:
- * {@code telegram_link_tokens} rows were minted by {@code /auth/telegram/init-link}
- * and never redeemed, so {@code users.telegram_chat_id} could never be set for a
- * new account — which in turn meant every outbound {@code TelegramService.notify*}
- * had nobody to deliver to, and {@code /auth/telegram/login/poll} could never
- * leave {@code pending}.
- *
- * <p>Handled updates:
- * <ul>
- *   <li>{@code /start link_<token>} — redeem an account-link token: write the
- *       sender's chat id onto the user and drop the token;</li>
- *   <li>{@code /start login_<token>} — bind an already-linked account to a
- *       pending login attempt and privately deliver its one-time completion
- *       credential; the SPA poller sees status only;</li>
- *   <li>{@code /start}, {@code /help}, {@code /status}, {@code /chat},
- *       {@code /unlink};</li>
- *   <li>any other text — relayed to the counterpart of the sender's active
- *       delivery (§22.7), or answered by {@link AiService} with escalation to
- *       {@code SUPPORT_CHAT_ID}.</li>
- * </ul>
- *
- * <p>Every handler is best-effort and never throws: the webhook must always
- * answer 200, or Telegram redelivers the same update forever.
- */
 @Service
 public class TelegramBotService {
-
     private static final Logger log = Logger.getLogger(TelegramBotService.class.getName());
-
     /** Same TTL the link/login token issuers use (auth/OAuthController). */
     private static final int TOKEN_TTL_MINUTES = 10;
-
     private final JdbcTemplate jdbc;
     private final TelegramService telegram;
     private final TelegramLoginService telegramLogin;
@@ -59,7 +26,6 @@ public class TelegramBotService {
     private final PushDispatchService push;
     private final String supportChatId;
     private final String siteUrl;
-
     public TelegramBotService(JdbcTemplate jdbc, TelegramService telegram,
                               TelegramLoginService telegramLogin, ChatService chat,
                               AiService ai, PushDispatchService push,
@@ -75,13 +41,12 @@ public class TelegramBotService {
         this.supportChatId = supportChatId == null ? "" : supportChatId;
         this.siteUrl = normalizeSiteUrl(siteUrl, fallbackSiteUrl);
     }
-
     /** Entry point for one Telegram update. Never throws. */
     public void handleUpdate(JsonNode update) {
         try {
             JsonNode message = update.path("message");
             if (message.isMissingNode() || message.isNull()) {
-                return;  // edited messages, callbacks, channel posts — not used
+                return;
             }
             String chatId = message.path("chat").path("id").asText("");
             String chatType = message.path("chat").path("type").asText("");
@@ -96,7 +61,6 @@ public class TelegramBotService {
             log.warning("[telegram] update handling failed: " + e.getMessage());
         }
     }
-
     private void dispatch(String chatId, String text, boolean authenticatedPrivateChat) {
         if (text.startsWith("/start")) {
             String arg = text.length() > "/start".length() ? text.substring("/start".length()).strip() : "";
@@ -135,9 +99,6 @@ public class TelegramBotService {
         }
         handleFreeText(chatId, text);
     }
-
-    // ── /start link_<token> ────────────────────────────────────────────────────
-
     private void handleLink(String chatId, String token) {
         List<Integer> userIds = jdbc.query(
             "SELECT user_id FROM telegram_link_tokens "
@@ -150,7 +111,6 @@ public class TelegramBotService {
             return;
         }
         int userId = userIds.get(0);
-        // One chat id per account: if this chat was linked to someone else, move it.
         jdbc.update("UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ? AND id <> ?",
             chatId, userId);
         jdbc.update("UPDATE users SET telegram_chat_id = ? WHERE id = ?", chatId, userId);
@@ -159,9 +119,6 @@ public class TelegramBotService {
             "✓ Telegram привязан. Теперь уведомления о лотах, маршрутах и доставках "
             + "будут приходить сюда.\n\n" + helpText());
     }
-
-    // ── /start login_<token> ───────────────────────────────────────────────────
-
     private void handleLogin(String chatId, String token) {
         String completionToken = telegramLogin.confirm(token, chatId);
         if (completionToken == null) {
@@ -186,9 +143,6 @@ public class TelegramBotService {
             telegramLogin.revokeConfirmation(token, completionToken);
         }
     }
-
-    // ── /status ────────────────────────────────────────────────────────────────
-
     private void handleStatus(String chatId) {
         Map<String, Object> user = linkedUser(chatId);
         if (user == null) {
@@ -217,7 +171,6 @@ public class TelegramBotService {
         }
         telegram.sendMessage(chatId, sb.toString());
     }
-
     private void appendVolunteerStatus(StringBuilder sb, int volunteerId) {
         String status = jdbc.query("SELECT status FROM volunteers WHERE id = ?",
             rs -> rs.next() ? rs.getString("status") : null, volunteerId);
@@ -227,7 +180,6 @@ public class TelegramBotService {
             rs -> rs.next() ? rs.getInt("id") : null, volunteerId);
         sb.append(routeId == null ? "Активного маршрута нет." : "→ Активный маршрут #" + routeId);
     }
-
     private void appendNeedyStatus(StringBuilder sb, int needyId) {
         Map<String, Object> ticket = firstRow(
             "SELECT id, status FROM tickets WHERE needy_id = ? AND status IN ('open','assigned') "
@@ -239,7 +191,6 @@ public class TelegramBotService {
               .append("assigned".equals(ticket.get("status")) ? " — волонтёр в пути" : " — ждёт волонтёра");
         }
     }
-
     private void appendShopStatus(StringBuilder sb, int shopId) {
         Integer active = jdbc.queryForObject(
             "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'active'", Integer.class, shopId);
@@ -248,18 +199,12 @@ public class TelegramBotService {
         sb.append("▣ Лотов на витрине: ").append(active == null ? 0 : active)
           .append("\nЗабрано волонтёрами: ").append(taken == null ? 0 : taken);
     }
-
-    // ── /unlink ────────────────────────────────────────────────────────────────
-
     private void handleUnlink(String chatId) {
         int rows = jdbc.update("UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ?", chatId);
         telegram.sendMessage(chatId, rows > 0
             ? "○ Telegram отвязан. Уведомления сюда больше не придут — привязать заново можно в профиле."
             : "Этот Telegram и так не привязан ни к одному аккаунту.");
     }
-
-    // ── free text: relay to the delivery counterpart, else support ─────────────
-
     private void handleFreeText(String chatId, String text) {
         Map<String, Object> user = linkedUser(chatId);
         if (user != null && !Boolean.TRUE.equals(user.get("is_blocked"))) {
@@ -273,21 +218,12 @@ public class TelegramBotService {
         }
         askSupport(chatId, user, text);
     }
-
-    /**
-     * Forward the message to the other side of an in-flight delivery and record it
-     * in the ticket thread, so Telegram and the in-app chat (§53) are one
-     * conversation rather than two.
-     *
-     * @return true when the message was relayed
-     */
     private boolean relayToCounterpart(String chatId, CurrentUser user, String text) {
         String role = user.role();
         int relatedId = user.relatedId();
         Map<String, Object> row;
         boolean toNeedy;
         if ("volunteer".equals(role)) {
-            // The next undelivered stop of the active route is the counterpart.
             row = firstRow(
                 "SELECT t.id AS ticket_id, t.needy_id AS counterpart_id FROM tickets t "
                 + "JOIN volunteer_routes vr ON vr.volunteer_id = t.assigned_volunteer_id "
@@ -319,12 +255,10 @@ public class TelegramBotService {
                 push.notifyRole("volunteer", counterpartId, "Сообщение от получателя: " + text, "/volunteer");
             }
         } catch (RuntimeException ignore) {
-            // best-effort mirror; the message is already stored in the thread
         }
         telegram.sendMessage(chatId, "✓ Отправлено (заявка #" + ticketId + ").");
         return true;
     }
-
     /** Gemini answers, or the question is escalated to the support chat. */
     private void askSupport(String chatId, Map<String, Object> user, String text) {
         String role = user == null ? null : (String) user.get("role");
@@ -345,31 +279,24 @@ public class TelegramBotService {
             + " (" + roleLabel(role) + ", chat_id " + chatId + "):\n\n" + Html.escape(text));
         telegram.sendMessage(chatId, "→ Вопрос передан администратору — с вами свяжутся здесь же.");
     }
-
-    // ── helpers ────────────────────────────────────────────────────────────────
-
     private Map<String, Object> linkedUser(String chatId) {
         return firstRow(
             "SELECT id, username, role, related_id, is_blocked FROM users WHERE telegram_chat_id = ?",
             chatId);
     }
-
     private Map<String, Object> firstRow(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         return rows.isEmpty() ? null : rows.get(0);
     }
-
     private String greeting() {
         String site = siteUrl.isBlank() ? "https://savefood.kz" : siteUrl;
         return "◇ Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
             + "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
             + site + "\n\n" + helpText();
     }
-
     private String completionUrl(String completionToken) {
         return siteUrl.isBlank() ? null : siteUrl + "/auth#telegram_completion=" + completionToken;
     }
-
     private static String normalizeSiteUrl(String primary, String fallback) {
         for (String candidate : new String[]{primary, fallback}) {
             if (candidate == null || candidate.isBlank()) continue;
@@ -381,12 +308,10 @@ public class TelegramBotService {
                     return normalized;
                 }
             } catch (IllegalArgumentException ignored) {
-                // Try the fallback; if neither is a valid absolute web URL, fail closed.
             }
         }
         return "";
     }
-
     private String helpText() {
         return "Команды:\n"
             + "/status — привязан ли аккаунт, активная заявка или маршрут\n"
@@ -396,7 +321,6 @@ public class TelegramBotService {
             + "Любое другое сообщение уйдёт второй стороне активной доставки, "
             + "а если её нет — в поддержку.";
     }
-
     private static String roleLabel(String role) {
         if (role == null) {
             return "гость";
@@ -409,7 +333,6 @@ public class TelegramBotService {
             default -> role;
         };
     }
-
     private static String verificationLabel(String status) {
         if (status == null) {
             return "не заполнена";
@@ -421,5 +344,4 @@ public class TelegramBotService {
             default -> status;
         };
     }
-
 }

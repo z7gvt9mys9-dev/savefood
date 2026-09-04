@@ -1,11 +1,9 @@
 <resources>
-    <!-- Onboarding — common -->
     <string name="onb_skip">Skip</string>
     <string name="onb_next">Next</string>
     <string name="onb_start">Get started</string>
     <string name="onb_checklist_title">First steps</string>
 
-    <!-- Onboarding — shop -->
     <string name="onb_shop_t1">Publish surplus</string>
     <string name="onb_shop_d1">Turn unsold food into lots in a couple of minutes.</string>
     <string name="onb_shop_t2">Confirm the handover</string>
@@ -16,7 +14,6 @@
     <string name="onb_shop_c2">Create your first lot</string>
     <string name="onb_shop_c3">Turn on notifications</string>
 
-    <!-- Onboarding — volunteer -->
     <string name="onb_vol_t1">Claim requests</string>
     <string name="onb_vol_d1">Find open requests nearby on the map and in the list.</string>
     <string name="onb_vol_t2">Run the route</string>
@@ -27,7 +24,6 @@
     <string name="onb_vol_c2">Find a request nearby</string>
     <string name="onb_vol_c3">Allow location access</string>
 
-    <!-- Onboarding — needy -->
     <string name="onb_needy_t1">Find food</string>
     <string name="onb_needy_d1">Browse available lots on the map and place a request.</string>
     <string name="onb_needy_t2">Track delivery</string>

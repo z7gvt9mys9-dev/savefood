@@ -1,11 +1,7 @@
 package ru.savefood.util;
-
 import static org.assertj.core.api.Assertions.assertThat;
-
 import org.junit.jupiter.api.Test;
-
 class GeoTest {
-
     @Test
     void acceptsOnlyFiniteWgs84CoordinatePairs() {
         assertThat(Geo.isValidCoordinates(-90.0, -180.0)).isTrue();

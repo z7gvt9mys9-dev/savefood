@@ -1,8 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Production / default: HTTPS only, no cleartext anywhere. SSL pinning pins
-         are added here once the real domain + certificate are known (savefood.md §24).
-         The dev emulator-loopback exception lives in src/dev/res so it never ships
-         in a release/prod build. -->
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

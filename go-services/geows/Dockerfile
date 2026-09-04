@@ -1,5 +1,4 @@
 FROM golang:1.24-alpine AS build
-# go.mod requires a newer Go toolchain than this base ships; allow Go to fetch it.
 ENV GOTOOLCHAIN=auto
 WORKDIR /src
 COPY go.mod go.sum ./

@@ -16,10 +16,6 @@ services:
       timeout: 5s
       retries: 10
 
-  # API-бэкенд: Java/Spring Boot (backend-java). Заменил FastAPI-стек —
-  # все 7 HTTP-модулей + фоновые тики (@Scheduled) + нотификатор/пуш порт.
-  # Имя сервиса оставлено `backend`, чтобы nginx (proxy_pass http://backend:8000)
-  # и depends_on фронтенда не менялись.
   backend:
     build:
       context: ./backend-java
@@ -28,7 +24,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Backend is reached only through nginx on the internal docker network.
     expose:
       - "8000"
     environment:
@@ -38,9 +33,6 @@ services:
       DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_PORT: 5432
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
-      # Telegram bot: outbound notifications, /auth/telegram/* account-linking and
-      # the inbound webhook (§16). Without TELEGRAM_WEBHOOK_SECRET the webhook
-      # drops every update, so account linking and Telegram login stay dead.
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_NAME: ${TELEGRAM_BOT_NAME:-savefood_bot}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
@@ -50,50 +42,31 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       YANDEX_CLIENT_ID: ${YANDEX_CLIENT_ID:-}
       YANDEX_CLIENT_SECRET: ${YANDEX_CLIENT_SECRET:-}
-      # Optional VLESS→xray SOCKS5 proxy for Telegram sends (proxy_service port).
       VLESS_URL: ${VLESS_URL:-}
-      # Telegram support chat for route-timeout / anti-fraud alerts (§22.3/§27).
       SUPPORT_CHAT_ID: ${SUPPORT_CHAT_ID:-}
-      # Gemini (support AI / OCR / volunteer KYC / photo moderation); empty ⇒ degraded.
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gemini-2.5-flash}
-      # Timezone used to interpret recipients' available_time windows.
       LOCAL_TZ: ${LOCAL_TZ:-Europe/Moscow}
-      # Maintenance ticks now run IN this service (Spring @Scheduled), replacing
-      # the Python `worker`. `embedded` = run them here (the Go geows only writes
-      # locations; nobody else runs these ticks, so exactly one scheduler owns them).
       BACKGROUND_TASKS_JAVA: embedded
       KYC_RETRY_BATCH: ${KYC_RETRY_BATCH:-100}
       KYC_DOC_RETENTION_HOURS: ${KYC_DOC_RETENTION_HOURS:-0}
-      # Required for every GET /metrics scrape, including traffic via localhost
-      # or the Cloudflare Tunnel proxy hop. Never put this value in a URL.
       METRICS_TOKEN: ${METRICS_TOKEN:?METRICS_TOKEN must be set and non-empty}
-      # Web Push / VAPID (optional — empty keys ⇒ /push 503, toggle hidden).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
-      # Firebase Cloud Messaging — native Android push (off by default).
       FCM_ENABLED: ${FCM_ENABLED:-false}
       FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
       FCM_CREDENTIALS_JSON: ${FCM_CREDENTIALS_JSON:-}
       FCM_CREDENTIALS_FILE: ${FCM_CREDENTIALS_FILE:-}
-      # KYC gate (blocks unverified volunteers from routes; default ON) + a
-      # mandatory Fernet key for document encryption-at-rest.
       VOLUNTEER_KYC_REQUIRED: ${VOLUNTEER_KYC_REQUIRED:-true}
       KYC_ENCRYPTION_KEY: ${KYC_ENCRYPTION_KEY:?KYC_ENCRYPTION_KEY must be set}
-      # Upload dirs on mounted volumes. Only lot photos are public; receipts,
-      # volunteer identity documents and delivery proof photos stay private and are served
-      # only by authorization/moderation-checked application endpoints.
       SHOP_UPLOAD_DIR: /data/shop_uploads
       RECEIPT_UPLOAD_DIR: /data/receipt_uploads
       VOLUNTEER_UPLOAD_DIR: /data/volunteer_uploads
       VOLUNTEER_KYC_UPLOAD_DIR: /data/volunteer_kyc_uploads
-      # Retained only until the durable V5 cleanup queue has deleted legacy recipient KYC files.
       NEEDY_UPLOAD_DIR: /data/needy_uploads
       DELIVERY_PHOTO_UPLOAD_DIR: /data/delivery_photos
     healthcheck:
-      # /readyz also checks DB reachability, so the container only reports
-      # healthy once it can actually serve requests (curl added in the Dockerfile).
       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/readyz || exit 1"]
       interval: 10s
       timeout: 5s
@@ -107,8 +80,6 @@ services:
       - volunteer_kyc_uploads:/data/volunteer_kyc_uploads
       - delivery_photos:/data/delivery_photos
 
-  # Go-микросервис горячих путей (§31): WebSocket-фанаут уведомлений и
-  # приём/чтение геокоординат волонтёров. Делит БД и SECRET_KEY с backend.
   geows:
     build:
       context: ./go-services/geows
@@ -135,9 +106,6 @@ services:
         VITE_YANDEX_MAPS_API_KEY: ${VITE_YANDEX_MAPS_API_KEY:-}
         VITE_YANDEX_SUGGEST_API_KEY: ${VITE_YANDEX_SUGGEST_API_KEY:-}
     restart: unless-stopped
-    # Public ingress is Cloudflare Tunnel running on this host. Binding only to
-    # loopback prevents users on the network from spoofing CF-Connecting-IP and
-    # bypassing the credential rate limit.
     ports:
       - "127.0.0.1:${APP_PORT:-80}:80"
     depends_on:
@@ -145,8 +113,6 @@ services:
         condition: service_healthy
       geows:
         condition: service_started
-    # Only public lot images are mounted into nginx. Delivery proofs and volunteer KYC
-    # files stay backend-private and must go through authorization checks.
     volumes:
       - shop_uploads:/srv/uploads:ro
 
