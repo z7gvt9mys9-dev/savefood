@@ -5,7 +5,9 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +52,7 @@ public class MaintenanceTasks {
     private final int kycRetryBatch;
     private final int kycRetentionHours;
     private final int reservationTtlBatch;
+    private final Clock clock;
     @Autowired
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
                             RouteRevertService revert, KycService kyc, TelegramService telegram,
@@ -59,7 +62,8 @@ public class MaintenanceTasks {
                             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
                             @Value("${savefood.kyc-retry-batch:100}") int kycRetryBatch,
                             @Value("${savefood.kyc-doc-retention-hours:0}") int kycRetentionHours,
-                            @Value("${savefood.reservation-ttl-batch-size:100}") int reservationTtlBatch) {
+                            @Value("${savefood.reservation-ttl-batch-size:100}") int reservationTtlBatch,
+                            Clock businessClock) {
         this.jdbc = jdbc;
         this.tx = new TransactionTemplate(txManager);
         this.revert = revert;
@@ -72,6 +76,16 @@ public class MaintenanceTasks {
         this.kycRetryBatch = kycRetryBatch;
         this.kycRetentionHours = kycRetentionHours;
         this.reservationTtlBatch = Math.max(1, Math.min(reservationTtlBatch, MAX_RESERVATION_TTL_BATCH));
+        this.clock = businessClock;
+    }
+    /** Constructor retained for focused tests that exercise filesystem cleanup. */
+    public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
+                            RouteRevertService revert, KycService kyc, TelegramService telegram,
+                            SensitiveFileCleanup sensitiveFiles, String mode, String supportChatId,
+                            String volunteerKycDir, int kycRetryBatch, int kycRetentionHours) {
+        this(jdbc, txManager, revert, kyc, telegram, sensitiveFiles, mode, supportChatId,
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, DEFAULT_RESERVATION_TTL_BATCH,
+            Clock.systemDefaultZone());
     }
     /** Constructor retained for focused tests unrelated to filesystem cleanup. */
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
@@ -79,7 +93,8 @@ public class MaintenanceTasks {
                             String mode, String supportChatId, String volunteerKycDir,
                             int kycRetryBatch, int kycRetentionHours) {
         this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
-            volunteerKycDir, kycRetryBatch, kycRetentionHours, DEFAULT_RESERVATION_TTL_BATCH);
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, DEFAULT_RESERVATION_TTL_BATCH,
+            Clock.systemDefaultZone());
     }
     /** Constructor with an explicit reservation batch size for focused tests. */
     public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
@@ -87,17 +102,28 @@ public class MaintenanceTasks {
                             String mode, String supportChatId, String volunteerKycDir,
                             int kycRetryBatch, int kycRetentionHours, int reservationTtlBatch) {
         this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
-            volunteerKycDir, kycRetryBatch, kycRetentionHours, reservationTtlBatch);
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, reservationTtlBatch,
+            Clock.systemDefaultZone());
+    }
+    /** Constructor with a fixed/injected clock for focused date-boundary tests. */
+    public MaintenanceTasks(JdbcTemplate jdbc, PlatformTransactionManager txManager,
+                            RouteRevertService revert, KycService kyc, TelegramService telegram,
+                            String mode, String supportChatId, String volunteerKycDir,
+                            int kycRetryBatch, int kycRetentionHours, int reservationTtlBatch,
+                            Clock businessClock) {
+        this(jdbc, txManager, revert, kyc, telegram, null, mode, supportChatId,
+            volunteerKycDir, kycRetryBatch, kycRetentionHours, reservationTtlBatch, businessClock);
     }
     @Scheduled(fixedDelay = 30 * 60_000, initialDelay = 60_000)
     public void expireTick() {
         if (!enabled) {
             return;
         }
+        LocalDate businessDate = LocalDate.now(clock);
         try {
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id FROM lots WHERE status = 'active' AND expiry_date IS NOT NULL "
-                + "AND expiry_date <= CURRENT_DATE + INTERVAL '1 day'");
+                + "AND expiry_date <= CAST(? AS date) + 1", businessDate);
             int n = 0;
             for (Map<String, Object> r : rows) {
                 int lotId = ((Number) r.get("id")).intValue();
@@ -106,8 +132,8 @@ public class MaintenanceTasks {
                         List<Integer> shopIds = jdbc.query(
                             "UPDATE lots SET status = 'expired' WHERE id = ? AND status = 'active' "
                             + "AND expiry_date IS NOT NULL "
-                            + "AND expiry_date <= CURRENT_DATE + INTERVAL '1 day' RETURNING shop_id",
-                            (rs, rowNum) -> rs.getInt("shop_id"), lotId);
+                            + "AND expiry_date <= CAST(? AS date) + 1 RETURNING shop_id",
+                            (rs, rowNum) -> rs.getInt("shop_id"), lotId, businessDate);
                         if (shopIds.isEmpty()) {
                             return false;
                         }

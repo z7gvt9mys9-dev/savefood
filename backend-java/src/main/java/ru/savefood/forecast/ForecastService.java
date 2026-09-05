@@ -1,14 +1,15 @@
 package ru.savefood.forecast;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.DateTimeException;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
+import ru.savefood.config.BusinessTimeConfiguration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 @Service
@@ -19,14 +20,14 @@ public class ForecastService {
         1, "понедельник", 2, "вторник", 3, "среда", 4, "четверг",
         5, "пятница", 6, "суббота", 7, "воскресенье");
     private final JdbcTemplate jdbc;
-    private final ZoneId zone;
-    public ForecastService(JdbcTemplate jdbc, @Value("${savefood.local-tz:Europe/Moscow}") String localTz) {
+    private final Clock clock;
+    @Autowired
+    public ForecastService(JdbcTemplate jdbc, Clock businessClock) {
         this.jdbc = jdbc;
-        try {
-            this.zone = ZoneId.of(localTz);
-        } catch (DateTimeException | NullPointerException e) {
-            throw new IllegalStateException("Invalid savefood.local-tz: " + localTz, e);
-        }
+        this.clock = businessClock;
+    }
+    public ForecastService(JdbcTemplate jdbc, String localTz) {
+        this(jdbc, BusinessTimeConfiguration.systemClock(localTz));
     }
     public Map<String, Object> shopForecast(int shopId) {
         List<Map<String, Object>> rows = jdbc.queryForList(
@@ -36,8 +37,8 @@ public class ForecastService {
             + "WHERE l.shop_id = ? "
             + "AND l.created_at >= CURRENT_TIMESTAMP - make_interval(weeks => ?) "
             + "GROUP BY 1, 2",
-            zone.getId(), shopId, BASIS_WEEKS);
-        int todayIsoDow = isoDowAt(Instant.now(), zone);
+            clock.getZone().getId(), shopId, BASIS_WEEKS);
+        int todayIsoDow = isoDowAt(Instant.now(clock), clock.getZone());
         return buildForecast(rows, todayIsoDow, BASIS_WEEKS);
     }
     static int isoDowAt(Instant instant, ZoneId zone) {

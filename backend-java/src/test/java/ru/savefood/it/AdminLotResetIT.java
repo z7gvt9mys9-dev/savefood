@@ -12,6 +12,7 @@ import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.flywaydb.core.Flyway;
 import ru.savefood.admin.AdminController;
 import ru.savefood.audit.AuditService;
 import ru.savefood.esg.EsgService;
@@ -58,6 +59,17 @@ class AdminLotResetIT extends PostgresIT {
         assertThat(status("lots", lot)).isEqualTo("active");
         assertThat(status("tickets", ticket)).isEqualTo("open");
         assertThat(lotQuantity(lot)).isEqualTo(4.0);
+    }
+    @Test
+    void resetCannotReactivateAFractionalLegacyLot() {
+        migrateOnlyThroughV20();
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 1.5, "Bakery");
+        jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW(), taken_by = 'Volunteer' WHERE id = ?",
+            lot);
+        assertResetRejected(lot);
+        assertThat(status("lots", lot)).isEqualTo("taken");
+        assertThat(lotQuantity(lot)).isEqualTo(1.5);
+        assertThat(resetAudits(lot)).isZero();
     }
     @Test
     void confirmedLotCannotResetOrClearClaimFields() {
@@ -164,6 +176,11 @@ class AdminLotResetIT extends PostgresIT {
     private int resetAudits(int lotId) {
         return jdbc.queryForObject("SELECT COUNT(*) FROM audit_log WHERE action = 'lot_reset' AND target_id = ?",
             Integer.class, lotId);
+    }
+    private void migrateOnlyThroughV20() {
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").target("20").load().migrate();
     }
     private static void assertBlocked(Future<?> future) {
         assertThatThrownBy(() -> future.get(500, TimeUnit.MILLISECONDS))

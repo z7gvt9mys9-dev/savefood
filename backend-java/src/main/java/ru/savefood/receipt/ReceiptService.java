@@ -9,9 +9,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -20,6 +20,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 @Service
 public class ReceiptService {
@@ -65,12 +66,16 @@ public class ReceiptService {
     private final String apiKey;
     private final String model;
     private final int maxAgeHours;
+    private final Clock clock;
+    @Autowired
     public ReceiptService(@Value("${savefood.gemini-api-key:}") String apiKey,
                           @Value("${savefood.ocr-model:gemini-2.5-flash}") String model,
-                          @Value("${savefood.receipt-max-age-hours:48}") int maxAgeHours) {
+                          @Value("${savefood.receipt-max-age-hours:48}") int maxAgeHours,
+                          Clock businessClock) {
         this.apiKey = apiKey;
         this.model = model;
         this.maxAgeHours = maxAgeHours;
+        this.clock = businessClock;
     }
     public Map<String, Object> parseReceiptImage(byte[] content, String mimeType) {
         if (apiKey == null || apiKey.isBlank() || content == null || content.length == 0) {
@@ -238,7 +243,7 @@ public class ReceiptService {
     public Map<String, Object> evaluateFraud(Map<String, Object> parsed, boolean fingerprintDupe) {
         double score = 0.0;
         List<String> reasons = new ArrayList<>();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(clock);
         LocalDate rdate = (LocalDate) parsed.get("receipt_date");
         if (rdate == null) {
             score += 0.3;

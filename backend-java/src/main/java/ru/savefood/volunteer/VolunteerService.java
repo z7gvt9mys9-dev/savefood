@@ -1,10 +1,10 @@
 package ru.savefood.volunteer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import ru.savefood.esg.EsgService;
+import ru.savefood.config.BusinessTimeConfiguration;
 import ru.savefood.gamification.Gamification;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.photo.CourierProofService;
@@ -29,7 +30,6 @@ import ru.savefood.util.Qr;
 import ru.savefood.volunteer.dto.VolunteerCreate;
 import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -53,13 +53,13 @@ public class VolunteerService {
     private final CourierProofService courierProofs;
     private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();
-    private final ZoneId zone;
+    private final Clock clock;
     private final String localTzName;
     @Autowired
     public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
                             PasswordService passwords, NeedyService needyService, TelegramService telegram,
                             CourierProofService courierProofs, DeliveryPhotoStorage deliveryPhotos,
-                            @Value("${savefood.local-tz:Europe/Moscow}") String localTz) {
+                            Clock businessClock) {
         this.jdbc = jdbc;
         this.repo = repo;
         this.routeRevert = routeRevert;
@@ -68,20 +68,21 @@ public class VolunteerService {
         this.telegram = telegram;
         this.courierProofs = courierProofs;
         this.deliveryPhotos = deliveryPhotos;
-        ZoneId z;
-        try {
-            z = ZoneId.of(localTz);
-        } catch (RuntimeException e) {
-            z = ZoneId.of("Europe/Moscow");
-        }
-        this.zone = z;
-        this.localTzName = z.getId();
+        this.clock = businessClock;
+        this.localTzName = businessClock.getZone().getId();
     }
     /** Constructor retained for focused unit tests without Spring/file storage. */
     public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
                             PasswordService passwords, NeedyService needyService, TelegramService telegram,
                             String localTz) {
-        this(jdbc, repo, routeRevert, passwords, needyService, telegram, null, null, localTz);
+        this(jdbc, repo, routeRevert, passwords, needyService, telegram, null, null,
+            BusinessTimeConfiguration.systemClock(localTz));
+    }
+    /** Constructor with a fixed/injected clock for focused tests. */
+    public VolunteerService(JdbcTemplate jdbc, VolunteerRepository repo, RouteRevertService routeRevert,
+                            PasswordService passwords, NeedyService needyService, TelegramService telegram,
+                            Clock businessClock) {
+        this(jdbc, repo, routeRevert, passwords, needyService, telegram, null, null, businessClock);
     }
     @Transactional
     public int registerVolunteer(VolunteerCreate vol) {
@@ -113,7 +114,8 @@ public class VolunteerService {
         if (!"active".equals(lot.get("status"))) {
             throw new ApiException(400, "Lot is not available");
         }
-        if (!isRouteableExpiry(lot.get("expiry_date"))) {
+        LocalDate businessDate = LocalDate.now(clock);
+        if (!isRouteableExpiry(lot.get("expiry_date"), businessDate)) {
             throw new ApiException(400, "Срок годности лота слишком близок или уже истёк");
         }
         double availableQuantity = num(lot.get("quantity"));
@@ -389,7 +391,7 @@ public class VolunteerService {
                 if (shopLat != null && shopLon != null && p.get("lat") != null && p.get("lon") != null) {
                     double distKm = haversine(num(shopLat), num(shopLon), num(p.get("lat")), num(p.get("lon")));
                     int etaMin = Math.max(5, (int) (distKm / 30 * 60) + 5);
-                    ZonedDateTime arrival = ZonedDateTime.now(zone).plusMinutes(etaMin);
+                    ZonedDateTime arrival = ZonedDateTime.now(clock).plusMinutes(etaMin);
                     ZonedDateTime arrivalEnd = arrival.plusMinutes(30);
                     etaText = " с " + hhmm(arrival) + " до " + hhmm(arrivalEnd);
                 }
@@ -637,6 +639,7 @@ public class VolunteerService {
     }
     public Map<String, Object> mapPoints(String city, int requestedLimit) {
         int limit = Math.min(requestedLimit, MAP_MAX_RESULTS);
+        LocalDate businessDate = LocalDate.now(clock);
         String mapLots = "WITH map_lots AS ("
             + "SELECT s.id AS shop_id, s.name, s.lat, s.lon, s.kind, l.id AS lot_id, l.description, "
             + "l.quantity, l.photo, l.category, COUNT(t.id) AS open_delivery_tickets "
@@ -644,13 +647,14 @@ public class VolunteerService {
             + "JOIN tickets t ON t.lot_id = l.id "
             + "WHERE s.city = ? AND s.lat BETWEEN -90 AND 90 AND s.lon BETWEEN -180 AND 180 "
             + "AND l.status = 'active' "
-            + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CURRENT_DATE + INTERVAL '1 day') "
+            + "AND (l.expiry_date IS NULL OR l.expiry_date::date > CAST(? AS date) + 1) "
             + "AND t.status = 'open' AND t.lat BETWEEN -90 AND 90 AND t.lon BETWEEN -180 AND 180 "
             + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) "
             + "GROUP BY s.id, s.name, s.lat, s.lon, s.kind, l.id, l.description, l.quantity, l.photo, l.category "
             + "ORDER BY l.id LIMIT ?) ";
         Map<Integer, Map<String, Object>> shopsMap = new LinkedHashMap<>();
-        for (Map<String, Object> r : jdbc.queryForList(mapLots + "SELECT * FROM map_lots", city, limit)) {
+        for (Map<String, Object> r : jdbc.queryForList(
+                mapLots + "SELECT * FROM map_lots", city, businessDate, limit)) {
             int sid = ((Number) r.get("shop_id")).intValue();
             Map<String, Object> shop = shopsMap.computeIfAbsent(sid, k -> {
                 Map<String, Object> s = new LinkedHashMap<>();
@@ -684,7 +688,8 @@ public class VolunteerService {
             + "FROM tickets t JOIN map_lots ml ON ml.lot_id = t.lot_id "
             + "JOIN lots l ON l.id = t.lot_id JOIN shops s ON s.id = l.shop_id "
             + "WHERE t.status = 'open' AND t.lat BETWEEN -90 AND 90 AND t.lon BETWEEN -180 AND 180 "
-            + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) ORDER BY t.id LIMIT ?", city, limit, limit)) {
+            + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) ORDER BY t.id LIMIT ?",
+                city, businessDate, limit, limit)) {
             Map<String, Object> t = new LinkedHashMap<>();
             t.put("ticket_id", r.get("id"));
             t.put("lot_id", r.get("lot_id"));
@@ -1026,12 +1031,12 @@ public class VolunteerService {
         return value instanceof Number n ? n.doubleValue() : null;
     }
     /** A lot may have quantity 0 only when its already-reserved open tickets are served. */
-    private static boolean isRouteableExpiry(Object value) {
+    static boolean isRouteableExpiry(Object value, LocalDate businessDate) {
         if (value == null) {
             return true;
         }
         LocalDate expiry = toLocalDate(value);
-        return expiry != null && expiry.isAfter(LocalDate.now().plusDays(1));
+        return expiry != null && expiry.isAfter(businessDate.plusDays(1));
     }
     private static LocalDate toLocalDate(Object value) {
         if (value instanceof LocalDate d) {

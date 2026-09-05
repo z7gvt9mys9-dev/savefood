@@ -1,6 +1,9 @@
 package ru.savefood.receipt;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
@@ -9,12 +12,18 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 class ReceiptServiceTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Instant DAYTIME = Instant.parse("2026-01-02T12:00:00Z");
+    private static final LocalDate TODAY = LocalDate.of(2026, 1, 2);
     /** Service with default thresholds (48h max age); no API key — AI stage unused here. */
-    private final ReceiptService service = new ReceiptService("", "gemini-2.5-flash", 48);
+    private final ReceiptService service = serviceAt(DAYTIME, "Europe/Moscow");
+    private static ReceiptService serviceAt(Instant instant, String zone) {
+        return new ReceiptService("", "gemini-2.5-flash", 48,
+            Clock.fixed(instant, ZoneId.of(zone)));
+    }
     /** Mirrors _parsed() from the pytest module: a clean receipt parsed today. */
     private static Map<String, Object> parsed(Map<String, Object> overrides) {
         Map<String, Object> base = new HashMap<>();
-        base.put("receipt_date", LocalDate.now(ZoneOffset.UTC));
+        base.put("receipt_date", TODAY);
         base.put("merchant", "Magnum");
         base.put("total", 1234.0);
         base.put("authenticity", "ok");
@@ -45,14 +54,14 @@ class ReceiptServiceTest {
     }
     @Test
     void futureDateRejects() {
-        LocalDate future = LocalDate.now(ZoneOffset.UTC).plusDays(2);
+        LocalDate future = TODAY.plusDays(2);
         Map<String, Object> fraud =
             service.evaluateFraud(parsed(Map.of("receipt_date", future)), false);
         assertThat(fraud.get("rejected")).isEqualTo(true);
     }
     @Test
     void staleDateRejects() {
-        LocalDate old = LocalDate.now(ZoneOffset.UTC).minusDays(10);
+        LocalDate old = TODAY.minusDays(10);
         Map<String, Object> fraud =
             service.evaluateFraud(parsed(Map.of("receipt_date", old)), false);
         assertThat(fraud.get("rejected")).isEqualTo(true);
@@ -76,7 +85,7 @@ class ReceiptServiceTest {
     }
     @Test
     void scoreCappedAtOne() {
-        LocalDate old = LocalDate.now(ZoneOffset.UTC).minusDays(10);
+        LocalDate old = TODAY.minusDays(10);
         Map<String, Object> fraud = service.evaluateFraud(
             parsed(Map.of("receipt_date", old, "authenticity", "suspicious")), true);
         assertThat(fraud.get("score")).isEqualTo(1.0);
@@ -88,6 +97,45 @@ class ReceiptServiceTest {
         String fp = service.fingerprint(
             parsed(Map.of("receipt_date", LocalDate.of(2026, 6, 10), "total", 500.0)));
         assertThat(fp).isEqualTo("magnum|2026-06-10|500.00");
+    }
+    @Test
+    void localSaturdayReceiptIsTodayWhileUtcIsStillFriday() {
+        Instant boundary = Instant.parse("2026-01-02T21:30:00Z");
+        Clock moscowClock = Clock.fixed(boundary, ZoneId.of("Europe/Moscow"));
+        LocalDate saturday = LocalDate.of(2026, 1, 3);
+        assertThat(LocalDate.now(moscowClock)).isEqualTo(saturday);
+        assertThat(LocalDate.now(moscowClock.withZone(ZoneOffset.UTC))).isEqualTo(saturday.minusDays(1));
+        assertThat(serviceAt(boundary, "Europe/Moscow")
+            .evaluateFraud(parsed(Map.of("receipt_date", saturday)), false))
+            .containsEntry("score", 0.0).containsEntry("rejected", false);
+    }
+    @Test
+    void normalDaytimeFraudScoreIsUnchangedAcrossZones() {
+        Map<String, Object> receipt = parsed(Map.of("receipt_date", TODAY));
+        assertThat(serviceAt(DAYTIME, "UTC").evaluateFraud(receipt, false).get("score"))
+            .isEqualTo(serviceAt(DAYTIME, "Europe/Moscow").evaluateFraud(receipt, false).get("score"))
+            .isEqualTo(0.0);
+    }
+    @Test
+    void configuredTimezoneChangesReceiptBusinessDateConsistently() {
+        Instant boundary = Instant.parse("2026-01-02T23:30:00Z");
+        Map<String, Object> saturdayReceipt = parsed(Map.of("receipt_date", LocalDate.of(2026, 1, 3)));
+        assertThat(serviceAt(boundary, "UTC").evaluateFraud(saturdayReceipt, false).get("score"))
+            .isEqualTo(0.8);
+        assertThat(serviceAt(boundary, "Asia/Tokyo").evaluateFraud(saturdayReceipt, false).get("score"))
+            .isEqualTo(0.0);
+    }
+    @Test
+    void dstObservingZoneUsesIanaRules() {
+        Instant before = Instant.parse("2026-03-08T06:30:00Z");
+        Instant after = Instant.parse("2026-03-08T07:30:00Z");
+        ZoneId newYork = ZoneId.of("America/New_York");
+        assertThat(newYork.getRules().getOffset(before)).isNotEqualTo(newYork.getRules().getOffset(after));
+        Map<String, Object> receipt = parsed(Map.of("receipt_date", LocalDate.of(2026, 3, 8)));
+        assertThat(serviceAt(before, newYork.getId()).evaluateFraud(receipt, false).get("score"))
+            .isEqualTo(0.0);
+        assertThat(serviceAt(after, newYork.getId()).evaluateFraud(receipt, false).get("score"))
+            .isEqualTo(0.0);
     }
     @Test
     @SuppressWarnings("unchecked")

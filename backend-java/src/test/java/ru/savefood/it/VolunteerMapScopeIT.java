@@ -1,5 +1,9 @@
 package ru.savefood.it;
 import static org.assertj.core.api.Assertions.assertThat;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -59,9 +63,37 @@ class VolunteerMapScopeIT extends PostgresIT {
             String.class);
         assertThat(indexes).contains("idx_tickets_lot_status");
     }
+    @Test
+    void mapExpiryUsesInjectedDateRegardlessOfDatabaseSessionTimezone() {
+        Clock clock = Clock.fixed(Instant.parse("2026-01-02T21:30:00Z"),
+            ZoneId.of("Europe/Moscow"));
+        VolunteerService service = mapService(jdbc, clock);
+        int cutoffLot = deliveryLot("Алматы", "Cutoff shop");
+        int validLot = deliveryLot("Алматы", "Valid shop");
+        jdbc.update("UPDATE lots SET expiry_date = ? WHERE id = ?", LocalDate.of(2026, 1, 4), cutoffLot);
+        jdbc.update("UPDATE lots SET expiry_date = ? WHERE id = ?", LocalDate.of(2026, 1, 5), validLot);
+        createMapTicket(cutoffLot, "cutoff");
+        createMapTicket(validLot, "valid");
+
+        List<Object> utcLots = tx.execute(status -> {
+            jdbc.execute("SET LOCAL TIME ZONE 'UTC'");
+            return lots(service.mapPoints("Алматы", 100)).stream().map(lot -> lot.get("lot_id")).toList();
+        });
+        List<Object> aucklandLots = tx.execute(status -> {
+            jdbc.execute("SET LOCAL TIME ZONE 'Pacific/Auckland'");
+            return lots(service.mapPoints("Алматы", 100)).stream().map(lot -> lot.get("lot_id")).toList();
+        });
+
+        assertThat(utcLots).containsExactly(validLot);
+        assertThat(aucklandLots).isEqualTo(utcLots);
+    }
     private VolunteerService mapService(JdbcTemplate template) {
         return new VolunteerService(template, new VolunteerRepository(template), new RouteRevertService(template),
             new PasswordService(), needyService, null, "Europe/Moscow");
+    }
+    private VolunteerService mapService(JdbcTemplate template, Clock clock) {
+        return new VolunteerService(template, new VolunteerRepository(template), new RouteRevertService(template),
+            new PasswordService(), needyService, null, clock);
     }
     private int deliveryLot(String city, String shopName) {
         int shop = jdbc.queryForObject(
@@ -73,6 +105,12 @@ class VolunteerMapScopeIT extends PostgresIT {
         int needy = insertNeedy(items);
         needyService.createTicket(needy, items, "адрес", 43.24, 76.90, null, lotId,
             null, null, null, false);
+    }
+    private void createMapTicket(int lotId, String items) {
+        int needy = insertNeedy(items);
+        jdbc.update("INSERT INTO tickets (needy_id, items, lat, lon, lot_id, quantity, status, "
+            + "created_at, self_pickup) VALUES (?, ?, 43.24, 76.90, ?, 1, 'open', NOW(), FALSE)",
+            needy, items, lotId);
     }
     private void insertThousandsOfRemoteTickets() {
         int remoteLot = deliveryLot("Астана", "Удалённый магазин");

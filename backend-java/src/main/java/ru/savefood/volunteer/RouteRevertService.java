@@ -14,11 +14,20 @@ import org.springframework.stereotype.Service;
 @Service
 public class RouteRevertService {
     private static final String LOT_REVERT_SQL =
-        "UPDATE lots SET status = 'active', taken_at = NULL, taken_by = NULL, "
-        + "quantity = GREATEST(COALESCE(initial_quantity, quantity) - COALESCE("
-        + "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = lots.id "
-        + "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) "
-        + "WHERE id = ? AND status = 'taken'";
+        "WITH candidate AS ("
+        + "SELECT l.id, GREATEST(l.initial_quantity - COALESCE("
+        + "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = l.id "
+        + "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) AS available "
+        + "FROM lots l WHERE l.id = ? AND l.status = 'taken' "
+        + "AND l.quantity IS NOT NULL AND l.initial_quantity IS NOT NULL "
+        + "AND l.quantity >= 0 AND l.initial_quantity >= 0 "
+        + "AND l.quantity = FLOOR(l.quantity) "
+        + "AND l.initial_quantity = FLOOR(l.initial_quantity) "
+        + "AND l.quantity <= l.initial_quantity) "
+        + "UPDATE lots l SET status = 'active', taken_at = NULL, taken_by = NULL, "
+        + "quantity = c.available FROM candidate c WHERE l.id = c.id "
+        + "AND c.available >= 1 AND c.available = FLOOR(c.available) "
+        + "AND c.available <= l.initial_quantity";
     private final JdbcTemplate jdbc;
     private final DeliveryPhotoStorage deliveryPhotos;
     private final ObjectMapper mapper = new ObjectMapper();

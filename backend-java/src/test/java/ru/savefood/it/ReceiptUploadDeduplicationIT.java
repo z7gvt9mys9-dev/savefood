@@ -74,7 +74,9 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
         jdbc.update("UPDATE shops SET plan = 'pro' WHERE id = ?", shopId);
         receipts = new ShopRepository(jdbc);
         billing = new BillingService(jdbc);
-        receiptService = spy(new ReceiptService("", "gemini-test", 48));
+        receiptService = spy(new ReceiptService("", "gemini-test", 48,
+            java.time.Clock.fixed(java.time.Instant.parse("2026-01-02T12:00:00Z"),
+                java.time.ZoneId.of("Europe/Moscow"))));
         webhooks = mock(WebhookService.class);
         cleanup = new SensitiveFileCleanup(jdbc, receiptDir.toString(), receiptDir.toString(),
             receiptDir.toString(), receiptDir.toString(), receiptDir.toString());

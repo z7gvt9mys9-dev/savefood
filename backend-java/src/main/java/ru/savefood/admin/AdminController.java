@@ -336,6 +336,9 @@ public class AdminController {
         List<Integer> reset = jdbc.query(
             "UPDATE lots l SET status = 'active', taken_at = NULL, taken_by = NULL "
             + "WHERE l.id = ? AND l.status = 'taken' "
+            + "AND l.quantity >= 1 AND l.quantity = FLOOR(l.quantity) "
+            + "AND l.initial_quantity IS NOT NULL AND l.initial_quantity >= l.quantity "
+            + "AND l.initial_quantity = FLOOR(l.initial_quantity) "
             + "AND (l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day') "
             + "AND NOT EXISTS (SELECT 1 FROM volunteer_routes vr WHERE vr.lot_id = l.id) "
             + "AND NOT EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "

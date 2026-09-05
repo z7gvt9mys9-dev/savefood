@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import org.flywaydb.core.Flyway;
 import ru.savefood.needy.NeedyRepository;
 import ru.savefood.needy.NeedyService;
 import ru.savefood.security.PasswordService;
@@ -196,6 +197,15 @@ class ReservationLifecycleIT extends PostgresIT {
         assertThat(status("tickets", ticket)).isEqualTo("open");
     }
     @Test
+    void routeRevertCannotReactivateAFractionalLegacyLot() {
+        migrateOnlyThroughV20();
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 1.5, "Bakery");
+        jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW() WHERE id = ?", lot);
+        revert.revertRouteLot(lot, "[]");
+        assertThat(status("lots", lot)).isEqualTo("taken");
+        assertThat(lotQuantity(lot)).isEqualTo(1.5);
+    }
+    @Test
     @DisplayName("снятие незавершённого маршрута очищает доказательство курьера до повторного назначения")
     void teardownClearsCourierProofBeforeReopeningTicket() {
         int shop = insertShop("Магазин", 43.238, 76.889);
@@ -264,5 +274,10 @@ class ReservationLifecycleIT extends PostgresIT {
         jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW() WHERE id = ?", lotId);
         jdbc.update("UPDATE tickets SET status = 'assigned', assigned_volunteer_id = ? WHERE id = ?",
             volunteerId, ticketId);
+    }
+    private void migrateOnlyThroughV20() {
+        jdbc.execute("DROP SCHEMA public CASCADE");
+        jdbc.execute("CREATE SCHEMA public");
+        Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").target("20").load().migrate();
     }
 }
