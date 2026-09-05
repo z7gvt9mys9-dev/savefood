@@ -10,6 +10,9 @@ import java.util.Map;
 import ru.savefood.billing.BillingService;
 import ru.savefood.esg.EsgService;
 import ru.savefood.match.NeedsMatchService;
+import ru.savefood.match.MatchingWorkProperties;
+import ru.savefood.web.RateLimiter;
+import org.springframework.beans.factory.annotation.Autowired;
 import ru.savefood.partner.dto.ApiLotIn;
 import ru.savefood.partner.dto.WebhookIn;
 import ru.savefood.receipt.ReceiptService;
@@ -42,6 +45,10 @@ public class PartnerApiController {
     private final ShopService shopService;
     private final ShopRepository shopRepo;
     private final WebhookProperties webhookProperties;
+    @Autowired
+    private RateLimiter lotCreateRateLimiter;
+    @Autowired
+    private MatchingWorkProperties matchingLimits;
     private final SecureRandom random = new SecureRandom();
     public PartnerApiController(JdbcTemplate jdbc, BillingService billing, EsgService esg,
                                NeedsMatchService needsMatch, ShopService shopService, ShopRepository shopRepo,
@@ -83,6 +90,8 @@ public class PartnerApiController {
     public Map<String, Object> createLot(@RequestBody ApiLotIn payload,
                                          @RequestHeader(value = "X-API-Key", required = false) String apiKey) {
         int shopId = apiShop(apiKey);
+        lotCreateRateLimiter.check("partner:lot_create", Integer.toString(shopId),
+            matchingLimits.getPartnerCreatesPerMinute());
         if (payload.category() != null && !ReceiptService.LOT_CATEGORIES.contains(payload.category())) {
             throw new ApiException(400, "Неизвестная категория. Допустимые: "
                 + String.join(", ", ReceiptService.LOT_CATEGORIES));

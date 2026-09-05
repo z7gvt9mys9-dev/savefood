@@ -6,6 +6,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.DoubleAdder;
 import java.util.concurrent.atomic.LongAdder;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import ru.savefood.match.BoundedWorkExecutor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 @Service
@@ -18,6 +21,14 @@ public class MetricsService {
     public MetricsService(JdbcTemplate jdbc, @Value("${savefood.metrics-token:}") String metricsToken) {
         this.jdbc = jdbc;
         this.metricsToken = metricsToken == null || metricsToken.isBlank() ? "" : metricsToken;
+    }
+    private Map<String, BoundedWorkExecutor> matchingExecutors = Map.of();
+    @Autowired
+    void matchingExecutors(
+            @Qualifier("matchingExecutor") BoundedWorkExecutor matching,
+            @Qualifier("matchingTelegramExecutor") BoundedWorkExecutor telegram,
+            @Qualifier("pushDispatchExecutor") BoundedWorkExecutor push) {
+        matchingExecutors = Map.of("matching", matching, "matching_telegram", telegram, "push", push);
     }
     public boolean metricsAllowed(String token) {
         return !metricsToken.isEmpty() && token != null
@@ -56,6 +67,14 @@ public class MetricsService {
               .append(h.sum.sum()).append('\n');
             sb.append("savefood_http_request_seconds_count{").append(labels).append("} ")
               .append(h.count.sum()).append('\n');
+        });
+        sb.append("# TYPE savefood_notification_queue_depth gauge\n");
+        sb.append("# TYPE savefood_notification_rejected_total counter\n");
+        matchingExecutors.forEach((name, executor) -> {
+            sb.append("savefood_notification_queue_depth{executor=\"").append(name)
+                .append("\"} ").append(executor.queueDepth()).append('\n');
+            sb.append("savefood_notification_rejected_total{executor=\"").append(name)
+                .append("\"} ").append(executor.rejectedCount()).append('\n');
         });
         appendBusinessGauges(sb);
         return sb.toString();

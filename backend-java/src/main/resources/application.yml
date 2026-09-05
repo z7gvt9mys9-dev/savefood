@@ -46,6 +46,29 @@ savefood:
     fcm-project-id: ${FCM_PROJECT_ID:}
     fcm-credentials-json: ${FCM_CREDENTIALS_JSON:}
     fcm-credentials-file: ${FCM_CREDENTIALS_FILE:}
+  # All lot-matching delivery is best-effort; DROP_OLDEST is the alternative rejection policy.
+  matching:
+    executor:
+      workers: ${MATCHING_WORKERS:2}
+      queue-capacity: ${MATCHING_QUEUE_CAPACITY:64}
+      rejection: ${MATCHING_REJECTION:DROP_NEWEST}
+    telegram:
+      workers: ${MATCHING_TELEGRAM_WORKERS:4}
+      queue-capacity: ${MATCHING_TELEGRAM_QUEUE_CAPACITY:128}
+      rejection: ${MATCHING_TELEGRAM_REJECTION:DROP_NEWEST}
+    push:
+      workers: ${PUSH_DISPATCH_WORKERS:4}
+      queue-capacity: ${PUSH_DISPATCH_QUEUE_CAPACITY:128}
+      rejection: ${PUSH_DISPATCH_REJECTION:DROP_NEWEST}
+    recipient-candidates: ${MATCHING_RECIPIENT_CANDIDATES:200}
+    volunteer-candidates: ${MATCHING_VOLUNTEER_CANDIDATES:200}
+    candidate-query-timeout-seconds: ${MATCHING_CANDIDATE_QUERY_TIMEOUT_SECONDS:5}
+    recipients-notified: ${MATCHING_RECIPIENTS_NOTIFIED:20}
+    volunteers-notified: ${MATCHING_VOLUNTEERS_NOTIFIED:10}
+    telegram-sends: ${MATCHING_TELEGRAM_SENDS:30}
+    push-sends: ${MATCHING_PUSH_SENDS:100}
+    subscriptions-per-channel: ${PUSH_SUBSCRIPTIONS_PER_CHANNEL:5}
+    partner-creates-per-minute: ${PARTNER_LOT_CREATES_PER_MINUTE:30}
   background-tasks: ${BACKGROUND_TASKS_JAVA:off}
   reservation-ttl-batch-size: ${RESERVATION_TTL_BATCH_SIZE:100}
   kyc-retry-batch: ${KYC_RETRY_BATCH:100}

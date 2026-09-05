@@ -28,8 +28,9 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import ru.savefood.match.BoundedWorkExecutor;
+import ru.savefood.match.MatchingWorkProperties;
+import org.springframework.beans.factory.annotation.Qualifier;
 import java.util.logging.Logger;
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
@@ -49,11 +50,8 @@ public class PushDispatchService {
         .followRedirects(HttpClient.Redirect.NEVER)
         .proxy(ProxySelector.of(null))
         .build();
-    private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "push-dispatch");
-        t.setDaemon(true);
-        return t;
-    });
+    private final BoundedWorkExecutor pool;
+    private final int subscriptionsPerChannel;
     private final SecureRandom random = new SecureRandom();
     private final JdbcTemplate jdbc;
     private final String vapidPublicKey;
@@ -67,6 +65,8 @@ public class PushDispatchService {
     private volatile Instant fcmTokenExp = Instant.EPOCH;
     public PushDispatchService(
             JdbcTemplate jdbc,
+            @Qualifier("pushDispatchExecutor") BoundedWorkExecutor pool,
+            MatchingWorkProperties limits,
             @Value("${savefood.push.vapid-public-key:}") String vapidPublicKey,
             @Value("${savefood.push.vapid-private-key:}") String vapidPrivateKey,
             @Value("${savefood.push.vapid-subject:mailto:support@savefood.local}") String vapidSubject,
@@ -75,6 +75,8 @@ public class PushDispatchService {
             @Value("${savefood.push.fcm-credentials-json:}") String fcmCredentialsJson,
             @Value("${savefood.push.fcm-credentials-file:}") String fcmCredentialsFile) {
         this.jdbc = jdbc;
+        this.pool = pool;
+        this.subscriptionsPerChannel = limits.getSubscriptionsPerChannel();
         this.vapidPublicKey = vapidPublicKey;
         this.vapidPrivateKey = vapidPrivateKey;
         this.vapidSubject = vapidSubject;
@@ -95,30 +97,40 @@ public class PushDispatchService {
         return text == null ? "" : text.replaceAll("<[^>]+>", "");
     }
     public void notifyRole(String role, Integer relatedId, String text, String url) {
-        if (relatedId == null || relatedId == 0) {
-            return;
-        }
+        notifyRole(role, relatedId, text, url, new PushSendBudget(2 * subscriptionsPerChannel));
+    }
+    public void notifyRole(String role, Integer relatedId, String text, String url, PushSendBudget budget) {
+        if (relatedId == null || relatedId == 0 || budget.remaining() == 0
+            || (!isConfigured() && !fcmIsConfigured())) return;
         String body = stripHtml(text);
         String link = (url == null || url.isEmpty()) ? "/" : url;
-        if (isConfigured()) {
+        // Even user lookup happens only after bounded admission, never on the caller.
+        pool.tryExecute(() -> {
+            if (Thread.currentThread().isInterrupted() || budget.remaining() == 0) return;
             try {
-                Integer userId = jdbc.query(
-                    "SELECT id FROM users WHERE role = ? AND related_id = ?",
-                    rs -> rs.next() ? rs.getInt("id") : null, role, relatedId);
-                if (userId != null) {
-                    pool.submit(() -> sendToUser(userId, "SaveFood", body, link));
+                if (isConfigured()) {
+                    Integer userId = jdbc.query(
+                        "SELECT id FROM users WHERE role = ? AND related_id = ? LIMIT 1",
+                        rs -> rs.next() ? rs.getInt("id") : null, role, relatedId);
+                    if (userId != null) sendToUser(userId, "SaveFood", body, link, budget);
                 }
             } catch (Exception e) {
                 log.warning("[push] notify_role failed: " + e.getMessage());
             }
-        }
-        if (fcmIsConfigured()) {
-            pool.submit(() -> sendFcmToRole(role, relatedId, "SaveFood", body, link));
-        }
+            try {
+                if (fcmIsConfigured() && !Thread.currentThread().isInterrupted()) {
+                    sendFcmToRole(role, relatedId, "SaveFood", body, link, budget);
+                }
+            } catch (Exception e) {
+                log.warning("[fcm] notify_role failed: " + e.getMessage());
+            }
+        });
     }
-    private void sendToUser(int userId, String title, String body, String url) {
+    private void sendToUser(int userId, String title, String body, String url, PushSendBudget budget) {
+        if (budget.remaining() == 0) return;
         List<Map<String, Object>> subs = jdbc.queryForList(
-            "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?", userId);
+            "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ? ORDER BY id LIMIT ?",
+            userId, Math.min(subscriptionsPerChannel, budget.remaining()));
         if (subs.isEmpty()) {
             return;
         }
@@ -129,6 +141,7 @@ public class PushDispatchService {
             return;
         }
         for (Map<String, Object> sub : subs) {
+            if (Thread.currentThread().isInterrupted() || !budget.tryAcquire()) return;
             String endpoint = (String) sub.get("endpoint");
             if (!PushEndpointValidator.isAllowed(endpoint)) {
                 log.warning("[push] ignoring unsafe endpoint");
@@ -155,6 +168,9 @@ public class PushDispatchService {
                 } else if (status >= 300) {
                     log.warning("[push] send failed (" + status + ")");
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             } catch (Exception e) {
                 log.warning("[push] send failed: " + e.getMessage());
             }
@@ -207,21 +223,27 @@ public class PushDispatchService {
         return (ECPrivateKey) kf.generatePrivate(
             new ECPrivateKeySpec(new java.math.BigInteger(1, s), p256));
     }
-    private void sendFcmToRole(String role, int relatedId, String title, String body, String url) {
+    private void sendFcmToRole(String role, int relatedId, String title, String body, String url, PushSendBudget budget) {
+        if (budget.remaining() == 0) return;
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT token FROM fcm_tokens WHERE role = ? AND related_id = ?", role, relatedId);
+            "SELECT token FROM fcm_tokens WHERE role = ? AND related_id = ? ORDER BY id LIMIT ?",
+            role, relatedId, Math.min(subscriptionsPerChannel, budget.remaining()));
         if (rows.isEmpty()) {
             return;
         }
         String accessToken;
         try {
             accessToken = fcmAccessToken();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
         } catch (Exception e) {
             log.warning("[fcm] could not obtain access token: " + e.getMessage());
             return;
         }
         String endpoint = "https://fcm.googleapis.com/v1/projects/" + fcmProjectId + "/messages:send";
         for (Map<String, Object> r : rows) {
+            if (Thread.currentThread().isInterrupted() || !budget.tryAcquire()) return;
             String token = (String) r.get("token");
             try {
                 Map<String, Object> message = Map.of("message", Map.of(
@@ -244,6 +266,9 @@ public class PushDispatchService {
                     log.warning("[fcm] send failed (" + resp.statusCode() + "): "
                         + resp.body().substring(0, Math.min(200, resp.body().length())));
                 }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
             } catch (Exception e) {
                 log.warning("[fcm] send failed: " + e.getMessage());
             }

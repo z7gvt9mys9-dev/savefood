@@ -3,8 +3,8 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import org.springframework.beans.factory.annotation.Qualifier;
+import ru.savefood.push.PushSendBudget;
 import java.util.logging.Logger;
 import ru.savefood.push.PushDispatchService;
 import ru.savefood.telegram.TelegramService;
@@ -16,34 +16,48 @@ import org.springframework.stereotype.Service;
 @Service
 public class NeedsMatchService {
     private static final Logger log = Logger.getLogger(NeedsMatchService.class.getName());
-    private static final int MAX_NOTIFIED_PER_LOT = 20;
-    private static final int MAX_VOLUNTEERS_PER_LOT = 10;
     private final JdbcTemplate jdbc;
     private final AvailabilityService availability;
     private final TelegramService telegram;
     private final PushDispatchService push;
-    private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "needs-match");
-        t.setDaemon(true);
-        return t;
-    });
+    private final BoundedWorkExecutor pool;
+    private final BoundedWorkExecutor telegramPool;
+    private final MatchingWorkProperties limits;
+    private final MatchingCandidateRepository candidates;
     public NeedsMatchService(JdbcTemplate jdbc, AvailabilityService availability,
-                             TelegramService telegram, PushDispatchService push) {
+                             TelegramService telegram, PushDispatchService push,
+                             @Qualifier("matchingExecutor") BoundedWorkExecutor pool,
+                             @Qualifier("matchingTelegramExecutor") BoundedWorkExecutor telegramPool,
+                             MatchingWorkProperties limits, MatchingCandidateRepository candidates) {
         this.jdbc = jdbc;
         this.availability = availability;
         this.telegram = telegram;
         this.push = push;
+        this.pool = pool;
+        this.telegramPool = telegramPool;
+        this.limits = limits;
+        this.candidates = candidates;
+    }
+    private static final class LotBudget {
+        private int telegramRemaining;
+        private final PushSendBudget push;
+        LotBudget(MatchingWorkProperties limits) {
+            telegramRemaining = limits.getTelegramSends();
+            push = new PushSendBudget(limits.getPushSends());
+        }
     }
     /** Fire-and-forget entry point, the analogue of {@code start_needs_match}. */
     public void startNeedsMatch(int lotId) {
-        pool.submit(() -> {
+        pool.tryExecute(() -> {
+            LotBudget budget = new LotBudget(limits);
             try {
-                notifyMatchingNeedy(lotId);
+                notifyMatchingNeedy(lotId, budget);
             } catch (Exception e) {
                 log.warning("[needs_match] lot " + lotId + " failed: " + e);
             }
+            if (Thread.currentThread().isInterrupted()) return;
             try {
-                notifyAvailableVolunteers(lotId);
+                notifyAvailableVolunteers(lotId, budget);
             } catch (Exception e) {
                 log.warning("[needs_match] lot " + lotId + " volunteer push failed: " + e);
             }
@@ -52,7 +66,7 @@ public class NeedsMatchService {
     static boolean matchesPreferences(String category, String preferences) {
         return FoodCategories.preferenceSignal(category, preferences) == FoodCategories.Signal.MATCH;
     }
-    void notifyMatchingNeedy(int lotId) {
+    private void notifyMatchingNeedy(int lotId, LotBudget budget) {
         List<Map<String, Object>> lots = jdbc.queryForList(
             "SELECT l.id, l.description, l.category, l.city, s.name AS shop_name "
             + "FROM lots l JOIN shops s ON s.id = l.shop_id "
@@ -65,13 +79,7 @@ public class NeedsMatchService {
         if (category == null) {
             return;
         }
-        List<Map<String, Object>> candidates = jdbc.queryForList(
-            "SELECT n.id AS needy_id, np.preferences, "
-            + "COALESCE(np.geo_push_enabled, TRUE) AS geo_push_enabled "
-            + "FROM needy n JOIN needy_profile np ON np.needy_id = n.id "
-            + "WHERE n.status IN ('active', 'pending', 'approved', 'rejected') "
-            + "AND np.preferences IS NOT NULL AND TRIM(np.preferences) <> '' "
-            + "AND np.city IS NOT NULL AND np.city = ?", lot.get("city"));
+        List<Map<String, Object>> candidates = this.candidates.recipients(lot.get("city"), category);
         List<Integer> matched = new ArrayList<>();
         List<Integer> pushTargets = new ArrayList<>();
         for (Map<String, Object> c : candidates) {
@@ -81,7 +89,7 @@ public class NeedsMatchService {
                 if (Boolean.TRUE.equals(c.get("geo_push_enabled"))) {
                     pushTargets.add(needyId);
                 }
-                if (matched.size() >= MAX_NOTIFIED_PER_LOT) {
+                if (matched.size() >= limits.getRecipientsNotified()) {
                     break;
                 }
             }
@@ -102,20 +110,20 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Integer needyId : matched) {
             try {
-                telegram.notifyNeedy(needyId, "□ " + safe);
+                notifyExternal("needy", needyId, "□ " + safe, budget);
             } catch (RuntimeException ignore) {
             }
         }
         for (Integer needyId : pushTargets) {
             try {
-                push.notifyRole("needy", needyId, text, "/");
+                push.notifyRole("needy", needyId, text, "/", budget.push);
             } catch (RuntimeException ignore) {
             }
         }
         log.info("[needs_match] lot " + lotId + " matched " + matched.size()
             + " recipients (" + pushTargets.size() + " web-push)");
     }
-    void notifyAvailableVolunteers(int lotId) {
+    private void notifyAvailableVolunteers(int lotId, LotBudget budget) {
         List<Map<String, Object>> lots = jdbc.queryForList(
             "SELECT l.id, l.description, l.category, l.city, "
             + "s.name AS shop_name, s.lat AS s_lat, s.lon AS s_lon "
@@ -125,10 +133,9 @@ public class NeedsMatchService {
             return;
         }
         Map<String, Object> lot = lots.get(0);
-        List<Map<String, Object>> candidates = jdbc.queryForList(
-            "SELECT id, lat, lon, availability FROM volunteers "
-            + "WHERE availability IS NOT NULL AND TRIM(availability) NOT IN ('', '[]') "
-            + "AND city IS NOT NULL AND city = ?", lot.get("city"));
+        Double sLat = toDouble(lot.get("s_lat"));
+        Double sLon = toDouble(lot.get("s_lon"));
+        List<Map<String, Object>> candidates = this.candidates.volunteers(lot.get("city"), sLat, sLon);
         List<Map<String, Object>> available = new ArrayList<>();
         for (Map<String, Object> v : candidates) {
             Object av = v.get("availability");
@@ -136,14 +143,12 @@ public class NeedsMatchService {
                 available.add(v);
             }
         }
-        Double sLat = toDouble(lot.get("s_lat"));
-        Double sLon = toDouble(lot.get("s_lon"));
         if (sLat != null && sLon != null) {
             available.sort((a, b) -> Double.compare(
                 distance(a, sLat, sLon), distance(b, sLat, sLon)));
         }
-        List<Map<String, Object>> targets = available.size() > MAX_VOLUNTEERS_PER_LOT
-            ? available.subList(0, MAX_VOLUNTEERS_PER_LOT) : available;
+        List<Map<String, Object>> targets = available.size() > limits.getVolunteersNotified()
+            ? available.subList(0, limits.getVolunteersNotified()) : available;
         if (targets.isEmpty()) {
             return;
         }
@@ -160,11 +165,27 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Map<String, Object> v : targets) {
             try {
-                telegram.notifyVolunteer(((Number) v.get("id")).intValue(), "□ " + safe);
+                notifyExternal("volunteer", ((Number) v.get("id")).intValue(), "□ " + safe, budget);
             } catch (RuntimeException ignore) {
             }
         }
         log.info("[needs_match] lot " + lotId + " pinged " + targets.size() + " available volunteers");
+    }
+    private void notifyExternal(String role, int id, String text, LotBudget budget) {
+        if (budget.telegramRemaining > 0) {
+            budget.telegramRemaining--;
+            telegramPool.tryExecute(() -> {
+                if (Thread.currentThread().isInterrupted()) return;
+                try {
+                    String chatId = telegram.getChatIdByRelated(role, id);
+                    if (chatId != null && !chatId.isEmpty()) telegram.sendMessage(chatId, text);
+                } catch (RuntimeException e) {
+                    log.warning("[needs_match] Telegram delivery failed: " + e.getMessage());
+                }
+            });
+        }
+        // Preserve TelegramService's accompanying push and its HTML/plain-text payload.
+        push.notifyRole(role, id, text, "/", budget.push);
     }
     private static double distance(Map<String, Object> v, double sLat, double sLon) {
         Double lat = toDouble(v.get("lat"));
