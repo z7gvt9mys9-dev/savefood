@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import ru.savefood.photo.DeliveryPhotoStorage;
+import ru.savefood.web.ApiException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,28 @@ public class RouteRevertService {
         } catch (Exception e) {
         }
         return false;
+    }
+    /** Caller must be transactional. Revert needs lot -> route -> ticket locks. */
+    public Map<String, Object> lockRouteForRevert(int routeId) {
+        List<Map<String, Object>> snapshot = jdbc.queryForList(
+            "SELECT lot_id FROM volunteer_routes WHERE id = ?", routeId);
+        if (snapshot.isEmpty()) {
+            return null;
+        }
+        Object lotId = snapshot.get(0).get("lot_id");
+        if (lotId != null) {
+            jdbc.queryForList("SELECT id FROM lots WHERE id = ? FOR UPDATE", lotId);
+        }
+        List<Map<String, Object>> routes = jdbc.queryForList(
+            "SELECT * FROM volunteer_routes WHERE id = ? FOR UPDATE", routeId);
+        if (routes.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> route = routes.get(0);
+        if (!java.util.Objects.equals(lotId, route.get("lot_id"))) {
+            throw new ApiException(409, "Маршрут уже изменился — обновите страницу");
+        }
+        return route;
     }
     public void revertRouteLot(Integer lotId, String pointsJson) {
         Timestamp now = Timestamp.from(Instant.now());
@@ -134,6 +157,6 @@ public class RouteRevertService {
             }
         } catch (Exception e) {
         }
-        return ids;
+        return ids.stream().distinct().sorted().toList();
     }
 }

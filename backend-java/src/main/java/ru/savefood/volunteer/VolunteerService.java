@@ -141,6 +141,10 @@ public class VolunteerService {
                 "Лот весит около %.0f кг — больше вашей грузоподъёмности (%.0f кг). "
                 + "Измените её в профиле или выберите лот полегче.", lotKg, capacity.doubleValue()));
         }
+        // Include self-pickup and unselected tickets: both are cancelled below.
+        // Lock in primary-key order before score/visit ordering or any ticket writes.
+        jdbc.queryForList("SELECT id FROM tickets WHERE lot_id = ? AND status = 'open' ORDER BY id FOR UPDATE",
+            lotId);
         List<Map<String, Object>> tickets = jdbc.queryForList(
             "SELECT t.* FROM tickets t WHERE t.status = 'open' AND t.lat IS NOT NULL AND t.lon IS NOT NULL "
             + "AND (t.self_pickup IS NULL OR t.self_pickup = FALSE) AND t.lot_id = ?", lotId);
@@ -563,6 +567,7 @@ public class VolunteerService {
     @Transactional
     public void finishRoute(Map<String, Object> route) {
         int volunteerId = ((Number) route.get("volunteer_id")).intValue();
+        routeRevert.lockRouteForRevert(((Number) route.get("id")).intValue());
         route = lockActiveRoute(route, volunteerId);
         Integer lotId = route.get("lot_id") == null ? null : ((Number) route.get("lot_id")).intValue();
         routeRevert.revertRouteLot(lotId, route.get("points") == null ? null : route.get("points").toString());

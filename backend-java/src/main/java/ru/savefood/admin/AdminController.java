@@ -313,12 +313,10 @@ public class AdminController {
     @PostMapping("/routes/{routeId}/reset")
     @Transactional
     public Map<String, Object> resetRoute(@PathVariable int routeId, @Admin CurrentUser user) {
-        List<Map<String, Object>> routes = jdbc.queryForList(
-            "SELECT * FROM volunteer_routes WHERE id = ? FOR UPDATE", routeId);
-        if (routes.isEmpty()) {
+        Map<String, Object> route = routeRevert.lockRouteForRevert(routeId);
+        if (route == null) {
             throw new ApiException(404, "Route not found");
         }
-        Map<String, Object> route = routes.get(0);
         if (!"in_progress".equals(route.get("status"))) {
             throw new ApiException(400, "Маршрут уже завершён или сброшен");
         }

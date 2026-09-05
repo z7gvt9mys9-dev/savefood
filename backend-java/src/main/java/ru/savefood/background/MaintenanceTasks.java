@@ -148,6 +148,7 @@ public class MaintenanceTasks {
                 Map<String, Object> timedOutRoute;
                 try {
                     timedOutRoute = tx.execute(s -> {
+                        revert.lockRouteForRevert(routeId);
                         List<Map<String, Object>> locked = jdbc.queryForList(
                             "SELECT * FROM volunteer_routes WHERE id = ? AND status = 'in_progress' AND ("
                             + "COALESCE(last_activity_at, started_at) <= CURRENT_TIMESTAMP "
@@ -215,6 +216,7 @@ public class MaintenanceTasks {
     private void antifraudOne(Map<String, Object> snapshot) {
         int routeId = ((Number) snapshot.get("id")).intValue();
         AntifraudAction action = tx.execute(s -> {
+            revert.lockRouteForRevert(routeId);
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT vr.*, v.lat AS v_lat, v.lon AS v_lon FROM volunteer_routes vr "
                     + "JOIN volunteers v ON v.id = vr.volunteer_id "

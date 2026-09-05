@@ -121,16 +121,21 @@ public class NeedyService {
     public Integer cancelTicket(int needyId, int ticketId) {
         lockWritableRecipient(needyId);
         List<Map<String, Object>> snapshotRows = jdbc.queryForList(
-            "SELECT assigned_volunteer_id FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
+            "SELECT lot_id, assigned_volunteer_id FROM tickets WHERE id = ? AND needy_id = ?", ticketId, needyId);
         if (snapshotRows.isEmpty()) {
             throw new ApiException(404, "Ticket not found");
         }
         Integer expectedVolId = asInt(snapshotRows.get(0).get("assigned_volunteer_id"));
+        Integer expectedLotId = asInt(snapshotRows.get(0).get("lot_id"));
+        // Canonical order: lot -> route -> ticket. Recheck this snapshot below.
+        if (expectedLotId != null) {
+            jdbc.queryForList("SELECT id FROM lots WHERE id = ? FOR UPDATE", expectedLotId);
+        }
         Map<String, Object> lockedRoute = null;
         if (expectedVolId != null) {
             List<Map<String, Object>> routes = jdbc.queryForList(
                 "SELECT id, points FROM volunteer_routes WHERE volunteer_id = ? "
-                    + "AND status = 'in_progress' FOR UPDATE", expectedVolId);
+                    + "AND status = 'in_progress' ORDER BY id FOR UPDATE", expectedVolId);
             if (!routes.isEmpty()) {
                 lockedRoute = routes.get(0);
             }
@@ -142,7 +147,8 @@ public class NeedyService {
         }
         Map<String, Object> ticket = rows.get(0);
         Integer actualVolId = asInt(ticket.get("assigned_volunteer_id"));
-        if (!java.util.Objects.equals(expectedVolId, actualVolId)) {
+        if (!java.util.Objects.equals(expectedVolId, actualVolId)
+                || !java.util.Objects.equals(expectedLotId, asInt(ticket.get("lot_id")))) {
             throw new ApiException(409, "Заявка уже изменилась — обновите страницу и повторите отмену");
         }
         String status = (String) ticket.get("status");
@@ -305,15 +311,32 @@ public class NeedyService {
         if ("deleted".equals(recipients.get(0).get("status"))) {
             return new EraseResult(List.of());
         }
-        List<String> photos = jdbc.query(
-            "SELECT delivery_photo FROM tickets WHERE needy_id = ? AND delivery_photo IS NOT NULL",
-            (rs, n) -> rs.getString("delivery_photo"), needyId);
+        // The recipient lock prevents new owned tickets. Lock lots before discovering
+        // routes: a startRoute waiting/committing ahead of us may create a new PII copy.
+        List<Map<String, Object>> snapshot = jdbc.queryForList(
+            "SELECT id, lot_id FROM tickets WHERE needy_id = ? ORDER BY id", needyId);
+        List<Integer> ticketIds = snapshot.stream().map(t -> asInt(t.get("id"))).toList();
+        List<Integer> lotIds = snapshot.stream().map(t -> asInt(t.get("lot_id")))
+            .filter(java.util.Objects::nonNull).distinct().sorted().toList();
+        for (Integer lotId : lotIds) {
+            jdbc.queryForList("SELECT id FROM lots WHERE id = ? FOR UPDATE", lotId);
+        }
+        List<Map<String, Object>> lockedRoutes = lockRouteCopies(ticketIds);
+        List<Map<String, Object>> lockedTickets = jdbc.queryForList(
+            "SELECT * FROM tickets WHERE needy_id = ? ORDER BY id FOR UPDATE", needyId);
+        if (!snapshot.equals(lockedTickets.stream().map(t -> {
+            Map<String, Object> identity = new LinkedHashMap<>();
+            identity.put("id", t.get("id"));
+            identity.put("lot_id", t.get("lot_id"));
+            return identity;
+        }).toList())) {
+            throw new ApiException(409, "Заявка уже изменила статус — обновите страницу");
+        }
+        List<String> photos = lockedTickets.stream().map(t -> (String) t.get("delivery_photo"))
+            .filter(java.util.Objects::nonNull).toList();
         if (deliveryPhotos != null) {
             photos.stream().distinct().forEach(deliveryPhotos::deleteAfterCommit);
         }
-        List<Integer> ticketIds = jdbc.query(
-            "SELECT id FROM tickets WHERE needy_id = ? ORDER BY id",
-            (rs, n) -> rs.getInt("id"), needyId);
         List<Map<String, Object>> live = jdbc.queryForList(
             "UPDATE tickets SET status = 'cancelled' "
                 + "WHERE needy_id = ? AND status IN ('open','assigned') "
@@ -346,7 +369,7 @@ public class NeedyService {
             .map(row -> asInt(row.get("id")))
             .filter(java.util.Objects::nonNull)
             .collect(java.util.stream.Collectors.toSet());
-        scrubRouteCopies(ticketIds, cancelledTicketIds);
+        scrubRouteCopies(lockedRoutes, ticketIds, cancelledTicketIds);
         jdbc.update(
             "DELETE FROM ticket_messages WHERE ticket_id IN (SELECT id FROM tickets WHERE needy_id = ?)",
             needyId);
@@ -372,17 +395,21 @@ public class NeedyService {
             throw new ApiException(403, "Account is not active");
         }
     }
-    /** Scrub denormalized copies for active and historical routes during erasure. */
-    private void scrubRouteCopies(List<Integer> ticketIds, java.util.Set<Integer> cancelledTicketIds) {
+    /** Lock active and historical copies before acquiring any ticket locks. */
+    private List<Map<String, Object>> lockRouteCopies(List<Integer> ticketIds) {
         if (ticketIds.isEmpty()) {
-            return;
+            return List.of();
         }
         String alternatives = ticketIds.stream().map(String::valueOf)
             .collect(java.util.stream.Collectors.joining("|"));
         String ticketPattern = "\\\"ticket_id\\\"\\s*:\\s*(" + alternatives + ")([^0-9]|$)";
-        List<Map<String, Object>> routes = jdbc.queryForList(
+        return jdbc.queryForList(
             "SELECT id, points FROM volunteer_routes WHERE points IS NOT NULL AND points ~ ? "
                 + "ORDER BY id FOR UPDATE", ticketPattern);
+    }
+    /** Scrub only copies already locked before ticket mutation. */
+    private void scrubRouteCopies(List<Map<String, Object>> routes, List<Integer> ticketIds,
+                                 java.util.Set<Integer> cancelledTicketIds) {
         for (Map<String, Object> route : routes) {
             List<Map<String, Object>> points;
             try {
