@@ -44,22 +44,26 @@ public class TelegramBotService {
     /** Entry point for one Telegram update. Never throws. */
     public void handleUpdate(JsonNode update) {
         try {
-            JsonNode message = update.path("message");
-            if (message.isMissingNode() || message.isNull()) {
-                return;
-            }
-            String chatId = message.path("chat").path("id").asText("");
-            String chatType = message.path("chat").path("type").asText("");
-            String senderId = message.path("from").path("id").asText("");
-            String text = message.path("text").asText("").strip();
-            if (chatId.isEmpty() || text.isEmpty()) {
-                return;
-            }
-            boolean authenticatedPrivateChat = "private".equals(chatType) && chatId.equals(senderId);
-            dispatch(chatId, text, authenticatedPrivateChat);
+            processUpdate(update);
         } catch (RuntimeException e) {
-            log.warning("[telegram] update handling failed: " + e.getMessage());
+            log.warning("[telegram] update handling failed: " + e.getClass().getSimpleName());
         }
+    }
+    /** Inbox entry point: propagate failure so its transaction rolls back and retries are bounded. */
+    public void processUpdate(JsonNode update) {
+        JsonNode message = update.path("message");
+        if (message.isMissingNode() || message.isNull()) {
+            return;
+        }
+        String chatId = message.path("chat").path("id").asText("");
+        String chatType = message.path("chat").path("type").asText("");
+        String senderId = message.path("from").path("id").asText("");
+        String text = message.path("text").asText("").strip();
+        if (chatId.isEmpty() || text.isEmpty()) {
+            return;
+        }
+        boolean authenticatedPrivateChat = "private".equals(chatType) && chatId.equals(senderId);
+        dispatch(chatId, text, authenticatedPrivateChat);
     }
     private void dispatch(String chatId, String text, boolean authenticatedPrivateChat) {
         if (text.startsWith("/start")) {

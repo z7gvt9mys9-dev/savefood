@@ -50,6 +50,7 @@ class TelegramLoginIT extends PostgresIT {
     private TelegramService telegram;
     private TelegramBotService bot;
     private TelegramWebhookController webhook;
+    private ru.savefood.telegram.TelegramUpdateWorker worker;
     @BeforeEach
     void wireTelegramLogin() {
         logins = new TelegramLoginService(jdbc);
@@ -62,7 +63,9 @@ class TelegramLoginIT extends PostgresIT {
         when(telegram.sendMessage(anyString(), anyString())).thenReturn(true);
         bot = new TelegramBotService(
             jdbc, telegram, logins, null, null, null, "", "https://savefood.test", "");
-        webhook = new TelegramWebhookController(bot, "webhook-secret");
+        var inbox = new ru.savefood.telegram.TelegramUpdateInbox(jdbc, txManager, 5, 30, 120);
+        webhook = new TelegramWebhookController(inbox, "webhook-secret");
+        worker = new ru.savefood.telegram.TelegramUpdateWorker(inbox, bot, 10);
     }
     @Test
     void privateTelegramConfirmationCompletesLogin() throws Exception {
@@ -70,7 +73,11 @@ class TelegramLoginIT extends PostgresIT {
         String initialToken = startToken();
         MockHttpServletRequest telegramRequest = request("149.154.167.220");
         telegramRequest.addHeader("X-Telegram-Bot-Api-Secret-Token", "webhook-secret");
-        webhook.webhook(privateLoginUpdate(initialToken), telegramRequest);
+        var update = (com.fasterxml.jackson.databind.node.ObjectNode) privateLoginUpdate(initialToken);
+        update.put("update_id", 1);
+        telegramRequest.setContent(mapper.writeValueAsBytes(update));
+        webhook.webhook(telegramRequest);
+        worker.drain();
         String completionToken = capturedCompletionToken(CHAT_ID);
         assertThat(completionToken).isNotEqualTo(initialToken);
         assertThat(jdbc.queryForObject(
@@ -296,7 +303,8 @@ class TelegramLoginIT extends PostgresIT {
         String initialToken = startToken();
         MockHttpServletRequest telegramRequest = request("149.154.167.220");
         telegramRequest.addHeader("X-Telegram-Bot-Api-Secret-Token", "wrong-secret");
-        webhook.webhook(privateLoginUpdate(initialToken), telegramRequest);
+        telegramRequest.setContent(mapper.writeValueAsBytes(privateLoginUpdate(initialToken)));
+        webhook.webhook(telegramRequest);
         verifyNoInteractions(telegram);
         assertThat(logins.status(initialToken)).isEqualTo("pending");
     }
