@@ -88,15 +88,48 @@ class SensitiveFileCleanupTest {
         fixture.cleanup.retryPending();
         assertThat(proof).doesNotExist();
     }
+    @Test
+    void failedReceiptDeletionQueuesItsExactPathAndRetryDoesNotTouchReplacement() throws Exception {
+        AtomicBoolean fail = new AtomicBoolean(true);
+        Fixture fixture = fixture(path -> {
+            if (fail.get()) {
+                throw new java.io.IOException("receipt delete failure");
+            }
+            Files.deleteIfExists(path);
+        });
+        Path oldReceipt = Files.write(fixture.receipts.resolve("old.png"), new byte[] {1});
+        Path replacement = Files.write(fixture.receipts.resolve("replacement.png"), new byte[] {2});
+        String ref = "/receipts/old.png";
+        fixture.cleanup.deleteUnlessPersisted(Storage.RECEIPT, ref).close();
+        assertThat(oldReceipt).exists();
+        verify(fixture.jdbc, atLeastOnce()).update(contains("INSERT INTO sensitive_file_cleanup"),
+            eq("receipt"), eq(ref), eq("receipt delete failure"));
+        fail.set(false);
+        when(fixture.jdbc.queryForList(contains("FROM sensitive_file_cleanup")))
+            .thenReturn(List.of(row(15L, "receipt", ref)));
+        fixture.cleanup.retryPending();
+        assertThat(oldReceipt).doesNotExist();
+        assertThat(replacement).exists();
+    }
+    @Test
+    void missingReceiptCleanupTargetIsSuccess() throws Exception {
+        Fixture fixture = fixture(Files::deleteIfExists);
+        String ref = "/receipts/missing.png";
+        when(fixture.jdbc.queryForList(contains("FROM sensitive_file_cleanup")))
+            .thenReturn(List.of(row(16L, "receipt", ref)));
+        fixture.cleanup.retryPending();
+        verify(fixture.jdbc).update(contains("completed_at = CURRENT_TIMESTAMP"), eq(16L));
+    }
     private Fixture fixture(SensitiveFileCleanup.FileDeleter deleter) throws Exception {
         Path needy = Files.createDirectory(tempDir.resolve("needy"));
         Path volunteer = Files.createDirectory(tempDir.resolve("volunteer"));
         Path delivery = Files.createDirectory(tempDir.resolve("delivery"));
         Path legacy = Files.createDirectory(tempDir.resolve("legacy"));
+        Path receipts = Files.createDirectory(tempDir.resolve("receipts"));
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
-        return new Fixture(jdbc, volunteer, delivery,
+        return new Fixture(jdbc, volunteer, delivery, receipts,
             new SensitiveFileCleanup(jdbc, needy.toString(), volunteer.toString(),
-                delivery.toString(), legacy.toString(), deleter));
+                delivery.toString(), legacy.toString(), receipts.toString(), deleter, null));
     }
     private static void stubQueuedId(JdbcTemplate jdbc, Storage storage, String ref, long id) {
         String storageValue = storage == Storage.VOLUNTEER_KYC ? "volunteer_kyc" : "delivery_photo";
@@ -105,7 +138,7 @@ class SensitiveFileCleanupTest {
     private static Map<String, Object> row(long id, String storage, String ref) {
         return Map.of("id", id, "storage_type", storage, "file_ref", ref);
     }
-    private record Fixture(JdbcTemplate jdbc, Path volunteerKyc, Path delivery,
+    private record Fixture(JdbcTemplate jdbc, Path volunteerKyc, Path delivery, Path receipts,
                            SensitiveFileCleanup cleanup) {
     }
 }

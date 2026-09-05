@@ -22,6 +22,7 @@ import ru.savefood.receipt.ReceiptService;
 import ru.savefood.security.Auth;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
+import ru.savefood.storage.SensitiveFileCleanup;
 import ru.savefood.shop.dto.LotCreate;
 import ru.savefood.shop.dto.LotUpdate;
 import ru.savefood.shop.dto.ReceiptConfirm;
@@ -42,6 +43,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -65,6 +67,7 @@ public class ShopController {
     private final NeedsMatchService needsMatch;
     private final ru.savefood.upload.UploadService uploads;
     private final LotPhotoReferenceService lotPhotoReferences;
+    private final SensitiveFileCleanup sensitiveFiles;
     private final RateLimiter rateLimiter;
     private final ObjectMapper mapper = new ObjectMapper();
     private final String uploadDir;
@@ -74,6 +77,7 @@ public class ShopController {
                           WebhookService webhooks, NeedsMatchService needsMatch,
                           ru.savefood.upload.UploadService uploads, RateLimiter rateLimiter,
                           LotPhotoReferenceService lotPhotoReferences,
+                          SensitiveFileCleanup sensitiveFiles,
                           @Value("${savefood.shop-upload-dir}") String uploadDir,
                           @Value("${savefood.receipt-upload-dir}") String receiptDir) {
         this.repo = repo;
@@ -87,8 +91,18 @@ public class ShopController {
         this.uploads = uploads;
         this.rateLimiter = rateLimiter;
         this.lotPhotoReferences = lotPhotoReferences;
+        this.sensitiveFiles = sensitiveFiles;
         this.uploadDir = uploadDir;
         this.receiptDir = receiptDir;
+    }
+    /** Compatibility constructor for focused tests that do not exercise receipt uploads. */
+    public ShopController(ShopRepository repo, ShopService service, BillingService billing,
+                          ReceiptService receiptService, ForecastService forecast, EsgService esg,
+                          WebhookService webhooks, NeedsMatchService needsMatch,
+                          ru.savefood.upload.UploadService uploads, RateLimiter rateLimiter,
+                          LotPhotoReferenceService lotPhotoReferences, String uploadDir, String receiptDir) {
+        this(repo, service, billing, receiptService, forecast, esg, webhooks, needsMatch, uploads,
+            rateLimiter, lotPhotoReferences, null, uploadDir, receiptDir);
     }
     @PostMapping("/shops/register")
     public Map<String, Object> registerShop(@RequestBody ShopCreate payload, HttpServletRequest request) {
@@ -308,6 +322,7 @@ public class ShopController {
         return Map.of("ok", true);
     }
     @PostMapping(value = "/shops/{shopId}/receipts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Transactional
     public Map<String, Object> uploadReceipt(@PathVariable int shopId,
                                              @RequestParam MultipartFile file,
                                              @Auth CurrentUser user, HttpServletRequest request) {
@@ -317,54 +332,53 @@ public class ShopController {
         billing.requireFeature(shopId, "ocr");
         String filename = uploads.validateAndSave(file, receiptDir);
         Path path = Paths.get(receiptDir, filename);
-        byte[] content;
-        try {
-            content = Files.readAllBytes(path);
-        } catch (IOException e) {
-            throw new ApiException(500, "Could not read uploaded receipt");
+        String fileRef = "/receipts/" + filename;
+        try (SensitiveFileCleanup.CleanupGuard ownership =
+                sensitiveFiles.deleteUnlessPersisted(SensitiveFileCleanup.Storage.RECEIPT, fileRef)) {
+            byte[] content;
+            try {
+                content = Files.readAllBytes(path);
+            } catch (IOException e) {
+                throw new ApiException(500, "Could not read uploaded receipt");
+            }
+            String sha = receiptService.sha256Hex(content);
+            if (repo.findReceiptBySha(sha) != null) {
+                throw duplicateReceipt();
+            }
+            Map<String, Object> parsed = receiptService.parseReceiptImage(content, file.getContentType());
+            if (parsed == null) {
+                throw new ApiException(503,
+                    "Распознавание временно недоступно, попробуйте позже или создайте лот вручную");
+            }
+            if (!Boolean.TRUE.equals(parsed.get("is_receipt"))) {
+                throw new ApiException(400, "На фото не распознан кассовый чек");
+            }
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> items = (List<Map<String, Object>>) parsed.get("items");
+            if (items == null || items.isEmpty()) {
+                throw new ApiException(400, "В чеке не найдено продуктовых позиций");
+            }
+            String fp = receiptService.fingerprint(parsed);
+            boolean fpDupe = fp != null && repo.fingerprintExists(fp);
+            Map<String, Object> fraud = receiptService.evaluateFraud(parsed, fpDupe);
+            String status = Boolean.TRUE.equals(fraud.get("rejected")) ? "rejected" : "parsed";
+            Integer receiptId = repo.createReceipt(shopId, fileRef, sha, fp, parsed, fraud, status);
+            if (receiptId == null) {
+                throw duplicateReceipt();
+            }
+            ownership.persisted();
+            try {
+                Map<String, Object> data = new LinkedHashMap<>();
+                data.put("receipt_id", receiptId);
+                data.put("status", status);
+                data.put("fraud_score", fraud.get("score"));
+                data.put("items_count", items.size());
+                data.put("total", parsed.get("total"));
+                webhooks.fire(shopId, "receipt.parsed", data);
+            } catch (RuntimeException ignored) {
+            }
+            return receiptToOut(repo.getReceiptById(receiptId));
         }
-        String sha = receiptService.sha256Hex(content);
-        if (repo.findReceiptBySha(sha) != null) {
-            deleteQuietly(path);
-            throw duplicateReceipt();
-        }
-        Map<String, Object> parsed = receiptService.parseReceiptImage(content, file.getContentType());
-        if (parsed == null) {
-            deleteQuietly(path);
-            throw new ApiException(503,
-                "Распознавание временно недоступно, попробуйте позже или создайте лот вручную");
-        }
-        if (!Boolean.TRUE.equals(parsed.get("is_receipt"))) {
-            deleteQuietly(path);
-            throw new ApiException(400, "На фото не распознан кассовый чек");
-        }
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> items = (List<Map<String, Object>>) parsed.get("items");
-        if (items == null || items.isEmpty()) {
-            deleteQuietly(path);
-            throw new ApiException(400, "В чеке не найдено продуктовых позиций");
-        }
-        String fp = receiptService.fingerprint(parsed);
-        boolean fpDupe = fp != null && repo.fingerprintExists(fp);
-        Map<String, Object> fraud = receiptService.evaluateFraud(parsed, fpDupe);
-        String status = Boolean.TRUE.equals(fraud.get("rejected")) ? "rejected" : "parsed";
-        Integer receiptId = repo.createReceipt(
-            shopId, "/receipts/" + filename, sha, fp, parsed, fraud, status);
-        if (receiptId == null) {
-            deleteQuietly(path);
-            throw duplicateReceipt();
-        }
-        try {
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("receipt_id", receiptId);
-            data.put("status", status);
-            data.put("fraud_score", fraud.get("score"));
-            data.put("items_count", items.size());
-            data.put("total", parsed.get("total"));
-            webhooks.fire(shopId, "receipt.parsed", data);
-        } catch (RuntimeException ignored) {
-        }
-        return receiptToOut(repo.getReceiptById(receiptId));
     }
     @PostMapping("/shops/{shopId}/receipts/{receiptId}/confirm")
     public Map<String, Object> confirmReceipt(@PathVariable int shopId, @PathVariable int receiptId,
@@ -620,12 +634,6 @@ public class ShopController {
     private static void requirePositiveFinite(Double value, String field) {
         if (value == null || !Double.isFinite(value) || value <= 0) {
             throw new ApiException(422, field + ": значение должно быть положительным и конечным");
-        }
-    }
-    private static void deleteQuietly(Path path) {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException ignored) {
         }
     }
 }

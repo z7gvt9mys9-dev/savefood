@@ -17,14 +17,15 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
-/** Durable, exact-reference deletion for private KYC and delivery-proof files. */
+/** Durable, exact-reference deletion for private KYC, delivery-proof, and receipt files. */
 @Service
 public class SensitiveFileCleanup {
     public enum Storage {
         NEEDY_KYC("needy_kyc", "/needy_uploads/"),
         VOLUNTEER_KYC("volunteer_kyc", "/volunteer_kyc/"),
         DELIVERY_PHOTO("delivery_photo", "/delivery_photos/"),
-        LEGACY_DELIVERY_PHOTO("legacy_delivery_photo", "/volunteer_uploads/");
+        LEGACY_DELIVERY_PHOTO("legacy_delivery_photo", "/volunteer_uploads/"),
+        RECEIPT("receipt", "/receipts/");
         private final String databaseValue;
         private final String referencePrefix;
         Storage(String databaseValue, String referencePrefix) {
@@ -55,34 +56,44 @@ public class SensitiveFileCleanup {
             @Value("${savefood.volunteer-kyc-upload-dir:../backend/volunteer/kyc_uploads}") String volunteerKycDir,
             @Value("${savefood.delivery-photo-upload-dir:../backend/volunteer/delivery_photos}") String deliveryPhotoDir,
             @Value("${savefood.volunteer-upload-dir:../backend/volunteer/uploads}") String legacyDeliveryPhotoDir,
+            @Value("${savefood.receipt-upload-dir:../backend/shop/receipt_uploads}") String receiptDir,
             PlatformTransactionManager transactionManager) {
-        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir, receiptDir,
             Files::deleteIfExists, requiresNew(transactionManager));
     }
     public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+            legacyDeliveryPhotoDir,
+            Files::deleteIfExists, null);
+    }
+    public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
+            String deliveryPhotoDir, String legacyDeliveryPhotoDir, String receiptDir) {
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir, receiptDir,
             Files::deleteIfExists, null);
     }
     public SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir,
             PlatformTransactionManager transactionManager) {
         this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+            legacyDeliveryPhotoDir,
             Files::deleteIfExists, requiresNew(transactionManager));
     }
     SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
             String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter) {
-        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir, deleter, null);
+        this(jdbc, needyDir, volunteerKycDir, deliveryPhotoDir, legacyDeliveryPhotoDir,
+            legacyDeliveryPhotoDir, deleter, null);
     }
     SensitiveFileCleanup(JdbcTemplate jdbc, String needyDir, String volunteerKycDir,
-            String deliveryPhotoDir, String legacyDeliveryPhotoDir, FileDeleter deleter,
+            String deliveryPhotoDir, String legacyDeliveryPhotoDir, String receiptDir, FileDeleter deleter,
             TransactionTemplate cleanupTransaction) {
         this.jdbc = jdbc;
         this.roots = Map.of(
             Storage.NEEDY_KYC, root(needyDir),
             Storage.VOLUNTEER_KYC, root(volunteerKycDir),
             Storage.DELIVERY_PHOTO, root(deliveryPhotoDir),
-            Storage.LEGACY_DELIVERY_PHOTO, root(legacyDeliveryPhotoDir));
+            Storage.LEGACY_DELIVERY_PHOTO, root(legacyDeliveryPhotoDir),
+            Storage.RECEIPT, root(receiptDir));
         this.deleter = deleter;
         this.cleanupTransaction = cleanupTransaction;
     }
@@ -104,6 +115,49 @@ public class SensitiveFileCleanup {
             }
         });
         return true;
+    }
+    /** Own a new file until its database reference has committed. */
+    public CleanupGuard deleteUnlessPersisted(Storage storage, String fileRef) {
+        requireSafePath(storage, fileRef);
+        boolean transactional = TransactionSynchronizationManager.isActualTransactionActive();
+        CleanupGuard guard = new CleanupGuard(storage, fileRef, transactional);
+        if (transactional) {
+            if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+                throw new IllegalStateException("Transaction synchronization is not active");
+            }
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status != TransactionSynchronization.STATUS_COMMITTED || !guard.persisted) {
+                        deleteOrQueueNow(storage, fileRef);
+                    }
+                }
+            });
+        }
+        return guard;
+    }
+    public final class CleanupGuard implements AutoCloseable {
+        private final Storage storage;
+        private final String fileRef;
+        private final boolean transactional;
+        private volatile boolean persisted;
+        private boolean closed;
+        private CleanupGuard(Storage storage, String fileRef, boolean transactional) {
+            this.storage = storage;
+            this.fileRef = fileRef;
+            this.transactional = transactional;
+        }
+        /** Marks the file as receipt-owned, subject to transaction commit. */
+        public void persisted() {
+            persisted = true;
+        }
+        @Override
+        public void close() {
+            if (!closed && !transactional && !persisted) {
+                closed = true;
+                deleteOrQueue(storage, fileRef);
+            }
+        }
     }
     public void trackAndDeleteAfterCommit(Storage storage, String fileRef) {
         requireSafePath(storage, fileRef);

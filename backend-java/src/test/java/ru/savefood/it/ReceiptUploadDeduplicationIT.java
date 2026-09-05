@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -25,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 import javax.imageio.ImageIO;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
@@ -32,8 +34,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.interceptor.TransactionProxyFactoryBean;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import ru.savefood.billing.BillingService;
 import ru.savefood.esg.EsgService;
 import ru.savefood.forecast.ForecastService;
@@ -43,6 +50,7 @@ import ru.savefood.security.CurrentUser;
 import ru.savefood.shop.ShopController;
 import ru.savefood.shop.ShopRepository;
 import ru.savefood.shop.ShopService;
+import ru.savefood.storage.SensitiveFileCleanup;
 import ru.savefood.upload.UploadService;
 import ru.savefood.web.ApiException;
 import ru.savefood.web.RateLimiter;
@@ -57,6 +65,7 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
     private BillingService billing;
     private ReceiptService receiptService;
     private WebhookService webhooks;
+    private SensitiveFileCleanup cleanup;
     private ShopController controller;
     @BeforeEach
     void wire() {
@@ -67,6 +76,8 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
         billing = new BillingService(jdbc);
         receiptService = spy(new ReceiptService("", "gemini-test", 48));
         webhooks = mock(WebhookService.class);
+        cleanup = new SensitiveFileCleanup(jdbc, receiptDir.toString(), receiptDir.toString(),
+            receiptDir.toString(), receiptDir.toString(), receiptDir.toString());
         doReturn(parsedReceipt()).when(receiptService).parseReceiptImage(any(byte[].class), any());
         controller = controller(receiptService);
     }
@@ -125,6 +136,47 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
         assertThat(billing.lotsCreatedThisMonth(shopId)).isZero();
     }
     @Test
+    void readFailureAfterSaveRemovesTheUncommittedReceiptFile() throws Exception {
+        UploadService deletingAfterSave = spy(new UploadService());
+        doAnswer(invocation -> {
+            String filename = (String) invocation.callRealMethod();
+            Files.delete(receiptDir.resolve(filename));
+            return filename;
+        }).when(deletingAfterSave).validateAndSave(any(), anyString());
+        controller = controller(receiptService, receipts, deletingAfterSave);
+        assertThatThrownBy(() -> upload(png(Color.MAGENTA), "10.0.0.7"))
+            .isInstanceOfSatisfying(ApiException.class,
+                error -> assertThat(error.getStatus()).isEqualTo(500));
+        assertThat(receiptCount()).isZero();
+        assertThat(fileCount()).isZero();
+    }
+    @Test
+    void databaseFailureAfterSaveRemovesTheUncommittedReceiptFile() throws Exception {
+        ShopRepository failing = spy(receipts);
+        doThrow(new DataAccessResourceFailureException("injected receipt insert failure"))
+            .when(failing).createReceipt(anyInt(), anyString(), anyString(), any(), any(), any(), anyString());
+        controller = controller(receiptService, failing, new UploadService());
+        assertThatThrownBy(() -> upload(png(Color.ORANGE), "10.0.0.8"))
+            .isInstanceOf(DataAccessResourceFailureException.class);
+        assertThat(receiptCount()).isZero();
+        assertThat(fileCount()).isZero();
+    }
+    @Test
+    void proxiedCommitFailureRemovesFileAndDoesNotCreateReceipt() throws Exception {
+        controller = transactional(controller(receiptService), new CommitFailingTransactionManager(dataSource));
+        assertThatThrownBy(() -> upload(png(Color.CYAN), "10.0.0.9"))
+            .isInstanceOf(TransactionSystemException.class);
+        assertThat(receiptCount()).isZero();
+        assertThat(fileCount()).isZero();
+    }
+    @Test
+    void proxiedSuccessfulCommitKeepsThePersistedReceiptFile() throws Exception {
+        controller = transactional(controller(receiptService), txManager);
+        upload(png(Color.YELLOW), "10.0.0.10");
+        assertThat(receiptCount()).isEqualTo(1);
+        assertThat(fileCount()).isEqualTo(1);
+    }
+    @Test
     void differentHashesCanUploadConcurrently() throws Exception {
         CountDownLatch bothInOcr = new CountDownLatch(2);
         CountDownLatch releaseOcr = new CountDownLatch(1);
@@ -166,11 +218,27 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
             .isInstanceOf(DataIntegrityViolationException.class);
     }
     private ShopController controller(ReceiptService ocr) {
-        return new ShopController(receipts, mock(ShopService.class), billing, ocr,
+        return controller(ocr, receipts, new UploadService());
+    }
+    private ShopController controller(ReceiptService ocr, ShopRepository repository, UploadService uploads) {
+        return new ShopController(repository, mock(ShopService.class), billing, ocr,
             mock(ForecastService.class), mock(EsgService.class), webhooks,
-            mock(NeedsMatchService.class), new UploadService(), new RateLimiter(),
+            mock(NeedsMatchService.class), uploads, new RateLimiter(),
             mock(ru.savefood.shop.LotPhotoReferenceService.class),
+            cleanup,
             receiptDir.toString(), receiptDir.toString());
+    }
+    private static ShopController transactional(ShopController target,
+                                                org.springframework.transaction.PlatformTransactionManager manager) {
+        TransactionProxyFactoryBean proxy = new TransactionProxyFactoryBean();
+        proxy.setTarget(target);
+        proxy.setTransactionManager(manager);
+        proxy.setProxyTargetClass(true);
+        Properties attributes = new Properties();
+        attributes.setProperty("uploadReceipt", "PROPAGATION_REQUIRED");
+        proxy.setTransactionAttributes(attributes);
+        proxy.afterPropertiesSet();
+        return (ShopController) proxy.getObject();
     }
     private Map<String, Object> upload(byte[] content, String clientIp) {
         MockMultipartFile file = new MockMultipartFile(
@@ -232,6 +300,15 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
         return bytes.toByteArray();
     }
     private record UploadOutcome(boolean success, int status) {
+    }
+    private static final class CommitFailingTransactionManager extends DataSourceTransactionManager {
+        private CommitFailingTransactionManager(javax.sql.DataSource dataSource) {
+            super(dataSource);
+        }
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {
+            throw new TransactionSystemException("injected receipt commit failure");
+        }
     }
     @FunctionalInterface
     private interface ThrowingUpload {
