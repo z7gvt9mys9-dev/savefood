@@ -34,6 +34,7 @@ spring:
 savefood:
   jwt-secret: ${SECRET_KEY:}
   local-tz: ${LOCAL_TZ:Europe/Moscow}
+  rate-limiter-max-keys: ${RATE_LIMITER_MAX_KEYS:50000}
   volunteer-upload-dir: ${VOLUNTEER_UPLOAD_DIR:../backend/volunteer/uploads}
   delivery-photo-upload-dir: ${DELIVERY_PHOTO_UPLOAD_DIR:../backend/volunteer/delivery_photos}
   volunteer-kyc-upload-dir: ${VOLUNTEER_KYC_UPLOAD_DIR:../backend/volunteer/kyc_uploads}
