@@ -1,7 +1,8 @@
 server:
   port: ${SERVER_PORT:8000}
   tomcat:
-    max-swallow-size: -1
+    # Do not drain an unbounded rejected request body before closing the connection.
+    max-swallow-size: 1MB
 
 sentry:
   dsn: ${SENTRY_DSN:}
