@@ -306,6 +306,7 @@ class ReceiptUploadDeduplicationIT extends PostgresIT {
     private static final class CommitFailingTransactionManager extends DataSourceTransactionManager {
         private CommitFailingTransactionManager(javax.sql.DataSource dataSource) {
             super(dataSource);
+            setRollbackOnCommitFailure(true);
         }
         @Override
         protected void doCommit(DefaultTransactionStatus status) {
