@@ -1,5 +1,7 @@
 const CACHE_NAME = 'savefood-cache-v4';
-const KEEP_CACHES = [CACHE_NAME];
+const PUSH_STATE_CACHE = 'savefood-push-state-v1';
+const PUSH_STATE_URL = '/__savefood_push_state__';
+const KEEP_CACHES = [CACHE_NAME, PUSH_STATE_CACHE];
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil(
@@ -19,21 +21,51 @@ self.addEventListener('activate', event => {
 });
 const clearSavefoodCaches = () => caches.keys()
   .then(keys => Promise.all(keys
-    .filter(key => key.startsWith('savefood-'))
+    .filter(key => key.startsWith('savefood-') && key !== PUSH_STATE_CACHE)
     .map(key => caches.delete(key))));
+let pushStateQueue = Promise.resolve();
+self.setPushEnabled = (enabled, revision = Date.now() * 1000) => {
+  const candidate = { enabled: !!enabled, revision };
+  pushStateQueue = pushStateQueue.catch(() => {}).then(async () => {
+    const cache = await caches.open(PUSH_STATE_CACHE);
+    const response = await cache.match(PUSH_STATE_URL);
+    const current = response ? await response.json() : { enabled: false, revision: 0 };
+    if (candidate.revision < current.revision
+        || (candidate.revision === current.revision && !current.enabled && candidate.enabled)) {
+      return;
+    }
+    await cache.put(PUSH_STATE_URL, new Response(JSON.stringify(candidate), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  });
+  return pushStateQueue;
+};
+self.isPushEnabled = () => pushStateQueue.catch(() => {})
+  .then(() => caches.open(PUSH_STATE_CACHE))
+  .then(cache => cache.match(PUSH_STATE_URL))
+  .then(response => response ? response.json() : { enabled: false })
+  .then(state => state.enabled === true)
+  .catch(() => false);
 self.addEventListener('message', event => {
   if (event.data?.type === 'CLEAR_SESSION_CACHE') {
-    event.waitUntil(clearSavefoodCaches());
+    const disablePush = self.setPushEnabled(false);
+    event.waitUntil(Promise.all([disablePush, clearSavefoodCaches()]));
+  }
+  if (event.data?.type === 'SET_PUSH_ENABLED') {
+    const revision = Number.isSafeInteger(event.data.revision) ? event.data.revision : 0;
+    event.waitUntil(self.setPushEnabled(event.data.enabled === true, revision));
   }
 });
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) {}
   event.waitUntil(
-    self.registration.showNotification(data.title || 'SaveFood', {
-      body: data.body || '',
-      data: { url: data.url || '/' },
-    })
+    self.isPushEnabled().then(enabled => enabled
+      ? self.registration.showNotification(data.title || 'SaveFood', {
+        body: data.body || '',
+        data: { url: data.url || '/' },
+      })
+      : undefined)
   );
 });
 self.addEventListener('notificationclick', event => {

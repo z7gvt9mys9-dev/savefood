@@ -96,6 +96,7 @@ services:
       DB_PASS: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
       DB_PORT: 5432
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      WS_MAX_MESSAGE_BYTES: ${WS_MAX_MESSAGE_BYTES:-4096}
 
   frontend:
     build:

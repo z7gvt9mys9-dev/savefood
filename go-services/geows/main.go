@@ -1,9 +1,14 @@
 package main
+
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"log"
 	"math"
 	"net/http"
@@ -15,32 +20,33 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/gorilla/websocket"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
+
 var (
-	pool      *pgxpool.Pool
-	secretKey []byte
+	pool       *pgxpool.Pool
+	secretKey  []byte
 	reLocation = regexp.MustCompile(`^/volunteers/(\d+)/location$`)
 	reWS       = regexp.MustCompile(`^/ws/needy/(\d+)$`)
-	upgrader = websocket.Upgrader{
+	upgrader   = websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin:     func(r *http.Request) bool { return true },
 	}
 )
+
 const (
-	maxWSPerUser = 3
-	authTimeout  = 5 * time.Second
-	pollInterval = 2 * time.Second
+	maxWSPerUser             = 3
+	authTimeout              = 5 * time.Second
+	pollInterval             = 2 * time.Second
+	defaultMaxWSMessageBytes = 4 * 1024
 )
+
 type claims struct {
 	UserID    int
 	Role      string
 	RelatedID *int
 }
+
 func parseToken(token string) (*claims, error) {
 	parsed, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 		if t.Method.Alg() != "HS256" {
@@ -112,6 +118,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func httpError(w http.ResponseWriter, status int, detail string) {
 	writeJSON(w, status, map[string]string{"detail": detail})
 }
+
 type locationUpdate struct {
 	Lat *float64 `json:"lat"`
 	Lon *float64 `json:"lon"`
@@ -127,6 +134,7 @@ type locationRouteStore interface {
 type pgLocationRouteStore struct {
 	pool *pgxpool.Pool
 }
+
 func (s pgLocationRouteStore) BeginRouteActivityTx(ctx context.Context) (locationRouteTx, error) {
 	return s.pool.Begin(ctx)
 }
@@ -221,6 +229,7 @@ func locationHandler(w http.ResponseWriter, r *http.Request, volunteerID int) {
 		httpError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
+
 type wsMessage struct {
 	ID      int64  `json:"id"`
 	Type    string `json:"type"`
@@ -239,6 +248,7 @@ type notificationSource interface {
 type postgresNotificationSource struct {
 	pool *pgxpool.Pool
 }
+
 func (s postgresNotificationSource) latestID(ctx context.Context) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx,
@@ -305,7 +315,9 @@ func (s postgresNotificationSource) activeUserIDs(ctx context.Context, userIDs [
 	}
 	return active, rows.Err()
 }
+
 var errClientRevoked = errors.New("websocket account revoked")
+
 type client struct {
 	conn       *websocket.Conn
 	userID     int
@@ -318,6 +330,7 @@ type client struct {
 	writeJSON  func(any) error
 	closeConn  func()
 }
+
 func newClient(conn *websocket.Conn, userID, needyID int, cursor int64) *client {
 	cl := &client{
 		conn: conn, userID: userID, needyID: needyID, cursor: cursor, catchingUp: true,
@@ -428,12 +441,14 @@ func (cl *client) lastDeliveredID() int64 {
 	defer cl.mu.Unlock()
 	return cl.cursor
 }
+
 type hub struct {
 	mu      sync.Mutex
 	clients map[int]map[*client]struct{}
 	lastID  int64
 	source  notificationSource
 }
+
 func newHub(ctx context.Context) *hub {
 	return newHubWithSource(ctx, postgresNotificationSource{pool: pool})
 }
@@ -531,17 +546,26 @@ func (h *hub) run(ctx context.Context) {
 		}
 	}
 }
+
 type authFrame struct {
 	Type    string `json:"type"`
 	Token   string `json:"token"`
 	SinceID *int64 `json:"since_id"`
 }
-func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
+type wsAccountLookup func(context.Context, *claims) (*claims, bool, bool)
+
+func wsHandler(h *hub, maxMessageBytes int64) func(http.ResponseWriter, *http.Request, int) {
+	return wsHandlerWithAccountLookup(h, maxMessageBytes, currentAccount)
+}
+
+func wsHandlerWithAccountLookup(h *hub, maxMessageBytes int64,
+	lookup wsAccountLookup) func(http.ResponseWriter, *http.Request, int) {
 	return func(w http.ResponseWriter, r *http.Request, needyID int) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
+		conn.SetReadLimit(maxMessageBytes)
 		closeWith := func(code int) {
 			_ = conn.WriteControl(websocket.CloseMessage,
 				websocket.FormatCloseMessage(code, ""), time.Now().Add(time.Second))
@@ -559,7 +583,7 @@ func wsHandler(h *hub) func(http.ResponseWriter, *http.Request, int) {
 			return
 		}
 		ctx := r.Context()
-		current, exists, blocked := currentAccount(ctx, c)
+		current, exists, blocked := lookup(ctx, c)
 		if !exists || blocked {
 			closeWith(websocket.ClosePolicyViolation)
 			return
@@ -632,7 +656,11 @@ func main() {
 	}
 	h := newHub(ctx)
 	go h.run(ctx)
-	ws := wsHandler(h)
+	maxMessageBytes, err := positiveEnvInt64("WS_MAX_MESSAGE_BYTES", defaultMaxWSMessageBytes)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ws := wsHandler(h, maxMessageBytes)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
@@ -660,4 +688,16 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func positiveEnvInt64(key string, def int64) (int64, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return def, nil
+	}
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return parsed, nil
 }

@@ -1,5 +1,8 @@
 export const API_URL = import.meta.env.VITE_API_URL || '';
 export const SESSION_STORAGE_KEY = 'savefood_auth_session';
+export const PUSH_ENDPOINT_STORAGE_KEY = 'savefood_web_push_endpoint';
+export const PUSH_OWNER_STORAGE_KEY = 'savefood_web_push_owner';
+const PUSH_STATE_REVISION_STORAGE_KEY = 'savefood_web_push_state_revision';
 const sessionListeners = new Set();
 let refreshPromise = null;
 const readStoredSession = () => {
@@ -49,6 +52,72 @@ export const subscribeSession = (listener) => {
   return () => sessionListeners.delete(listener);
 };
 export const getAccessToken = () => readStoredSession()?.accessToken ?? null;
+const tokenSubject = (token) => {
+  try {
+    const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '=');
+    const subject = JSON.parse(window.atob(padded)).sub;
+    return subject == null ? null : String(subject);
+  } catch {
+    return null;
+  }
+};
+export const samePushAccount = (firstAccessToken, secondAccessToken) => {
+  const first = tokenSubject(firstAccessToken);
+  return first != null && first === tokenSubject(secondAccessToken);
+};
+export const rememberBrowserPushOwnership = (endpoint, accessToken) => {
+  const owner = tokenSubject(accessToken);
+  if (!endpoint || !owner || typeof window === 'undefined') return false;
+  window.localStorage.setItem(PUSH_ENDPOINT_STORAGE_KEY, endpoint);
+  window.localStorage.setItem(PUSH_OWNER_STORAGE_KEY, owner);
+  return true;
+};
+export const browserPushBelongsTo = (endpoint, accessToken) => {
+  const owner = tokenSubject(accessToken);
+  return typeof window !== 'undefined'
+    && owner != null
+    && !!endpoint
+    && window.localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY) === endpoint
+    && window.localStorage.getItem(PUSH_OWNER_STORAGE_KEY) === owner;
+};
+export const browserPushOwnedBy = (accessToken) => {
+  const owner = tokenSubject(accessToken);
+  return typeof window !== 'undefined'
+    && owner != null
+    && !!window.localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY)
+    && window.localStorage.getItem(PUSH_OWNER_STORAGE_KEY) === owner;
+};
+export const forgetBrowserPushOwnership = () => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(PUSH_ENDPOINT_STORAGE_KEY);
+  window.localStorage.removeItem(PUSH_OWNER_STORAGE_KEY);
+};
+const nextPushStateRevision = () => {
+  const now = Date.now() * 1000;
+  if (typeof window === 'undefined') return now;
+  const previous = Number(window.localStorage.getItem(PUSH_STATE_REVISION_STORAGE_KEY)) || 0;
+  const revision = Math.max(now, previous + 1);
+  window.localStorage.setItem(PUSH_STATE_REVISION_STORAGE_KEY, String(revision));
+  return revision;
+};
+export const setBrowserPushDisplayEnabled = async (enabled) => {
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  const message = {
+    type: 'SET_PUSH_ENABLED',
+    enabled,
+    revision: nextPushStateRevision(),
+  };
+  try {
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage(message);
+      return;
+    }
+    const registration = await navigator.serviceWorker.getRegistration();
+    registration?.active?.postMessage(message);
+  } catch {
+  }
+};
 const tokenExpiresSoon = (token, leewayMs = 60_000) => {
   try {
     const encoded = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -158,16 +227,60 @@ export const authFetch = async (input, init = {}) => {
   return requestWithAccessToken(input, init, accessToken);
 };
 export const revokeAndClearSession = async () => {
-  const refreshToken = readStoredSession()?.refreshToken;
-  clearSession();
-  if (!refreshToken) return;
-  try {
-    await fetch(`${API_URL}/auth/logout`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-      keepalive: true,
-    });
-  } catch {
+  const session = readStoredSession();
+  const rememberedEndpoint = typeof window === 'undefined'
+    ? null : window.localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY);
+  const rememberedOwner = typeof window === 'undefined'
+    ? null : window.localStorage.getItem(PUSH_OWNER_STORAGE_KEY);
+  let logoutPromise = Promise.resolve();
+  if (session?.refreshToken) {
+    const body = { refresh_token: session.refreshToken };
+    if (rememberedEndpoint) body.push_endpoint = rememberedEndpoint;
+    try {
+      logoutPromise = fetch(`${API_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+    } catch {
+    }
   }
+  const pushCleanupPromise = (async () => {
+    await setBrowserPushDisplayEnabled(false);
+    let subscription = null;
+    try {
+      const registration = typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+        ? await navigator.serviceWorker.getRegistration() : null;
+      subscription = registration ? await registration.pushManager.getSubscription() : null;
+    } catch {
+    }
+    if (rememberedEndpoint && session?.accessToken) {
+      try {
+        await fetch(`${API_URL}/push/unsubscribe`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.accessToken}`,
+          },
+          body: JSON.stringify({ endpoint: rememberedEndpoint }),
+          keepalive: true,
+        });
+      } catch {
+      }
+    }
+    const stillOwnsSnapshot = typeof window !== 'undefined'
+      && window.localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY) === rememberedEndpoint
+      && window.localStorage.getItem(PUSH_OWNER_STORAGE_KEY) === rememberedOwner;
+    if (subscription && rememberedEndpoint && stillOwnsSnapshot
+        && subscription.endpoint === rememberedEndpoint) {
+      try {
+        await subscription.unsubscribe();
+      } catch {
+      }
+    }
+    if (stillOwnsSnapshot) forgetBrowserPushOwnership();
+  })();
+  clearSession();
+  await Promise.allSettled([logoutPromise, pushCleanupPromise]);
 };

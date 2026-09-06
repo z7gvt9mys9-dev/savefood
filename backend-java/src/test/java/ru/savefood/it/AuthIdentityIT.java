@@ -31,7 +31,7 @@ class AuthIdentityIT extends PostgresIT {
     @BeforeEach
     void wireAuthentication() {
         JwtService jwt = new JwtService(JWT_SECRET);
-        RefreshTokenService refreshTokens = new RefreshTokenService(jdbc);
+        RefreshTokenService refreshTokens = new RefreshTokenService(jdbc, txManager);
         RateLimiter rateLimiter = new RateLimiter();
         AuthController auth = new AuthController(jdbc, passwords, jwt, refreshTokens, rateLimiter);
         OAuthController oauth = new OAuthController(

@@ -249,6 +249,9 @@ SECRET_KEY=<тот же, что у backend> DB_HOST=localhost DB_USER=postgres \
 DB_PASS=postgres DB_NAME=savefood PORT=8001 go run .
 ```
 
+Inbound WebSocket messages are capped at 4096 bytes by default; set
+`WS_MAX_MESSAGE_BYTES` to override the limit when running `geows`.
+
 Чтобы dev-прокси Vite направлял горячие пути в Go, добавьте в `savefood/.env`:
 `VITE_GO_URL=http://127.0.0.1:8001` (пусто → эти пути обслуживает Java-бэкенд).
 

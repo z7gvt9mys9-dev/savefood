@@ -7,19 +7,25 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
+import java.util.logging.Logger;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 /** Issues and atomically rotates opaque, server-side refresh credentials. */
 @Service
 public class RefreshTokenService {
+    private static final Logger log = Logger.getLogger(RefreshTokenService.class.getName());
     public static final long REFRESH_TOKEN_LIFETIME_SECONDS = 30L * 24 * 60 * 60;
     private static final int TOKEN_BYTES = 32;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_-]{43}");
     private static final long RETENTION_DAYS = 7;
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate tx;
     private final SecureRandom random = new SecureRandom();
-    public RefreshTokenService(JdbcTemplate jdbc) {
+    public RefreshTokenService(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
         this.jdbc = jdbc;
+        this.tx = new TransactionTemplate(transactionManager);
     }
     /** Creates a new independently revocable session for a successfully authenticated user. */
     public String issue(int userId) {
@@ -36,6 +42,14 @@ public class RefreshTokenService {
             return null;
         }
         cleanupExpiredHistory();
+        return tx.execute(status -> rotateLocked(token));
+    }
+    private Rotation rotateLocked(String token) {
+        SessionIdentity session = sessionForToken(token);
+        if (session == null || !lockUser(session.userId())) {
+            return null;
+        }
+        lockSession(session.sessionId());
         String replacement = randomToken();
         List<Rotation> rotations = jdbc.query(
             """
@@ -48,7 +62,7 @@ public class RefreshTokenService {
                   AND rs.revoked_at IS NULL
                   AND rs.expires_at > NOW()
                   AND NOT u.is_blocked
-                FOR UPDATE OF rs, u
+                FOR UPDATE OF rs
             ), consumed AS (
                 UPDATE refresh_sessions rs
                 SET consumed_at = NOW()
@@ -101,20 +115,54 @@ public class RefreshTokenService {
     }
     /** Revokes every current or historical credential belonging to this session. */
     public void revokeSession(String token) {
+        revokeSession(token, null);
+    }
+    /** Also removes this browser endpoint, but only when it belongs to the session's user. */
+    public void revokeSession(String token, String pushEndpoint) {
         if (!validToken(token)) {
             return;
         }
-        jdbc.update(
-            """
-            UPDATE refresh_sessions target
-            SET revoked_at = COALESCE(target.revoked_at, NOW())
-            WHERE target.session_id = (
-                SELECT presented.session_id
-                FROM refresh_sessions presented
-                WHERE presented.token_hash = ?
-            )
-            """,
+        SessionIdentity revokedSession = tx.execute(status -> {
+            SessionIdentity session = sessionForToken(token);
+            if (session == null || !lockUser(session.userId())) {
+                return null;
+            }
+            lockSession(session.sessionId());
+            jdbc.update(
+                """
+                UPDATE refresh_sessions
+                SET revoked_at = COALESCE(revoked_at, NOW())
+                WHERE session_id = ?
+                """,
+                session.sessionId());
+            return session;
+        });
+        if (revokedSession != null && pushEndpoint != null && !pushEndpoint.isBlank()) {
+            try {
+                jdbc.update(
+                    "DELETE FROM push_subscriptions WHERE user_id = ? AND endpoint = ?",
+                    revokedSession.userId(), pushEndpoint);
+            } catch (RuntimeException e) {
+                log.warning("[logout] refresh session revoked, but browser push cleanup failed");
+            }
+        }
+    }
+    private SessionIdentity sessionForToken(String token) {
+        List<SessionIdentity> sessions = jdbc.query(
+            "SELECT session_id, user_id FROM refresh_sessions WHERE token_hash = ?",
+            (rs, rowNum) -> new SessionIdentity(
+                rs.getObject("session_id", UUID.class), rs.getInt("user_id")),
             hash(token));
+        return sessions.isEmpty() ? null : sessions.get(0);
+    }
+    private boolean lockUser(int userId) {
+        return !jdbc.queryForList(
+            "SELECT id FROM users WHERE id = ? FOR UPDATE", Integer.class, userId).isEmpty();
+    }
+    private void lockSession(UUID sessionId) {
+        jdbc.query(
+            "SELECT pg_advisory_xact_lock(hashtextextended(CAST(? AS text), 0))",
+            rs -> { }, sessionId);
     }
     private void cleanupExpiredHistory() {
         jdbc.update(
@@ -149,5 +197,7 @@ public class RefreshTokenService {
         String role,
         Integer relatedId
     ) {
+    }
+    private record SessionIdentity(UUID sessionId, int userId) {
     }
 }

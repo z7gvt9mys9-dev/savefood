@@ -56,7 +56,7 @@ class TelegramLoginIT extends PostgresIT {
         logins = new TelegramLoginService(jdbc);
         jwt = new JwtService(JWT_SECRET);
         oauth = new OAuthController(
-            jdbc, jwt, new RefreshTokenService(jdbc), new RateLimiter(), logins,
+            jdbc, jwt, new RefreshTokenService(jdbc, txManager), new RateLimiter(), logins,
             "", "", "", "", "configured-token", "savefood_test_bot",
             "https://savefood.test");
         telegram = mock(TelegramService.class);

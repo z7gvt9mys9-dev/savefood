@@ -10,6 +10,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -36,7 +37,7 @@ class AuthRefreshIT extends PostgresIT {
     @BeforeEach
     void wireAuthentication() {
         jwt = new JwtService(JWT_SECRET);
-        refreshTokens = new RefreshTokenService(jdbc);
+        refreshTokens = new RefreshTokenService(jdbc, txManager);
         AuthController controller = new AuthController(
             jdbc, passwords, jwt, refreshTokens, new RateLimiter());
         mvc = MockMvcBuilders.standaloneSetup(controller)
@@ -147,6 +148,94 @@ class AuthRefreshIT extends PostgresIT {
             "SELECT COUNT(*) FROM refresh_sessions WHERE user_id = ? AND revoked_at IS NULL",
             Integer.class, userId)).isZero();
     }
+    @Test
+    void logoutWaitsForConcurrentRotationCommitAndRevokesSuccessor() throws Exception {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            Tokens original = login();
+            CountDownLatch successorCreated = new CountDownLatch(1);
+            CountDownLatch allowRotationCommit = new CountDownLatch(1);
+            AtomicReference<String> successor = new AtomicReference<>();
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> rotation = executor.submit(() -> tx.executeWithoutResult(status -> {
+                    RefreshTokenService.Rotation result = refreshTokens.rotate(original.refreshToken());
+                    assertThat(result).isNotNull();
+                    successor.set(result.refreshToken());
+                    successorCreated.countDown();
+                    await(allowRotationCommit);
+                }));
+                assertThat(successorCreated.await(5, TimeUnit.SECONDS)).isTrue();
+                Future<MvcResult> logout = executor.submit(() -> mvc.perform(post("/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(refreshBody(original.refreshToken())))
+                    .andReturn());
+                awaitBlockedDatabaseSession();
+                allowRotationCommit.countDown();
+                rotation.get(5, TimeUnit.SECONDS);
+                MvcResult logoutResult = logout.get(5, TimeUnit.SECONDS);
+                assertThat(logoutResult.getResponse().getStatus()).isEqualTo(200);
+                assertThat(logoutResult.getResponse().getContentAsString())
+                    .doesNotContainIgnoringCase("deadlock", "sql");
+                assertRefreshRejected(successor.get());
+            } finally {
+                allowRotationCommit.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+    @Test
+    void repeatedLogoutIsIdempotent() throws Exception {
+        String token = login().refreshToken();
+        refreshTokens.revokeSession(token);
+        refreshTokens.revokeSession(token);
+        assertRefreshRejected(token);
+    }
+    @Test
+    void logoutRemovesOnlyPresentedBrowsersPushOwnership() throws Exception {
+        String token = login().refreshToken();
+        int otherUser = insertUser("other-push-user", "password", "needy", insertNeedy("Other"));
+        String endpoint = "https://push.example/shared-browser";
+        jdbc.update(
+            "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, 'key', 'auth')",
+            userId, endpoint);
+        jdbc.update(
+            "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, 'key', 'auth')",
+            otherUser, "https://push.example/other-browser");
+        mvc.perform(post("/auth/logout")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of(
+                    "refresh_token", token, "push_endpoint", endpoint))))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM push_subscriptions WHERE endpoint = ?",
+            Integer.class, endpoint)).isZero();
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM push_subscriptions WHERE user_id = ?",
+            Integer.class, otherUser)).isOne();
+    }
+    @Test
+    void pushCleanupFailureCannotRollBackRefreshRevocation() throws Exception {
+        String token = login().refreshToken();
+        String endpoint = "https://push.example/failing-browser";
+        jdbc.update(
+            "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, 'key', 'auth')",
+            userId, endpoint);
+        jdbc.execute(
+            "CREATE FUNCTION reject_push_delete() RETURNS trigger LANGUAGE plpgsql AS $$ "
+                + "BEGIN RAISE EXCEPTION 'forced push cleanup failure'; END $$");
+        jdbc.execute(
+            "CREATE TRIGGER reject_push_delete BEFORE DELETE ON push_subscriptions "
+                + "FOR EACH ROW EXECUTE FUNCTION reject_push_delete()");
+        mvc.perform(post("/auth/logout")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of(
+                    "refresh_token", token, "push_endpoint", endpoint))))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk());
+        assertRefreshRejected(token);
+        assertThat(jdbc.queryForObject(
+            "SELECT COUNT(*) FROM push_subscriptions WHERE endpoint = ?",
+            Integer.class, endpoint)).isOne();
+    }
     private RefreshTokenService.Rotation rotateTogether(
         String token,
         CountDownLatch ready,
@@ -161,6 +250,31 @@ class AuthRefreshIT extends PostgresIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(refreshBody(token)))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());
+    }
+    private void awaitBlockedDatabaseSession() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            Integer blocked = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pg_stat_activity "
+                    + "WHERE datname = current_database() AND pid <> pg_backend_pid() "
+                    + "AND state = 'active' AND wait_event_type = 'Lock'",
+                Integer.class);
+            if (blocked != null && blocked > 0) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("logout never blocked behind the uncommitted rotation");
+    }
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("timed out waiting for test coordination");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
     private Tokens login() throws Exception {
         MvcResult result = mvc.perform(post("/auth/login")

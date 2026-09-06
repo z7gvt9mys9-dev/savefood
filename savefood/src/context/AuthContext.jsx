@@ -3,12 +3,14 @@ import {
   clearSession,
   getSession,
   revokeAndClearSession,
+  setBrowserPushDisplayEnabled,
   storeSession,
   subscribeSession,
 } from '../api';
 const AuthContext = createContext(null);
 const clearSessionCaches = () => {
   if (typeof window === 'undefined') return;
+  setBrowserPushDisplayEnabled(false);
   if ('caches' in window) {
     window.caches.keys()
       .then(names => Promise.all(names

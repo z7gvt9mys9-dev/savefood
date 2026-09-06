@@ -103,7 +103,7 @@ public class AuthController {
     @PostMapping("/logout")
     public Map<String, Object> logout(@RequestBody(required = false) RefreshRequest request) {
         if (request != null) {
-            refreshTokens.revokeSession(request.refreshToken());
+            refreshTokens.revokeSession(request.refreshToken(), request.pushEndpoint());
         }
         return Map.of("ok", true);
     }
@@ -115,6 +115,9 @@ public class AuthController {
     private static Integer toInteger(Object value) {
         return value instanceof Number n ? n.intValue() : null;
     }
-    public record RefreshRequest(@JsonProperty("refresh_token") String refreshToken) {
+    public record RefreshRequest(
+        @JsonProperty("refresh_token") String refreshToken,
+        @JsonProperty("push_endpoint") String pushEndpoint
+    ) {
     }
 }
