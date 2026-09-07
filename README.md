@@ -262,13 +262,22 @@ Inbound WebSocket messages are capped at 4096 bytes by default; set
 ### Доступ с другого устройства (Cloudflare Tunnel)
 
 ```bash
-cloudflared tunnel --url http://localhost:3000   # dev-сервер
-# или ./cloudflare-tunnel.sh                     # прод (nginx на :80), URL пишется в ~/savefood-url.txt
+./cloudflare-tunnel.sh
 ```
 
-Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js` (`server.allowedHosts`). Quick-туннель живёт, пока работает процесс `cloudflared`; при перезапуске URL меняется.
-Скрипт `cloudflare-tunnel.sh` всегда проксирует `localhost:80`, поэтому при
-изменённом `APP_PORT` запускайте `cloudflared` вручную с фактическим портом.
+Скрипт поднимает Docker Compose, запускает Quick Tunnel к `APP_PORT` (по
+умолчанию `80`), ждёт выданный `*.trycloudflare.com` URL, передаёт его в
+backend как `SITE_URL` и `OAUTH_PUBLIC_URL`, а затем автоматически
+регистрирует Telegram-вебхук. Для временных доменов он передаёт Telegram
+актуальный IP Cloudflare, поэтому регистрация не зависит от задержки DNS у
+самого Telegram. Для этого в `.env` должны быть заданы `TELEGRAM_BOT_TOKEN` и
+`TELEGRAM_WEBHOOK_SECRET`.
+
+Случайный хост `*.trycloudflare.com` уже разрешён в `vite.config.js`
+(`server.allowedHosts`). Quick-туннель живёт, пока работает процесс скрипта;
+при следующем запуске URL меняется, но скрипт заново передаёт его backend и
+обновляет вебхук. Для постоянной эксплуатации используйте именованный
+Cloudflare Tunnel с собственным доменом вместо Quick Tunnel.
 Туннель не делает `/metrics` приватным: каждый scrape, включая локальный или
 туннельный, обязан передать `Authorization: Bearer <METRICS_TOKEN>`; токен не
 передавайте в query-параметрах и не публикуйте.

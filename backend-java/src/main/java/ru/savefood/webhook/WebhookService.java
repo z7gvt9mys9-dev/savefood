@@ -23,6 +23,7 @@ import java.util.logging.Logger;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 @Service
@@ -41,6 +42,7 @@ public class WebhookService {
     private final ConcurrentHashMap<Integer, Semaphore> shopPermits = new ConcurrentHashMap<>();
     private final AtomicInteger createdThreads = new AtomicInteger();
     private final AtomicLong rejectedDeliveries = new AtomicLong();
+    @Autowired
     public WebhookService(JdbcTemplate jdbc, WebhookProperties properties) {
         this.jdbc = jdbc;
         this.properties = properties;

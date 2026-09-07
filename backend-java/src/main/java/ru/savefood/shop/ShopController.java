@@ -37,6 +37,7 @@ import ru.savefood.web.ApiException;
 import ru.savefood.web.ClientIp;
 import ru.savefood.web.RateLimiter;
 import ru.savefood.webhook.WebhookService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -72,6 +73,7 @@ public class ShopController {
     private final ObjectMapper mapper = new ObjectMapper();
     private final String uploadDir;
     private final String receiptDir;
+    @Autowired
     public ShopController(ShopRepository repo, ShopService service, BillingService billing,
                           ReceiptService receiptService, ForecastService forecast, EsgService esg,
                           WebhookService webhooks, NeedsMatchService needsMatch,
