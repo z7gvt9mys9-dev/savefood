@@ -105,13 +105,14 @@ public class VolunteerRepository {
             volId, generation) == 1;
     }
     /** Atomically decide the current pending generation and return its exact identity. */
-    public KycModerationTransition moderateVolunteerKyc(int volId, String status) {
+    public KycModerationTransition moderateVolunteerKyc(int volId, String status, String generation) {
         List<KycModerationTransition> rows = jdbc.query(
             "UPDATE volunteers SET status = ? WHERE id = ? AND status = 'pending' "
+            + "AND document IS NOT NULL AND kyc_generation = ? "
             + "RETURNING document, kyc_generation",
             (rs, n) -> new KycModerationTransition(
                 rs.getString("document"), rs.getString("kyc_generation")),
-            status, volId);
+            status, volId, generation);
         return rows.isEmpty() ? null : rows.get(0);
     }
     /** Clear only the exact document generation selected by the caller. */

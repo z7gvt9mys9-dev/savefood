@@ -103,8 +103,9 @@ class VolunteerKycDocumentAuthorizationIT extends PostgresIT {
             .findFirst().orElseThrow();
         assertThat(row).containsEntry("kyc_verdict", "review")
             .containsEntry("kyc_notes", "Document needs review")
+            .containsEntry("kyc_generation", "generation-a")
             .containsKey("kyc_score")
-            .doesNotContainKeys("document", "kyc_generation");
+            .doesNotContainKey("document");
     }
     private int insertUser(String username, String role, Integer relatedId) {
         return jdbc.queryForObject(

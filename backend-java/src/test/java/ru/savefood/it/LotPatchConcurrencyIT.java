@@ -39,6 +39,17 @@ class LotPatchConcurrencyIT extends PostgresIT {
         assertThat(updated.get("initial_quantity")).isEqualTo(5.0);
     }
     @Test
+    void staleUnchangedQuantityBaselineDoesNotRestoreReservedInventory() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
+        jdbc.update("UPDATE lots SET quantity = quantity - 1 WHERE id = ?", lot);
+        Map<String, Object> updated = repo.updateLot(lot, "updated", 5.0,
+            null, null, null, null, null, null, null, 5.0, 5.0);
+        assertThat(updated)
+            .containsEntry("description", "updated")
+            .containsEntry("quantity", 4.0)
+            .containsEntry("initial_quantity", 5.0);
+    }
+    @Test
     void descriptionOnlyPatchLosesToAConcurrentClaim() throws Exception {
         int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
         Map<String, Object> updated = patchWhileRowMutationCommits(lot,
@@ -83,6 +94,29 @@ class LotPatchConcurrencyIT extends PostgresIT {
         assertThat(updated)
             .containsEntry("quantity", 7.0)
             .containsEntry("initial_quantity", 8.0);
+    }
+    @Test
+    void explicitEditorQuantityDeltaPreservesAnExistingReservation() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
+        jdbc.update("UPDATE lots SET quantity = quantity - 1 WHERE id = ?", lot);
+        Map<String, Object> updated = repo.updateLot(lot, null, 7.0,
+            null, null, null, null, null, null, null, 5.0, 5.0);
+        assertThat(updated)
+            .containsEntry("quantity", 6.0)
+            .containsEntry("initial_quantity", 7.0);
+    }
+    @Test
+    void competingInventoryEditInvalidatesTheOlderEditorBaseline() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 5.0, "Bakery");
+        assertThat(repo.updateLot(lot, null, 7.0, null, null, null, null,
+            null, null, null, 5.0, 5.0)).isNotNull();
+        assertThat(repo.updateLot(lot, "stale", 6.0, null, null, null, null,
+            null, null, null, 5.0, 5.0)).isNull();
+        assertThat(repo.getLotById(lot))
+            .containsEntry("description", "лот");
+        assertThat(lotQuantity(lot)).isEqualTo(7.0);
+        assertThat(jdbc.queryForObject(
+            "SELECT initial_quantity FROM lots WHERE id = ?", Double.class, lot)).isEqualTo(7.0);
     }
     @Test
     void normalPatchUpdatesRequestedFieldsAndPreservesTheRest() {

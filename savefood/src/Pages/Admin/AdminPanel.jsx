@@ -6,6 +6,10 @@ import MonoIcon from '../../components/MonoIcon';
 import { useAuth } from '../../context/AuthContext';
 import { API_URL, authFetch } from '../../api';
 import './Admin.css';
+export const buildKycDecisionPayload = (item, status) => ({
+  status,
+  generation: item.kyc_generation,
+});
 /** An admin image endpoint requires Bearer auth, which a plain <img> cannot send. */
 const ProtectedDeliveryPhoto = ({ path }) => {
   const [objectUrl, setObjectUrl] = useState(null);
@@ -185,14 +189,15 @@ const AdminPanel = () => {
       </span>
     );
   };
-  const handleModerateKyc = async (id, status) => {
+  const handleModerateKyc = async (item, status) => {
+    const id = item.id;
     const key = `volunteer:${id}`;
     setKycBusy(prev => ({ ...prev, [key]: true }));
     try {
       const res = await authFetch(`${API_URL}/admin/volunteers/${id}/moderation`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeader },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(buildKycDecisionPayload(item, status)),
       });
       if (res.ok) fetchKycQueue();
       else alert(t('common.error'));
@@ -242,9 +247,9 @@ const AdminPanel = () => {
                 </div>
                 <div className="photo-mod-actions">
                   <button className="btn-small btn-success" disabled={!!kycBusy[key] || !item.has_document}
-                    onClick={() => handleModerateKyc(item.id, 'approved')}>{t('admin.approve')}</button>
+                    onClick={() => handleModerateKyc(item, 'approved')}>{t('admin.approve')}</button>
                   <button className="btn-small btn-danger" disabled={!!kycBusy[key]}
-                    onClick={() => handleModerateKyc(item.id, 'rejected')}>{t('admin.reject')}</button>
+                    onClick={() => handleModerateKyc(item, 'rejected')}>{t('admin.reject')}</button>
                 </div>
               </div>
             );

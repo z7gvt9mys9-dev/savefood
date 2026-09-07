@@ -52,6 +52,30 @@ import ru.savefood.app.feature.shop.data.LotDto
 import ru.savefood.app.feature.shop.data.LotUpdateDto
 import ru.savefood.app.feature.shop.ui.LotStatusBadge
 import ru.savefood.app.feature.shop.ui.ShopConfirmDialog
+
+internal fun buildLotUpdatePayload(
+    lot: LotDto,
+    description: String,
+    quantity: Int,
+    category: String,
+    address: String,
+    comment: String,
+    requiresCold: Boolean,
+): LotUpdateDto {
+    val expectedQuantity = lot.quantity?.toInt()
+    val changesQuantity = expectedQuantity == null || quantity != expectedQuantity
+    return LotUpdateDto(
+        description = description.trim(),
+        quantity = quantity.takeIf { changesQuantity },
+        expectedQuantity = expectedQuantity.takeIf { changesQuantity },
+        expectedInitialQuantity = lot.initialQuantity?.toInt().takeIf { changesQuantity },
+        category = category.trim().ifBlank { null },
+        address = address.trim().ifBlank { null },
+        comment = comment.trim().ifBlank { null },
+        requiresCold = requiresCold,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
@@ -324,16 +348,15 @@ private fun EditLotDialog(
             TextButton(
                 enabled = !saving && description.isNotBlank() && quantity.toIntOrNull()?.let { it >= 1 } == true,
                 onClick = {
-                    onSave(
-                        LotUpdateDto(
-                            description = description.trim(),
-                            quantity = quantity.toIntOrNull(),
-                            category = category.trim().ifBlank { null },
-                            address = address.trim().ifBlank { null },
-                            comment = comment.trim().ifBlank { null },
-                            requiresCold = requiresCold,
-                        ),
-                    )
+                    onSave(buildLotUpdatePayload(
+                        lot = lot,
+                        description = description,
+                        quantity = checkNotNull(quantity.toIntOrNull()),
+                        category = category,
+                        address = address,
+                        comment = comment,
+                        requiresCold = requiresCold,
+                    ))
                 },
             ) { Text(stringResource(R.string.common_save)) }
         },

@@ -82,13 +82,17 @@ public class AdminController {
     }
     /** Manual identity-document moderation for volunteers only. */
     @PatchMapping("/volunteers/{volunteerId}/moderation")
+    @Transactional
     public Map<String, Object> moderateVolunteer(@PathVariable int volunteerId,
                                                  @RequestBody ModerationDecision payload,
                                                  @Admin CurrentUser user) {
         String status = requireDecision(payload);
-        Map<String, Object> updated = volunteerRepo.setVolunteerStatus(volunteerId, status, null);
-        if (updated == null) {
-            throw new ApiException(404, "Volunteer not found");
+        String generation = requireGeneration(payload == null ? null : payload.generation());
+        VolunteerRepository.KycModerationTransition transition =
+            volunteerRepo.moderateVolunteerKyc(volunteerId, status, generation);
+        if (transition == null) {
+            throw new ApiException(409,
+                "Документ KYC уже заменён или решение по нему уже принято — обновите очередь");
         }
         audit.log(user.sub(), "kyc_manual_" + status, "volunteer", volunteerId,
             "Ручное решение модератора: " + status + reasonSuffix(payload));
@@ -96,14 +100,15 @@ public class AdminController {
             "Ваш аккаунт волонтёра подтверждён модератором — можно брать маршруты.",
             "Удостоверение не принято модератором. Загрузите корректный документ, "
             + "удостоверяющий личность, чтобы брать маршруты.");
-        return updated;
+        return volunteerRepo.getVolunteerById(volunteerId);
     }
     /** Identity-document moderation queue for volunteers (§58). */
     @GetMapping("/volunteers")
     public List<Map<String, Object>> listVolunteers(@RequestParam(required = false) String status,
                                                     @Admin CurrentUser user) {
         String columns = "id, name, contact, city, status, kyc_score, kyc_verdict, kyc_notes, "
-            + "kyc_checked_at, created_at, (document IS NOT NULL) AS has_document";
+            + "kyc_checked_at, kyc_generation, created_at, "
+            + "(document IS NOT NULL) AS has_document";
         if (status != null && !status.isBlank()) {
             return jdbc.queryForList(
                 "SELECT " + columns + " FROM volunteers WHERE status = ? ORDER BY created_at DESC",
@@ -121,6 +126,12 @@ public class AdminController {
     private static String reasonSuffix(ModerationDecision payload) {
         String reason = payload == null ? null : payload.reason();
         return reason == null || reason.isBlank() ? "" : " — " + reason.strip();
+    }
+    private static String requireGeneration(String generation) {
+        if (generation == null || generation.isBlank()) {
+            throw new ApiException(422, "generation обязателен для решения KYC");
+        }
+        return generation.strip();
     }
     private void notifyVolunteerModerationOutcome(int volunteerId, String status,
                                                   String approvedMsg, String rejectedMsg) {

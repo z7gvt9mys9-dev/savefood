@@ -10,5 +10,7 @@ public record LotUpdate(
     String address,
     String category,
     String comment,
-    Boolean requiresCold) {
+    Boolean requiresCold,
+    Double expectedQuantity,
+    Double expectedInitialQuantity) {
 }

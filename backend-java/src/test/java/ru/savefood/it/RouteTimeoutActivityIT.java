@@ -33,6 +33,35 @@ class RouteTimeoutActivityIT extends PostgresIT {
         assertThat(status("volunteer_routes", routeId)).isEqualTo("timed_out");
     }
     @Test
+    void timeoutReopensFullyReservedLotWithoutCreatingInventory() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 1.0, "Bakery");
+        int volunteer = insertVolunteer("Timed out courier");
+        int needy = insertNeedy("Recipient");
+        int ticket = jdbc.queryForObject(
+            "INSERT INTO tickets (needy_id, items, lot_id, quantity, status, created_at, "
+                + "assigned_volunteer_id) VALUES (?, 'food', ?, 1, 'assigned', NOW(), ?) RETURNING id",
+            Integer.class, needy, lot, volunteer);
+        jdbc.update("UPDATE lots SET quantity = 0, status = 'taken', taken_at = NOW() WHERE id = ?", lot);
+        String points = """
+            [{"kind":"shop","lat":43.238,"lon":76.889},
+             {"kind":"ticket","ticket_id":%d,"lat":43.24,"lon":76.90}]
+            """.formatted(ticket);
+        int route = jdbc.queryForObject(
+            "INSERT INTO volunteer_routes (volunteer_id, points, status, lot_id, started_at) "
+                + "VALUES (?, ?::jsonb, 'in_progress', ?, CURRENT_TIMESTAMP - INTERVAL '91 minutes') "
+                + "RETURNING id",
+            Integer.class, volunteer, points, lot);
+
+        maintenance.reassignTick();
+
+        assertThat(status("volunteer_routes", route)).isEqualTo("timed_out");
+        assertThat(status("lots", lot)).isEqualTo("active");
+        assertThat(lotQuantity(lot)).isZero();
+        assertThat(status("tickets", ticket)).isEqualTo("open");
+        assertThat(jdbc.queryForObject(
+            "SELECT assigned_volunteer_id FROM tickets WHERE id = ?", Integer.class, ticket)).isNull();
+    }
+    @Test
     void wrongVolunteerTerminalRouteAndNoRouteDoNotMutateRouteActivity() {
         int activeRoute = insertRoute(1, null, "in_progress");
         int finishedRoute = insertRoute(1, null, "finished");

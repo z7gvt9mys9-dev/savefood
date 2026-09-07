@@ -30,7 +30,7 @@ class AdminLotResetIT extends PostgresIT {
     @BeforeEach
     void wire() {
         admin = new AdminController(jdbc, new VolunteerRepository(jdbc), mock(EsgService.class),
-            new AuditService(jdbc), mock(RouteRevertService.class), mock(AvailabilityService.class),
+            new AuditService(jdbc), new RouteRevertService(jdbc), mock(AvailabilityService.class),
             mock(TelegramService.class), "/tmp", "/tmp");
         executor = Executors.newFixedThreadPool(2);
     }
@@ -59,6 +59,30 @@ class AdminLotResetIT extends PostgresIT {
         assertThat(status("lots", lot)).isEqualTo("active");
         assertThat(status("tickets", ticket)).isEqualTo("open");
         assertThat(lotQuantity(lot)).isEqualTo(4.0);
+    }
+    @Test
+    void routeResetReopensFullyReservedLotWithoutCreatingInventory() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 1.0, "Bakery");
+        int volunteer = insertVolunteer("Courier");
+        int ticket = insertTicket(lot, volunteer, "assigned");
+        jdbc.update("UPDATE lots SET quantity = 0, status = 'taken', taken_at = NOW() WHERE id = ?", lot);
+        String points = """
+            [{"kind":"shop","lat":43.238,"lon":76.889},
+             {"kind":"ticket","ticket_id":%d,"lat":43.24,"lon":76.90}]
+            """.formatted(ticket);
+        int route = jdbc.queryForObject(
+            "INSERT INTO volunteer_routes (volunteer_id, points, status, lot_id, started_at) "
+                + "VALUES (?, ?::jsonb, 'in_progress', ?, NOW()) RETURNING id",
+            Integer.class, volunteer, points, lot);
+
+        assertThat(admin.resetRoute(route, ADMIN)).containsEntry("ok", true);
+
+        assertThat(status("volunteer_routes", route)).isEqualTo("timed_out");
+        assertThat(status("lots", lot)).isEqualTo("active");
+        assertThat(lotQuantity(lot)).isZero();
+        assertThat(status("tickets", ticket)).isEqualTo("open");
+        assertThat(jdbc.queryForObject(
+            "SELECT assigned_volunteer_id FROM tickets WHERE id = ?", Integer.class, ticket)).isNull();
     }
     @Test
     void resetCannotReactivateAFractionalLegacyLot() {

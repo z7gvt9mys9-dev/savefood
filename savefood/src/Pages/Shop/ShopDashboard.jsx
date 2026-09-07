@@ -17,6 +17,25 @@ const CAT_KEYS = {
   'Готовая еда': 'prepared',
   'Молочные продукты': 'dairy',
 };
+export const buildLotEditPayload = (editLot) => {
+  const quantity = Number(editLot.quantity);
+  const expectedQuantity = Number(editLot._expectedQuantity);
+  const expectedInitialQuantity = Number(editLot._expectedInitialQuantity);
+  const body = {
+    description: editLot.description,
+    address: editLot.address,
+    category: editLot.category,
+    comment: editLot.comment,
+    requires_cold: !!editLot.requires_cold,
+  };
+  if (editLot.expiry_date) body.expiry_date = editLot.expiry_date;
+  if (quantity !== expectedQuantity) {
+    body.quantity = quantity;
+    body.expected_quantity = expectedQuantity;
+    body.expected_initial_quantity = expectedInitialQuantity;
+  }
+  return body;
+};
 const ShopDashboard = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -408,15 +427,7 @@ const ShopDashboard = () => {
       return;
     }
     try {
-      const body = {
-        description: editLot.description,
-        quantity,
-        address: editLot.address,
-        category: editLot.category,
-        comment: editLot.comment,
-        requires_cold: !!editLot.requires_cold,
-      };
-      if (editLot.expiry_date) body.expiry_date = editLot.expiry_date;
+      const body = buildLotEditPayload(editLot);
       const res = await authFetch(`${API_URL}/lots/${editLot.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -921,7 +932,12 @@ const ShopDashboard = () => {
                 <button className="btn-small btn-success" onClick={() => handleConfirmTransfer(lot.id)}>{t('shop.confirm_transfer')}</button>
               )}
               {lot.status === 'active' && (
-                <button className="btn-small" onClick={() => setEditLot({ ...lot, expiry_date: lot.expiry_date ? lot.expiry_date.slice(0,10) : '' })}>{t('common.edit')}</button>
+                <button className="btn-small" onClick={() => setEditLot({
+                  ...lot,
+                  expiry_date: lot.expiry_date ? lot.expiry_date.slice(0,10) : '',
+                  _expectedQuantity: Number(lot.quantity),
+                  _expectedInitialQuantity: Number(lot.initial_quantity),
+                })}>{t('common.edit')}</button>
               )}
               <button className="btn-small" onClick={() => setLabelLot(lot)}>{t('shop.print_label')}</button>
               <button className="btn-small btn-danger" onClick={() => handleDeleteLot(lot.id)}>{t('common.delete')}</button>

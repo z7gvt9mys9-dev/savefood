@@ -15,10 +15,13 @@ import org.springframework.stereotype.Service;
 public class RouteRevertService {
     private static final String LOT_REVERT_SQL =
         "WITH candidate AS ("
-        + "SELECT l.id, GREATEST(l.initial_quantity - COALESCE("
+        + "SELECT l.id, l.initial_quantity - COALESCE("
         + "(SELECT SUM(t.quantity) FROM tickets t WHERE t.lot_id = l.id "
-        + "AND t.status IN ('open', 'assigned', 'fulfilled')), 0), 0) AS available "
+        + "AND t.status IN ('open', 'assigned', 'fulfilled')), 0) AS available, "
+        + "EXISTS (SELECT 1 FROM tickets t WHERE t.lot_id = l.id "
+        + "AND t.status IN ('open', 'assigned')) AS has_serviceable_ticket "
         + "FROM lots l WHERE l.id = ? AND l.status = 'taken' "
+        + "AND (l.expiry_date IS NULL OR l.expiry_date > CURRENT_DATE + INTERVAL '1 day') "
         + "AND l.quantity IS NOT NULL AND l.initial_quantity IS NOT NULL "
         + "AND l.quantity >= 0 AND l.initial_quantity >= 0 "
         + "AND l.quantity = FLOOR(l.quantity) "
@@ -26,7 +29,8 @@ public class RouteRevertService {
         + "AND l.quantity <= l.initial_quantity) "
         + "UPDATE lots l SET status = 'active', taken_at = NULL, taken_by = NULL, "
         + "quantity = c.available FROM candidate c WHERE l.id = c.id "
-        + "AND c.available >= 1 AND c.available = FLOOR(c.available) "
+        + "AND (c.available >= 1 OR (c.available = 0 AND c.has_serviceable_ticket)) "
+        + "AND c.available >= 0 AND c.available = FLOOR(c.available) "
         + "AND c.available <= l.initial_quantity";
     private final JdbcTemplate jdbc;
     private final DeliveryPhotoStorage deliveryPhotos;

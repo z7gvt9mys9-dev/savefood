@@ -17,12 +17,14 @@ import org.junit.jupiter.api.Test;
 class ReservationLifecycleIT extends PostgresIT {
     private NeedyService needyService;
     private RouteRevertService revert;
+    private VolunteerRepository volunteerRepo;
     private VolunteerService volunteerService;
     @BeforeEach
     void wire() {
         needyService = new NeedyService(jdbc, new NeedyRepository(jdbc), new PasswordService());
         revert = new RouteRevertService(jdbc);
-        volunteerService = new VolunteerService(jdbc, new VolunteerRepository(jdbc), revert,
+        volunteerRepo = new VolunteerRepository(jdbc);
+        volunteerService = new VolunteerService(jdbc, volunteerRepo, revert,
             new PasswordService(), needyService, null, "Europe/Moscow");
     }
     @Test
@@ -195,6 +197,54 @@ class ReservationLifecycleIT extends PostgresIT {
         revert.revertRouteLot(lot, points);
         assertThat(status("lots", lot)).isEqualTo("active");
         assertThat(status("tickets", ticket)).isEqualTo("open");
+        assertThat(lotQuantity(lot)).isEqualTo(4.0);
+        assertThat(jdbc.queryForObject(
+            "SELECT initial_quantity FROM lots WHERE id = ?", Double.class, lot)).isEqualTo(5.0);
+    }
+    @Test
+    @DisplayName("полностью зарезервированный лот снова маршрутизируется после отказа до забора")
+    @SuppressWarnings("unchecked")
+    void finishBeforePickupReopensFullyReservedLotWithoutCreatingInventory() {
+        int shop = insertShop("Магазин", 43.238, 76.889);
+        int lot = insertLot(shop, 1.0, "Выпечка");
+        int ticket = needyService.createTicket(insertNeedy("Получатель"), "хлеб", "адрес",
+            43.24, 76.90, null, lot, null, null, null, false);
+        int volunteer = insertVolunteer("Волонтёр");
+        claim(lot, ticket, volunteer);
+        String points = routePoints(ticket);
+        int route = jdbc.queryForObject(
+            "INSERT INTO volunteer_routes (volunteer_id, points, status, lot_id, started_at) "
+                + "VALUES (?, ?::jsonb, 'in_progress', ?, NOW()) RETURNING id",
+            Integer.class, volunteer, points, lot);
+
+        volunteerService.finishRoute(volunteerRepo.getRouteById(route));
+
+        assertThat(status("volunteer_routes", route)).isEqualTo("finished");
+        assertThat(status("lots", lot)).isEqualTo("active");
+        assertThat(lotQuantity(lot)).isZero();
+        assertThat(jdbc.queryForObject(
+            "SELECT initial_quantity FROM lots WHERE id = ?", Double.class, lot)).isEqualTo(1.0);
+        assertThat(jdbc.queryForMap(
+            "SELECT status, assigned_volunteer, assigned_volunteer_id FROM tickets WHERE id = ?", ticket))
+            .containsEntry("status", "open")
+            .containsEntry("assigned_volunteer", null)
+            .containsEntry("assigned_volunteer_id", null);
+        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
+        List<Map<String, Object>> shops = (List<Map<String, Object>>) map.get("shops");
+        List<Map<String, Object>> lots = (List<Map<String, Object>>) shops.get(0).get("lots");
+        assertThat(lots).extracting(row -> row.get("lot_id")).contains(lot);
+    }
+    @Test
+    void fullyReservedExpiredLotIsNotRevived() {
+        int lot = insertLot(insertShop("Shop", 43.238, 76.889), 1.0, "Bakery");
+        int ticket = needyService.createTicket(insertNeedy("Recipient"), "food", "address",
+            43.24, 76.90, null, lot, null, null, null, false);
+        claim(lot, ticket, insertVolunteer("Courier"));
+        jdbc.update("UPDATE lots SET expiry_date = CURRENT_DATE + 1 WHERE id = ?", lot);
+        revert.revertRouteLot(lot, routePoints(ticket));
+        assertThat(status("lots", lot)).isEqualTo("taken");
+        assertThat(status("tickets", ticket)).isEqualTo("cancelled");
+        assertThat(lotQuantity(lot)).isZero();
     }
     @Test
     void routeRevertCannotReactivateAFractionalLegacyLot() {
@@ -274,6 +324,12 @@ class ReservationLifecycleIT extends PostgresIT {
         jdbc.update("UPDATE lots SET status = 'taken', taken_at = NOW() WHERE id = ?", lotId);
         jdbc.update("UPDATE tickets SET status = 'assigned', assigned_volunteer_id = ? WHERE id = ?",
             volunteerId, ticketId);
+    }
+    private String routePoints(int ticketId) {
+        return """
+            [{"kind":"shop","lat":43.238,"lon":76.889},
+             {"kind":"ticket","ticket_id":%d,"lat":43.24,"lon":76.90}]
+            """.formatted(ticketId);
     }
     private void migrateOnlyThroughV20() {
         jdbc.execute("DROP SCHEMA public CASCADE");

@@ -197,7 +197,7 @@ public class VolunteerController {
             throw new ApiException(400, "status must be 'approved' or 'rejected'");
         }
         VolunteerRepository.KycModerationTransition transition =
-            repo.moderateVolunteerKyc(volunteerId, status);
+            repo.moderateVolunteerKyc(volunteerId, status, requireGeneration(payload.generation()));
         if (transition == null) {
             throw new ApiException(409, "Волонтёр уже промодерирован или не найден");
         }
@@ -216,6 +216,12 @@ public class VolunteerController {
         audit.log(user.sub(), "volunteer_moderation", "volunteer", volunteerId,
             "Admin set volunteer #" + volunteerId + " to " + status);
         return Map.of("ok", true, "status", status);
+    }
+    private static String requireGeneration(String generation) {
+        if (generation == null || generation.isBlank()) {
+            throw new ApiException(422, "generation is required");
+        }
+        return generation.strip();
     }
     /** Re-run the AI verdict synchronously while the document exists (§38.2). Admin only. */
     @PostMapping("/volunteers/{volunteerId}/kyc_recheck")

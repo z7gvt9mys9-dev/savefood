@@ -42,18 +42,32 @@ class LotQuantityTest {
     @Test
     void patchRejectsAFractionalQuantityBeforeItCanReachTheRepository() {
         ShopRepository repo = mock(ShopRepository.class);
-        when(repo.getLotById(7)).thenReturn(Map.of(
-            "shop_id", 1, "quantity", 3.0, "initial_quantity", 3.0,
-            "unit", "кг", "unit_weight_kg", 1.0));
-        ShopController controller = new ShopController(repo, mock(ShopService.class),
-            mock(BillingService.class), mock(ReceiptService.class), mock(ForecastService.class),
-            mock(EsgService.class), mock(WebhookService.class), mock(NeedsMatchService.class),
-            mock(UploadService.class), mock(RateLimiter.class), mock(LotPhotoReferenceService.class),
-            "/tmp", "/tmp");
+        when(repo.getLotById(7)).thenReturn(lot(3.0, 3.0));
+        ShopController controller = controller(repo);
         assertThatThrownBy(() -> controller.patchLot(7,
-            new LotUpdate(null, 2.5, null, null, null, null, null, null, null),
+            new LotUpdate(null, 2.5, null, null, null, null, null, null, null, null, null),
             new CurrentUser(1, "shop", "shop", 1)))
             .isInstanceOf(ApiException.class);
+        verify(repo, never()).updateLot(org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any());
+    }
+    @Test
+    void staleLegacyQuantityCannotFabricateInventory() {
+        ShopRepository repo = mock(ShopRepository.class);
+        when(repo.getLotById(7)).thenReturn(lot(4.0, 5.0));
+        ShopController controller = controller(repo);
+
+        assertThatThrownBy(() -> controller.patchLot(7,
+            new LotUpdate("updated", 5.0, null, null, null, null, null, null, null, null, null),
+            new CurrentUser(1, "shop", "shop", 1)))
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).getStatus())
+            .isEqualTo(409);
         verify(repo, never()).updateLot(org.mockito.ArgumentMatchers.anyInt(),
             org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
@@ -77,5 +91,16 @@ class LotQuantityTest {
         return new ShopService(mock(org.springframework.jdbc.core.JdbcTemplate.class), repo, billing,
             mock(NeedyService.class), mock(PasswordService.class), mock(UploadService.class),
             mock(LotUploadCleanup.class));
+    }
+    private static ShopController controller(ShopRepository repo) {
+        return new ShopController(repo, mock(ShopService.class),
+            mock(BillingService.class), mock(ReceiptService.class), mock(ForecastService.class),
+            mock(EsgService.class), mock(WebhookService.class), mock(NeedsMatchService.class),
+            mock(UploadService.class), mock(RateLimiter.class), mock(LotPhotoReferenceService.class),
+            "/tmp", "/tmp");
+    }
+    private static Map<String, Object> lot(double quantity, double initialQuantity) {
+        return Map.of("shop_id", 1, "quantity", quantity, "initial_quantity", initialQuantity,
+            "unit", "кг", "unit_weight_kg", 1.0);
     }
 }

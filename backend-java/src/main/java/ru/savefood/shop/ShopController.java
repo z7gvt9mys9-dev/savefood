@@ -228,8 +228,36 @@ public class ShopController {
     public Map<String, Object> patchLot(@PathVariable int lotId, @RequestBody LotUpdate payload,
                                         @Auth CurrentUser user) {
         Map<String, Object> lot = requireLotOwner(lotId, user);
-        if (payload.quantity() != null) {
-            LotQuantity.requireWholeUnits(payload.quantity(), "quantity");
+        Double quantityUpdate = payload.quantity();
+        Double expectedQuantity = payload.expectedQuantity();
+        Double expectedInitialQuantity = payload.expectedInitialQuantity();
+        if (quantityUpdate == null) {
+            if (expectedQuantity != null || expectedInitialQuantity != null) {
+                throw new ApiException(422,
+                    "expected_quantity и expected_initial_quantity допустимы только вместе с quantity");
+            }
+        } else {
+            LotQuantity.requireWholeUnits(quantityUpdate, "quantity");
+            if ((expectedQuantity == null) != (expectedInitialQuantity == null)) {
+                throw new ApiException(422,
+                    "Для изменения quantity укажите expected_quantity и expected_initial_quantity");
+            }
+            if (expectedQuantity == null) {
+                Double currentQuantity = asDouble(lot.get("quantity"));
+                if (currentQuantity != null && Double.compare(quantityUpdate, currentQuantity) == 0) {
+                    quantityUpdate = null;
+                } else {
+                    throw new ApiException(409,
+                        "Редактор количества устарел — обновите лот и повторите изменение");
+                }
+            } else {
+                requireWholeNonNegative(expectedQuantity, "expected_quantity");
+                LotQuantity.requireWholeUnits(expectedInitialQuantity, "expected_initial_quantity");
+                if (expectedQuantity > expectedInitialQuantity) {
+                    throw new ApiException(422,
+                        "expected_quantity не может превышать expected_initial_quantity");
+                }
+            }
         }
         String newUnit = payload.unit() != null ? payload.unit() : (String) lot.getOrDefault("unit", "кг");
         Double newWeight = payload.unitWeightKg() != null ? payload.unitWeightKg()
@@ -245,11 +273,14 @@ public class ShopController {
         requirePositiveFinite(newWeight, "unit_weight_kg");
         Double weightUpdate = payload.unit() == null && payload.unitWeightKg() == null
             ? null : newWeight;
-        Map<String, Object> updated = repo.updateLot(lotId, payload.description(), payload.quantity(),
+        Map<String, Object> updated = repo.updateLot(lotId, payload.description(), quantityUpdate,
             payload.expiryDate(), payload.address(), requireKnownCategory(payload.category()), payload.comment(),
             payload.requiresCold(), payload.unit(), weightUpdate,
-            asDouble(lot.get("quantity")), asDouble(lot.get("initial_quantity")));
+            expectedQuantity, expectedInitialQuantity);
         if (updated == null) {
+            if (quantityUpdate != null) {
+                throw new ApiException(409, "Количество лота уже изменилось — обновите данные");
+            }
             throw new ApiException(404, "Lot not found or cannot be updated");
         }
         return updated;
@@ -634,6 +665,11 @@ public class ShopController {
     private static void requirePositiveFinite(Double value, String field) {
         if (value == null || !Double.isFinite(value) || value <= 0) {
             throw new ApiException(422, field + ": значение должно быть положительным и конечным");
+        }
+    }
+    private static void requireWholeNonNegative(Double value, String field) {
+        if (value == null || !Double.isFinite(value) || value < 0 || value != Math.floor(value)) {
+            throw new ApiException(422, field + ": значение должно быть целым числом не меньше 0");
         }
     }
 }

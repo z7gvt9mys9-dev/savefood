@@ -275,7 +275,7 @@ public class PushDispatchService {
         }
     }
     private synchronized String fcmAccessToken() throws Exception {
-        if (fcmToken != null && Instant.now().isBefore(fcmTokenExp)) {
+        if (fcmToken != null && !fcmToken.isBlank() && Instant.now().isBefore(fcmTokenExp)) {
             return fcmToken;
         }
         JsonNode sa = mapper.readTree(fcmCredentialsJson.isEmpty()
@@ -302,10 +302,32 @@ public class PushDispatchService {
             .POST(HttpRequest.BodyPublishers.ofString(form))
             .build();
         HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+            throw new IllegalStateException("FCM token endpoint returned HTTP " + resp.statusCode());
+        }
         JsonNode json = mapper.readTree(resp.body());
-        fcmToken = json.path("access_token").asText();
-        fcmTokenExp = now.plusSeconds(Math.max(60, json.path("expires_in").asLong(3600) - 60));
-        return fcmToken;
+        String token = json.path("access_token").asText(null);
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("FCM token response has no access_token");
+        }
+        token = token.strip();
+        JsonNode expiry = json.get("expires_in");
+        if (expiry == null || !expiry.isIntegralNumber() || !expiry.canConvertToLong()) {
+            throw new IllegalStateException("FCM token response has invalid expires_in");
+        }
+        long expiresIn = expiry.longValue();
+        if (expiresIn <= 60) {
+            throw new IllegalStateException("FCM access token lifetime is too short");
+        }
+        Instant tokenExp;
+        try {
+            tokenExp = now.plusSeconds(expiresIn - 60);
+        } catch (RuntimeException invalidExpiry) {
+            throw new IllegalStateException("FCM token response has invalid expires_in", invalidExpiry);
+        }
+        fcmToken = token;
+        fcmTokenExp = tokenExp;
+        return token;
     }
     private static java.security.interfaces.RSAPrivateKey parsePkcs8Rsa(String pem) throws Exception {
         String b64 = pem.replace("-----BEGIN PRIVATE KEY-----", "")

@@ -62,6 +62,8 @@ data class LotCreateDto(
 data class LotUpdateDto(
     val description: String? = null,
     val quantity: Int? = null,
+    @SerialName("expected_quantity") val expectedQuantity: Int? = null,
+    @SerialName("expected_initial_quantity") val expectedInitialQuantity: Int? = null,
     val unit: String? = null,
     @SerialName("unit_weight_kg") val unitWeightKg: Double? = null,
     @SerialName("expiry_date") val expiryDate: String? = null,
