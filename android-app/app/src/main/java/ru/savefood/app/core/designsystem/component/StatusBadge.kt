@@ -7,7 +7,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import ru.savefood.app.core.designsystem.theme.LocalStatusColors
 /** Semantic state for a badge — maps to a theme-aware color. */
@@ -29,10 +28,10 @@ fun StatusBadge(
     Text(
         text = text,
         style = MaterialTheme.typography.labelMedium,
-        color = Color.White,
+        color = color,
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(color)
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
     )
 }

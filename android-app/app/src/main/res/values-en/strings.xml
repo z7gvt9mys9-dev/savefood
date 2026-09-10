@@ -12,6 +12,7 @@
     <string name="common_logout">Log out</string>
 
     <string name="auth_title">Sign in</string>
+    <string name="auth_subtitle">Save food and support people together with us</string>
     <string name="auth_username">Username</string>
     <string name="auth_password">Password</string>
     <string name="auth_sign_in">Sign in</string>

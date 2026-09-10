@@ -2,6 +2,7 @@ package ru.savefood.app
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.mutableStateOf
@@ -12,7 +13,10 @@ import ru.savefood.app.core.push.PushDeepLink
 class MainActivity : AppCompatActivity() {
     private val deepLinkUrl = mutableStateOf<String?>(null)
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
         deepLinkUrl.value = intent?.getStringExtra(PushDeepLink.EXTRA_URL)
         setContent {

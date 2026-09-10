@@ -13,6 +13,7 @@
     <string name="common_logout">Выйти</string>
 
     <string name="auth_title">Вход</string>
+    <string name="auth_subtitle">Спасайте еду и помогайте людям вместе с нами</string>
     <string name="auth_username">Логин</string>
     <string name="auth_password">Пароль</string>
     <string name="auth_sign_in">Войти</string>

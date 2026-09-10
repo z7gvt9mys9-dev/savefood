@@ -9,7 +9,8 @@
 
 - **Mobile-first, один тап до главного действия** каждой роли.
 - **Нижняя навигация (NavigationBar)** вместо длинных скролл-дашбордов.
-- **Material You**: динамические цвета на Android 12+, брендовый fallback.
+- **Ember identity**: единая тёмная фирменная палитра без подмены системными
+  динамическими цветами.
 - **Доступность**: контраст AA, тап-таргеты ≥48dp, поддержка крупного шрифта,
   TalkBack-метки, edge-to-edge с корректными insets.
 - **Консистентные состояния**: `ShimmerListItem` (загрузка) → контент →
@@ -17,12 +18,18 @@
 
 ## 2. Палитра (`core/designsystem/theme/Color.kt`)
 
-| Роль | Light | Dark |
-|---|---|---|
-| Primary (rescue green) | `#1B9C5A` | `#7DDBA3` |
-| Secondary (amber — срочность/истечение) | `#B8690C` | `#FFB871` |
-| Error | `#BA1A1A` | `#FFB4AB` |
-| Background / Surface | `#FBFDF8` | `#191C1A` |
+Палитра синхронизирована с `savefood/src/EmberTheme.css`.
+
+| Роль | Цвет |
+|---|---|
+| Background / Ink | `#100E0C` |
+| Raised surface | `#171310` |
+| Soft / warm surface | `#201A15` / `#2A1E17` |
+| Primary ember | `#F46F35` |
+| Bright ember | `#FF8A4F` |
+| Main text / paper | `#FFF6E9` |
+| Secondary text | `#D5C9BB` / `#BCB1A4` |
+| Honey / success / danger | `#F4C660` / `#9BBD89` / `#FF776C` |
 
 **Семантические статусы** (`StatusColors`, через `LocalStatusColors`):
 `pending` (ожидание) · `active` (в работе) · `done` (готово) · `danger`
@@ -36,7 +43,8 @@ System sans-serif. Ключевые роли: `headlineMedium` (24/Bold) — з�
 
 ## 4. Формы (`Shape.kt`)
 
-small 10dp · medium 16dp (карточки) · large 24dp (bottom-sheet, диалоги).
+small 12dp · medium 20dp (карточки) · large 28dp (bottom-sheet, диалоги).
+Основные кнопки имеют полностью скруглённую форму, как CTA на сайте.
 
 ## 5. Библиотека компонентов (`core/designsystem/component/`)
 
@@ -47,6 +55,8 @@ small 10dp · medium 16dp (карточки) · large 24dp (bottom-sheet, диа
 - `StatusBadge` (+ `BadgeTone`) — семантические статусы.
 - `EmptyState` — иконка + заголовок + описание + CTA.
 - `ShimmerBox` / `ShimmerListItem` — скелетная загрузка.
+- `EmberBackground` — общий тёмный фон с мягким оранжевым свечением.
+- `BrandLockup` — единая эмблема и словесный знак для входа и шапки.
 
 ## 6. Навигация и роли
 

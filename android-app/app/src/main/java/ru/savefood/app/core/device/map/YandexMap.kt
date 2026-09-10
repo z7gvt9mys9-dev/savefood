@@ -76,6 +76,7 @@ fun YandexMap(
         modifier = modifier,
         update = { view ->
             val map = view.mapWindow.map
+            map.isNightModeEnabled = true
             val focus = center
                 ?: markers.firstOrNull()?.let { Point(it.latitude, it.longitude) }
                 ?: MOSCOW

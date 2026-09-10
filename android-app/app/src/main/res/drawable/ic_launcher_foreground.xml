@@ -3,9 +3,37 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <group android:translateX="22" android:translateY="22">
+    <!-- SaveFood brand mark: leaf growing from a food bowl. -->
+    <group
+        android:scaleX="1.5"
+        android:scaleY="1.5"
+        android:translateX="18"
+        android:translateY="18">
         <path
-            android:fillColor="#FFFFFF"
-            android:pathData="M54,8 C30,8 12,26 12,50 C12,70 28,86 50,86 C50,64 50,40 50,22 C50,40 50,64 50,86 C70,84 86,66 86,44 C86,24 72,8 54,8 Z" />
+            android:fillColor="#F46F35"
+            android:pathData="M24,3.5C35.8,3.5 44.5,12.2 44.5,23.7C44.5,35.6 35.7,44.5 24,44.5C12.3,44.5 3.5,35.6 3.5,23.7C3.5,12.2 12.2,3.5 24,3.5Z" />
+        <path
+            android:strokeColor="#FFF6E9"
+            android:strokeWidth="1.2"
+            android:fillColor="#00000000"
+            android:pathData="M24,7.5C33.3,7.5 40.5,14.3 40.5,23.8C40.5,33.5 33.3,40.5 24,40.5C14.7,40.5 7.5,33.5 7.5,23.8C7.5,14.3 14.7,7.5 24,7.5Z" />
+        <path
+            android:fillColor="#7C9B70"
+            android:pathData="M24.6,16.4C24.8,10.8 28.3,7.4 34,7C33.7,12.5 30.2,16 24.6,16.4Z" />
+        <path
+            android:strokeColor="#201B18"
+            android:strokeWidth="1.7"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M24.5,17.2C25.8,14.2 28.2,11.8 31.6,10" />
+        <path
+            android:fillColor="#FFF6E9"
+            android:pathData="M11.8,22.1L36.2,22.1C35.6,30.5 31,36 24,36C17,36 12.4,30.5 11.8,22.1Z" />
+        <path
+            android:strokeColor="#201B18"
+            android:strokeWidth="1.7"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"
+            android:pathData="M17.2,25.8C19,28.3 21.2,29.6 24,29.6C26.8,29.6 29,28.3 30.8,25.8" />
     </group>
 </vector>
