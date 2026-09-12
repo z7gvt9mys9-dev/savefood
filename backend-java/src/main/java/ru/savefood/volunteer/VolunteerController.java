@@ -17,7 +17,6 @@ import ru.savefood.kyc.KycService;
 import ru.savefood.volunteer.dto.ModerationUpdate;
 import ru.savefood.photo.PhotoModerationService;
 import ru.savefood.security.Auth;
-import ru.savefood.security.Admin;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.storage.SensitiveFileCleanup;
@@ -180,7 +179,10 @@ public class VolunteerController {
     /** KYC documents are private, but a moderator needs the current document to decide it. */
     @GetMapping("/admin/volunteers/{volunteerId}/document")
     public ResponseEntity<byte[]> getDocumentForModeration(@PathVariable int volunteerId,
-                                                            @Admin CurrentUser user) {
+                                                            @Auth CurrentUser user) {
+        if (!user.isAdmin()) {
+            throw new ApiException(403, "Только администратор");
+        }
         return documentResponse(volunteerId);
     }
     private ResponseEntity<byte[]> documentResponse(int volunteerId) {

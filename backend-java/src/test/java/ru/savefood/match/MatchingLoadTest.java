@@ -71,12 +71,10 @@ class MatchingLoadTest {
             CountDownLatch matched = new CountDownLatch(1);
             matching.tryExecute(matched::countDown);
             assertThat(matched.await(5, TimeUnit.SECONDS)).isTrue();
-            verify(push).notifyRole(eq("needy"), eq(1), startsWith("□ "), eq("/"), any());
-            verify(push).notifyRole(eq("needy"), eq(1), startsWith("В магазине"), eq("/"), any());
-            verify(push).notifyRole(eq("needy"), eq(3), startsWith("□ "), eq("/"), any());
-            verify(push, never()).notifyRole(eq("needy"), eq(3), startsWith("В магазине"), eq("/"), any());
+            verify(push, times(2)).notifyRole(eq("needy"), eq(1), startsWith("В магазине"), eq("/"), any());
+            verify(push).notifyRole(eq("needy"), eq(3), startsWith("В магазине"), eq("/"), any());
             verify(push, never()).notifyRole(eq("needy"), eq(2), anyString(), anyString(), any());
-            verify(push).notifyRole(eq("volunteer"), eq(7), startsWith("□ "), eq("/"), any());
+            verify(push).notifyRole(eq("volunteer"), eq(7), startsWith("Новый лот рядом"), eq("/"), any());
             for (int i = 0; i < 500; i++) service.startNeedsMatch(i + 2);
             assertThat(telegram.largestPoolSize()).isEqualTo(1);
             assertThat(telegram.queueDepth()).isLessThanOrEqualTo(1);

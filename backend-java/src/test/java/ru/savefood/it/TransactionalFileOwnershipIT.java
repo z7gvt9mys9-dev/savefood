@@ -180,7 +180,7 @@ class TransactionalFileOwnershipIT extends PostgresIT {
     void failedRollbackDeleteQueuesExactKycPathAndDelayedRetryCannotDeleteReplacement() throws Exception {
         int volunteerId = insertVolunteer("Volunteer");
         Path original = Files.write(kycDir.resolve("original.pdf"), new byte[] {1});
-        jdbc.update("UPDATE volunteers SET status = 'pending', document = ?, kyc_generation = ? WHERE id = ?",
+        jdbc.update("UPDATE volunteers SET status = 'rejected', document = ?, kyc_generation = ? WHERE id = ?",
             "/volunteer_kyc/original.pdf", "generation-original", volunteerId);
         SensitiveFileCleanup cleanup = sensitiveCleanup();
         VolunteerController controller = kycController(cleanup, kycCrypto());

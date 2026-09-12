@@ -36,8 +36,11 @@ class VolunteerKycRetentionIT extends PostgresIT {
         int volunteer = pendingOldDocument("/volunteer_kyc/a.enc", "generation-a");
         Map<String, Object> selectedA = jdbc.queryForMap(
             "SELECT id, document, kyc_generation FROM volunteers WHERE id = ?", volunteer);
-        volunteers.replaceVolunteerKycDocument(
-            volunteer, "/volunteer_kyc/b.enc", "generation-b");
+        // Simulate a newer generation being committed after retention selected A.
+        // The upload API rejects replacing an active pending document, but the purge
+        // guard must still never erase a newer row if another state transition wins.
+        jdbc.update("UPDATE volunteers SET document = ?, kyc_generation = ?, kyc_checked_at = NULL WHERE id = ?",
+            "/volunteer_kyc/b.enc", "generation-b", volunteer);
         boolean purged = maintenance.purgeVolunteerKycDocument(
             volunteer, (String) selectedA.get("document"), (String) selectedA.get("kyc_generation"));
         assertThat(purged).isFalse();

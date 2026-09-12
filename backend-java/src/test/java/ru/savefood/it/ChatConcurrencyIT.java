@@ -101,7 +101,7 @@ class ChatConcurrencyIT extends PostgresIT {
             .containsEntry("sender_id", fixture.needyId())
             .containsEntry("body", "активный чат");
         assertThat(messageCount(fixture.ticketId())).isOne();
-        verify(telegram).notifyVolunteer(fixture.volunteerId(), "◇ Получатель: активный чат");
+        verify(telegram).notifyVolunteer(fixture.volunteerId(), "Получатель: активный чат");
         verify(push).notifyRole("volunteer", fixture.volunteerId(),
             "Сообщение от получателя: активный чат", "/volunteer");
     }
