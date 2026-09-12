@@ -204,7 +204,7 @@ public class MaintenanceTasks {
                 }
                 if (!supportChatId.isEmpty()) {
                     try {
-                        telegram.sendMessage(supportChatId, "! Маршрут #" + routeId + " волонтёра "
+                        telegram.sendMessage(supportChatId, "Маршрут #" + routeId + " волонтёра "
                             + timedOutRoute.get("volunteer_id") + " переназначен по таймауту.");
                     } catch (Exception ignore) {
                     }
@@ -328,7 +328,7 @@ public class MaintenanceTasks {
         }
         if (!supportChatId.isEmpty()) {
             try {
-                telegram.sendMessage(supportChatId, "! Антифрод: маршрут #" + routeId + " волонтёра "
+                telegram.sendMessage(supportChatId, "Антифрод: маршрут #" + routeId + " волонтёра "
                     + action.volunteerId() + " снят (удалялся от магазина, лот #" + action.lotId()
                     + " возвращён).");
             } catch (Exception ignore) {
@@ -379,15 +379,15 @@ public class MaintenanceTasks {
                             quantity, lotId);
                     }
                     String msg = selfPickup
-                        ? "◷ Срок брони лота #" + lotId + " (самовывоз) истёк. Заявка отменена, "
+                        ? "Срок брони лота #" + lotId + " (самовывоз) истёк. Заявка отменена, "
                           + "еда вернулась на витрину."
-                        : "◷ Бронь лота #" + lotId + " истекла: волонтёр не взялся за доставку. "
+                        : "Бронь лота #" + lotId + " истекла: волонтёр не взялся за доставку. "
                           + "Заявка отменена, еда вернулась на витрину — лимит не потрачен.";
                     String ntype = selfPickup ? "self_pickup_expired" : "reservation_expired";
                     jdbc.update("INSERT INTO notifications (needy_id, type, payload, created_at, read) "
                         + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", needyId, ntype, msg);
                     if (needyId != null) {
-                        pendingDeliveries.add(new ReservationExpiryNotification(needyId, "◷ " + msg));
+                        pendingDeliveries.add(new ReservationExpiryNotification(needyId, msg));
                     }
                 }
                 return pendingDeliveries;
@@ -468,7 +468,7 @@ public class MaintenanceTasks {
         jdbc.update("INSERT INTO notifications (volunteer_id, type, payload, created_at, read) "
             + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)", id, "kyc_doc_purged", msg);
         try {
-            telegram.notifyVolunteer(id, "◷ " + msg);
+            telegram.notifyVolunteer(id, msg);
         } catch (Exception ignore) {
         }
         return true;

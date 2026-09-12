@@ -175,7 +175,7 @@ public class NeedyController {
         if (volId != null) {
             try {
                 telegram.notifyVolunteer(volId,
-                    "× Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.");
+                    "Получатель отменил заявку #" + ticketId + " — точка снята с вашего маршрута.");
             } catch (RuntimeException ignore) {
             }
         }

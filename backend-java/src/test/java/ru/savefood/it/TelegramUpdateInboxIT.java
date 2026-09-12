@@ -61,7 +61,7 @@ class TelegramUpdateInboxIT extends PostgresIT {
         assertThat(jdbc.queryForObject("SELECT body FROM ticket_messages", String.class)).isEqualTo("hello");
         assertThat(inboxStatus(1)).isEqualTo("processed");
         assertThat(jdbc.queryForObject("SELECT payload FROM telegram_update_inbox", String.class)).isEqualTo("{}");
-        verify(telegram).notifyVolunteer(volunteer, "◇ Получатель: hello");
+        verify(telegram).notifyVolunteer(volunteer, "Получатель: hello");
         verify(push).notifyRole("volunteer", volunteer, "Сообщение от получателя: hello", "/volunteer");
         // This flow has no in-app notification insertion. Preserve that behavior.
         assertThat(count("notifications")).isZero();
@@ -81,17 +81,27 @@ class TelegramUpdateInboxIT extends PostgresIT {
     }
 
     @Test
-    void duplicateSupportUpdateEscalatesOnceWithoutInventingPersistentNotifications() throws Exception {
-        when(ai.askSupportAi(anyString(), any(), any())).thenReturn(AiService.ESCALATE);
+    void messagesWithoutAnActiveDeliveryAreNotForwardedToSupport() throws Exception {
         deliver(3, "support question");
         deliver(3, "support question");
         worker.drain();
         worker.drain();
-        verify(ai).askSupportAi("support question", null, null);
-        verify(telegram).sendMessage(eq("support"), contains("support question"));
+        verifyNoInteractions(ai);
+        verify(telegram).sendMessage(eq("42"), contains("нет активной доставки"));
+        verify(telegram, never()).sendMessage(eq("support"), anyString());
         assertThat(count("notifications")).isZero();
         assertThat(count("ticket_messages")).isZero();
         assertThat(inboxStatus(3)).isEqualTo("processed");
+    }
+
+    @Test
+    void chatCommandDoesNotForwardMessagesToSupport() throws Exception {
+        deliver(30, "/chat Нужна помощь");
+        worker.drain();
+
+        verifyNoInteractions(ai);
+        verify(telegram).sendMessage(eq("42"), contains("будет передано второй стороне"));
+        verify(telegram, never()).sendMessage(eq("support"), anyString());
     }
 
     @Test
@@ -129,23 +139,6 @@ class TelegramUpdateInboxIT extends PostgresIT {
     }
 
     @Test
-    void failuresBackOffAndStopAtConfiguredAttemptLimit() throws Exception {
-        when(ai.askSupportAi(anyString(), any(), any())).thenThrow(new IllegalStateException("secret text"));
-        deliver(6, "fail");
-        for (int i = 1; i <= 3; i++) {
-            worker.drain();
-            assertThat(jdbc.queryForObject("SELECT attempts FROM telegram_update_inbox", Integer.class)).isEqualTo(i);
-            assertThat(inbox.claim()).isNull();
-            assertThat(jdbc.queryForObject("SELECT last_error FROM telegram_update_inbox", String.class))
-                .isEqualTo("IllegalStateException");
-            due(6);
-        }
-        worker.drain();
-        assertThat(inboxStatus(6)).isEqualTo("failed");
-        verify(ai, times(3)).askSupportAi("fail", null, null);
-    }
-
-    @Test
     void crashesAlsoExhaustAttemptsAndStaleClaimsCannotRun() throws Exception {
         deliver(7, "/help");
         var first = inbox.claim();
@@ -158,35 +151,6 @@ class TelegramUpdateInboxIT extends PostgresIT {
         due(7);
         assertThat(inbox.claim()).isNull();
         assertThat(inboxStatus(7)).isEqualTo("failed");
-    }
-
-    @Test
-    void blockedAiDoesNotDelayWebhookOrAllowAnotherWorkerToStealLiveClaim() throws Exception {
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        when(ai.askSupportAi(anyString(), any(), any())).thenAnswer(ignored -> {
-            entered.countDown(); await(release); return "answer";
-        });
-        assertThat(deliver(8, "slow AI")).isEqualTo(200);
-        verifyNoInteractions(ai);
-        var claim = inbox.claim();
-        // Expire the lease BEFORE processing takes its row lock to test a live, overdue worker.
-        due(8);
-        Future<?> processing = pool.submit(() -> inbox.process(claim, this::process));
-        try {
-            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(pool.submit(() -> deliver(8, "slow AI")).get(2, TimeUnit.SECONDS)).isEqualTo(200);
-            assertThat(pool.submit(inbox::claim).get(2, TimeUnit.SECONDS)).isNull();
-            assertThat(pool.submit(() -> deliver(9, "/help")).get(2, TimeUnit.SECONDS)).isEqualTo(200);
-            var other = pool.submit(inbox::claim).get(2, TimeUnit.SECONDS);
-            assertThat(other.updateId()).isEqualTo(9);
-            inbox.process(other, this::process);
-        } finally {
-            release.countDown();
-        }
-        processing.get(5, TimeUnit.SECONDS);
-        assertThat(inboxStatus(8)).isEqualTo("processed");
-        assertThat(inboxStatus(9)).isEqualTo("processed");
     }
 
     @Test

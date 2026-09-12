@@ -146,8 +146,7 @@ public class AdminController {
             + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)",
             volunteerId, approved ? "moderation_approved" : "moderation_rejected", message);
         try {
-            String prefixed = (approved ? "✓ " : "! ") + message;
-            telegram.notifyVolunteer(volunteerId, prefixed);
+            telegram.notifyVolunteer(volunteerId, message);
         } catch (RuntimeException ignore) {
         }
     }

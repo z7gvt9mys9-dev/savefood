@@ -92,9 +92,9 @@ public class TelegramBotService {
         }
         if (text.startsWith("/chat")) {
             telegram.sendMessage(chatId,
-                "◇ Просто напишите сообщение сюда — оно уйдёт второй стороне активной доставки "
+                "Напишите сообщение сюда — оно будет передано второй стороне активной доставки "
                 + "(волонтёру или получателю) и появится в чате заявки на сайте.\n\n"
-                + "Если активной доставки нет, вопрос уйдёт в поддержку.");
+                + "Если активной доставки нет, сообщение не будет отправлено.");
             return;
         }
         if (text.startsWith("/unlink")) {
@@ -110,7 +110,7 @@ public class TelegramBotService {
             (rs, n) -> rs.getInt("user_id"), token, TOKEN_TTL_MINUTES);
         if (userIds.isEmpty()) {
             telegram.sendMessage(chatId,
-                "◷ Ссылка привязки устарела или уже использована. "
+                "Ссылка привязки устарела или уже использована. "
                 + "Откройте профиль на сайте и нажмите «Подключить Telegram» ещё раз.");
             return;
         }
@@ -120,14 +120,14 @@ public class TelegramBotService {
         jdbc.update("UPDATE users SET telegram_chat_id = ? WHERE id = ?", chatId, userId);
         jdbc.update("DELETE FROM telegram_link_tokens WHERE user_id = ?", userId);
         telegram.sendMessage(chatId,
-            "✓ Telegram привязан. Теперь уведомления о лотах, маршрутах и доставках "
+            "Telegram привязан. Теперь уведомления о лотах, маршрутах и доставках "
             + "будут приходить сюда.\n\n" + helpText());
     }
     private void handleLogin(String chatId, String token) {
         String completionToken = telegramLogin.confirm(token, chatId);
         if (completionToken == null) {
             telegram.sendMessage(chatId,
-                "◷ Вход недоступен: ссылка устарела, уже использована или аккаунт не привязан. "
+                "Вход недоступен: ссылка устарела, уже использована или аккаунт не привязан. "
                 + "Начните вход на сайте заново.");
             return;
         }
@@ -139,7 +139,7 @@ public class TelegramBotService {
             return;
         }
         boolean delivered = telegram.sendMessage(chatId,
-            "✓ Telegram подтвердил аккаунт.\n\n"
+            "Telegram подтвердил аккаунт.\n\n"
                 + "<a href=\"" + Html.escape(completionUrl) + "\">Завершить вход в SaveFood</a>\n\n"
                 + "Ссылка одноразовая и действует "
                 + TelegramLoginService.COMPLETION_TTL_MINUTES + " минут.");
@@ -151,17 +151,17 @@ public class TelegramBotService {
         Map<String, Object> user = linkedUser(chatId);
         if (user == null) {
             telegram.sendMessage(chatId,
-                "↗ Этот Telegram не привязан к аккаунту SaveFood.\n"
+                "Этот Telegram не привязан к аккаунту SaveFood.\n"
                 + "Откройте профиль на сайте и нажмите «Подключить Telegram».");
             return;
         }
         String role = (String) user.get("role");
         Integer relatedId = user.get("related_id") instanceof Number n ? n.intValue() : null;
         StringBuilder sb = new StringBuilder();
-        sb.append("○ Аккаунт: <b>").append(Html.escape(String.valueOf(user.get("username"))))
+        sb.append("Аккаунт: <b>").append(Html.escape(String.valueOf(user.get("username"))))
           .append("</b>\nРоль: ").append(roleLabel(role)).append('\n');
         if (Boolean.TRUE.equals(user.get("is_blocked"))) {
-            sb.append("\n× Аккаунт заблокирован администратором.");
+            sb.append("\nАккаунт заблокирован администратором.");
             telegram.sendMessage(chatId, sb.toString());
             return;
         }
@@ -182,7 +182,7 @@ public class TelegramBotService {
         Integer routeId = jdbc.query(
             "SELECT id FROM volunteer_routes WHERE volunteer_id = ? AND status = 'in_progress'",
             rs -> rs.next() ? rs.getInt("id") : null, volunteerId);
-        sb.append(routeId == null ? "Активного маршрута нет." : "→ Активный маршрут #" + routeId);
+        sb.append(routeId == null ? "Активного маршрута нет." : "Активный маршрут #" + routeId);
     }
     private void appendNeedyStatus(StringBuilder sb, int needyId) {
         Map<String, Object> ticket = firstRow(
@@ -191,7 +191,7 @@ public class TelegramBotService {
         if (ticket == null) {
             sb.append("Активной заявки нет.");
         } else {
-            sb.append("□ Заявка #").append(ticket.get("id"))
+            sb.append("Заявка #").append(ticket.get("id"))
               .append("assigned".equals(ticket.get("status")) ? " — волонтёр в пути" : " — ждёт волонтёра");
         }
     }
@@ -200,13 +200,13 @@ public class TelegramBotService {
             "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'active'", Integer.class, shopId);
         Integer taken = jdbc.queryForObject(
             "SELECT COUNT(*) FROM lots WHERE shop_id = ? AND status = 'taken'", Integer.class, shopId);
-        sb.append("▣ Лотов на витрине: ").append(active == null ? 0 : active)
+        sb.append("Лотов на витрине: ").append(active == null ? 0 : active)
           .append("\nЗабрано волонтёрами: ").append(taken == null ? 0 : taken);
     }
     private void handleUnlink(String chatId) {
         int rows = jdbc.update("UPDATE users SET telegram_chat_id = NULL WHERE telegram_chat_id = ?", chatId);
         telegram.sendMessage(chatId, rows > 0
-            ? "○ Telegram отвязан. Уведомления сюда больше не придут — привязать заново можно в профиле."
+            ? "Telegram отвязан. Уведомления сюда больше не придут — привязать заново можно в профиле."
             : "Этот Telegram и так не привязан ни к одному аккаунту.");
     }
     private void handleFreeText(String chatId, String text) {
@@ -220,7 +220,8 @@ public class TelegramBotService {
                 return;
             }
         }
-        askSupport(chatId, user, text);
+        telegram.sendMessage(chatId,
+            "Сейчас нет активной доставки, поэтому сообщение не отправлено.");
     }
     private boolean relayToCounterpart(String chatId, CurrentUser user, String text) {
         String role = user.role();
@@ -252,15 +253,15 @@ public class TelegramBotService {
         String safe = Html.escape(text);
         try {
             if (toNeedy) {
-                telegram.notifyNeedy(counterpartId, "◇ Волонтёр: " + safe);
+                telegram.notifyNeedy(counterpartId, "Волонтёр: " + safe);
                 push.notifyRole("needy", counterpartId, "Сообщение от волонтёра: " + text, "/needy");
             } else {
-                telegram.notifyVolunteer(counterpartId, "◇ Получатель: " + safe);
+                telegram.notifyVolunteer(counterpartId, "Получатель: " + safe);
                 push.notifyRole("volunteer", counterpartId, "Сообщение от получателя: " + text, "/volunteer");
             }
         } catch (RuntimeException ignore) {
         }
-        telegram.sendMessage(chatId, "✓ Отправлено (заявка #" + ticketId + ").");
+        telegram.sendMessage(chatId, "Отправлено (заявка #" + ticketId + ").");
         return true;
     }
     /** Gemini answers, or the question is escalated to the support chat. */
@@ -279,9 +280,9 @@ public class TelegramBotService {
             return;
         }
         telegram.sendMessage(supportChatId,
-            "? Вопрос в поддержку от " + (username == null ? "непривязанного пользователя" : Html.escape(username))
+            "Вопрос в поддержку от " + (username == null ? "непривязанного пользователя" : Html.escape(username))
             + " (" + roleLabel(role) + ", chat_id " + chatId + "):\n\n" + Html.escape(text));
-        telegram.sendMessage(chatId, "→ Вопрос передан администратору — с вами свяжутся здесь же.");
+        telegram.sendMessage(chatId, "Вопрос передан администратору — с вами свяжутся здесь же.");
     }
     private Map<String, Object> linkedUser(String chatId) {
         return firstRow(
@@ -294,7 +295,7 @@ public class TelegramBotService {
     }
     private String greeting() {
         String site = siteUrl.isBlank() ? "https://savefood.kz" : siteUrl;
-        return "◇ Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
+        return "Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
             + "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
             + site + "\n\n" + helpText();
     }
@@ -322,8 +323,7 @@ public class TelegramBotService {
             + "/chat — как переписаться с волонтёром или получателем\n"
             + "/unlink — отвязать Telegram от аккаунта\n"
             + "/help — это сообщение\n\n"
-            + "Любое другое сообщение уйдёт второй стороне активной доставки, "
-            + "а если её нет — в поддержку.";
+            + "Сообщения отправляются второй стороне только во время активной доставки.";
     }
     private static String roleLabel(String role) {
         if (role == null) {
@@ -342,9 +342,9 @@ public class TelegramBotService {
             return "не заполнена";
         }
         return switch (status) {
-            case "approved" -> "✓ подтверждена";
-            case "rejected" -> "! отклонена — загрузите документ заново";
-            case "pending" -> "◷ на проверке";
+            case "approved" -> "подтверждена";
+            case "rejected" -> "отклонена — загрузите документ заново";
+            case "pending" -> "на проверке";
             default -> status;
         };
     }

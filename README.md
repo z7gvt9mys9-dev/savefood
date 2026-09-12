@@ -52,7 +52,7 @@ Android-клиент (вход и кабинеты трёх пользовате
 | i18n | react-i18next (ru / en) |
 | Мобильное приложение | Нативный Android: Kotlin, Jetpack Compose, Hilt (`android-app/`) |
 | Уведомления | Telegram Bot (HTTP Bot API, входящий вебхук), Web Push, FCM, WebSocket |
-| ИИ-помощник поддержки | Google Gemini (`ai/AiService`), эскалация на админа |
+| Telegram-переписка | Сообщения между участниками активной доставки |
 | ИИ: OCR чеков + антифрод | Gemini Vision (`receipt/ReceiptService`): позиции, категории, подлинность |
 | ИИ: KYC волонтёров | Gemini Vision (`kyc/KycService`): проверка удостоверений волонтёров |
 | SaaS-тарифы / ESG | `billing/BillingService` (гейтинг, квоты), `esg/EsgService` (CO₂-методология v1) |
@@ -117,7 +117,7 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_NAME=your_bot_username
 TELEGRAM_WEBHOOK_SECRET=...              # обязателен: без него вебхук игнорирует апдейты
 SITE_URL=https://yourdomain.com
-SUPPORT_CHAT_ID=...                      # chat id админа: алерты + эскалации ИИ
+SUPPORT_CHAT_ID=...                      # chat id админа для служебных алертов
 
 # ИИ: помощник в боте, OCR чеков, KYC волонтёров (опционально)
 GEMINI_API_KEY=...
@@ -509,7 +509,7 @@ Swagger UI нет (springdoc не подключён) — источник пр�
 
 1. **Уведомления** — заявка принята волонтёром, волонтёр в пути (с ETA), попытка доставки, антифрод-пинг
 2. **Чат** — сообщения между волонтёром и нуждающимся в активном маршруте
-3. **ИИ-помощник** — если активной доставки нет, на вопрос отвечает Gemini (FAQ по платформе); когда модель не уверена — вопрос автоматически пересылается администратору в `SUPPORT_CHAT_ID`
+3. **Переписка по доставке** — сообщения в Telegram передаются только второй стороне активной доставки (волонтёру или получателю).
 
 Команды: `/start`, `/help`, `/status`, `/chat`, `/unlink`.
 
@@ -616,7 +616,7 @@ production-сборка), `android-build` (`:app:assembleDevDebug`), `geows-buil
 **Telegram-бот не отвечает**
 - Проверьте `TELEGRAM_BOT_TOKEN`
 - Задан ли `TELEGRAM_WEBHOOK_SECRET` и зарегистрирован ли вебхук через `setWebhook` — без секрета `POST /telegram/webhook` молча отбрасывает все апдейты
-- ИИ-ответы требуют `GEMINI_API_KEY`; без него вопросы эскалируются в `SUPPORT_CHAT_ID`
+- Сообщения Telegram передаются только в рамках активной доставки; вопросы в поддержку бот не пересылает.
 
 **OCR чеков возвращает 503 / KYC волонтёра остаётся «unchecked»**
 - Проверьте `GEMINI_API_KEY` — без него OCR отключён, а удостоверения волонтёров требуют ручной модерации

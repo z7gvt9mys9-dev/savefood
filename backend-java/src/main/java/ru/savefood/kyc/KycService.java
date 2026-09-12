@@ -187,7 +187,7 @@ public class KycService {
             "INSERT INTO notifications (volunteer_id, type, payload, created_at, read) VALUES (?, ?, ?, ?, 0)",
             volId, "moderation_approved", msg, OffsetDateTime.now());
         try {
-            telegram.notifyVolunteer(volId, "✓ " + msg);
+            telegram.notifyVolunteer(volId, msg);
         } catch (RuntimeException ignore) {
         }
         log.info("[kyc] volunteer " + volId + " auto-approved (score " + score + ")");

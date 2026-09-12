@@ -50,11 +50,11 @@ public class ChatController {
         try {
             if ("needy".equals(added.senderRole())) {
                 int volId = added.assignedVolunteerId();
-                telegram.notifyVolunteer(volId, "◇ Получатель: " + safe);
+                telegram.notifyVolunteer(volId, "Получатель: " + safe);
                 push.notifyRole("volunteer", volId, "Сообщение от получателя: " + payload.body(), "/volunteer");
             } else {
                 int needyId = added.needyId();
-                telegram.notifyNeedy(needyId, "◇ Волонтёр: " + safe);
+                telegram.notifyNeedy(needyId, "Волонтёр: " + safe);
                 push.notifyRole("needy", needyId, "Сообщение от волонтёра: " + payload.body(), "/needy");
             }
         } catch (RuntimeException ignore) {

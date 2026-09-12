@@ -402,7 +402,7 @@ public class VolunteerService {
                     "Волонтёр " + volName + " едет к вам (тикет " + p.get("ticket_id")
                     + "). Ожидаемое время прибытия" + etaText + ".", OffsetDateTime.now());
                 try {
-                    telegram.notifyNeedy(needyId, "→ Волонтёр " + Html.escape(volName) + " едет к вам (тикет "
+                    telegram.notifyNeedy(needyId, "Волонтёр " + Html.escape(volName) + " едет к вам (тикет "
                         + p.get("ticket_id") + "). Ожидаемое время прибытия" + etaText + ".");
                 } catch (RuntimeException ignore) {
                 }

@@ -110,7 +110,7 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Integer needyId : matched) {
             try {
-                notifyExternal("needy", needyId, "□ " + safe, budget);
+                notifyExternal("needy", needyId, safe, budget);
             } catch (RuntimeException ignore) {
             }
         }
@@ -165,7 +165,7 @@ public class NeedsMatchService {
         String safe = Html.escape(text);
         for (Map<String, Object> v : targets) {
             try {
-                notifyExternal("volunteer", ((Number) v.get("id")).intValue(), "□ " + safe, budget);
+                notifyExternal("volunteer", ((Number) v.get("id")).intValue(), safe, budget);
             } catch (RuntimeException ignore) {
             }
         }
