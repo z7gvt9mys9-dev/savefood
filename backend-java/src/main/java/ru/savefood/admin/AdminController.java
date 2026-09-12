@@ -110,8 +110,12 @@ public class AdminController {
             + "kyc_checked_at, kyc_generation, created_at, "
             + "(document IS NOT NULL) AS has_document";
         if (status != null && !status.isBlank()) {
+            // "pending" is also the legacy/default profile status before a document is
+            // uploaded. Only a row with a document is an actual KYC application.
+            String documentGuard = "pending".equals(status) ? " AND document IS NOT NULL" : "";
             return jdbc.queryForList(
-                "SELECT " + columns + " FROM volunteers WHERE status = ? ORDER BY created_at DESC",
+                "SELECT " + columns + " FROM volunteers WHERE status = ?" + documentGuard
+                    + " ORDER BY created_at DESC",
                 status);
         }
         return jdbc.queryForList("SELECT " + columns + " FROM volunteers ORDER BY created_at DESC");

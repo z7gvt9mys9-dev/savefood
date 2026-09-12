@@ -860,8 +860,19 @@ const VolunteerDashboard = () => {
     </div>
   );
   const kycStatus = volunteerInfo?.status;
+  const verificationStatus = volunteerInfo?.verification_status
+    || (kycStatus === 'approved' ? 'VERIFIED' : 'NOT_SUBMITTED');
+  const canUploadKycDocument = verificationStatus === 'NOT_SUBMITTED' || kycStatus === 'rejected';
   const renderKycBanner = () => {
-    if (!volunteerInfo || kycStatus === 'approved') return null;
+    if (!volunteerInfo || verificationStatus === 'VERIFIED') return null;
+    if (verificationStatus === 'PENDING') {
+      return (
+        <div style={{ background: '#2a2416', border: '1px solid #4a4020', borderRadius: 12, padding: 14, margin: '10px 12px' }}>
+          <strong style={{ display: 'block', marginBottom: 6 }}><MonoIcon name="wait" /> {t('volunteer.kyc_pending_review_title')}</strong>
+          <p style={{ fontSize: '0.82rem', color: '#bbb', margin: 0 }}>{t('volunteer.kyc_pending_review_hint')}</p>
+        </div>
+      );
+    }
     const rejected = kycStatus === 'rejected';
     return (
       <div style={{
@@ -876,11 +887,11 @@ const VolunteerDashboard = () => {
         <p style={{ fontSize: '0.82rem', color: '#bbb', margin: '0 0 10px' }}>
           {rejected ? t('volunteer.kyc_rejected_hint') : t('volunteer.kyc_pending_hint')}
         </p>
-        <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block' }}>
-          {kycBusy ? '…' : t('volunteer.kyc_upload')}
-          <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
-            onChange={(e) => uploadKycDocument(e.target.files?.[0])} />
-        </label>
+        {canUploadKycDocument && <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block' }}>
+            {kycBusy ? '…' : t('volunteer.kyc_upload')}
+            <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+              onChange={(e) => uploadKycDocument(e.target.files?.[0])} />
+          </label>}
       </div>
     );
   };
@@ -1138,7 +1149,7 @@ const VolunteerDashboard = () => {
                 <p className="profile-role">{t('nav.roles.volunteer')}
                   {kycStatus && (
                     <span className={`kyc-chip kyc-${kycStatus}`}>
-                      {kycStatus === 'approved' ? `✓ ${t('volunteer.kyc_status_approved')}`
+                  {verificationStatus === 'VERIFIED' ? `✓ ${t('volunteer.kyc_status_approved')}`
                         : kycStatus === 'rejected' ? `✕ ${t('volunteer.kyc_status_rejected')}`
                         : <><MonoIcon name="wait" /> {t('volunteer.kyc_status_pending')}</>}
                     </span>
@@ -1149,15 +1160,16 @@ const VolunteerDashboard = () => {
             <div className="profile-section">
               <h4><MonoIcon name="id" /> {t('volunteer.kyc_section')}</h4>
               <p className="profile-hint">
-                {kycStatus === 'approved' ? t('volunteer.kyc_ok_hint')
+                {verificationStatus === 'VERIFIED' ? t('volunteer.kyc_verified_hint')
+                  : verificationStatus === 'PENDING' ? `${t('volunteer.kyc_pending_review_title')}. ${t('volunteer.kyc_pending_review_hint')}`
                   : kycStatus === 'rejected' ? t('volunteer.kyc_rejected_hint')
                   : t('volunteer.kyc_pending_hint')}
               </p>
-              <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block', width: 'auto' }}>
-                {kycBusy ? '…' : t('volunteer.kyc_upload')}
-                <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
-                  onChange={(e) => { uploadKycDocument(e.target.files?.[0]); e.target.value = ''; }} />
-              </label>
+              {canUploadKycDocument && <label className="btn-small btn-primary" style={{ cursor: kycBusy ? 'wait' : 'pointer', display: 'inline-block', width: 'auto' }}>
+                  {kycBusy ? '…' : t('volunteer.kyc_upload')}
+                  <input type="file" accept="image/jpeg,image/png,.pdf" disabled={kycBusy} style={{ display: 'none' }}
+                    onChange={(e) => { uploadKycDocument(e.target.files?.[0]); e.target.value = ''; }} />
+                </label>}
             </div>
             <div className="profile-section">
               <h4><MonoIcon name="gear" /> {t('volunteer.equipment_title')}</h4>

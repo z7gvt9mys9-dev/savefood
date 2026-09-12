@@ -107,6 +107,14 @@ class VolunteerKycDocumentAuthorizationIT extends PostgresIT {
             .containsKey("kyc_score")
             .doesNotContainKey("document");
     }
+    @Test
+    void adminQueueOmitsUnsubmittedVolunteerProfiles() {
+        int unsubmitted = insertVolunteer("No document yet");
+        int adminUserId = insertUser("queue-admin-no-document", "admin", null);
+        assertThat(admin.listVolunteers("pending",
+            new CurrentUser(adminUserId, "queue-admin-no-document", "admin", null)))
+            .noneMatch(v -> unsubmitted == ((Number) v.get("id")).intValue());
+    }
     private int insertUser(String username, String role, Integer relatedId) {
         return jdbc.queryForObject(
             "INSERT INTO users (username, hashed_password, role, related_id) VALUES (?, 'hash', ?, ?) RETURNING id",

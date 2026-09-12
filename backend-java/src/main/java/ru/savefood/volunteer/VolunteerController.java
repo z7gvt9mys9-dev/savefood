@@ -134,6 +134,9 @@ public class VolunteerController {
         if (vol == null) {
             throw new ApiException(404, "Volunteer not found");
         }
+        if ("pending".equals(vol.get("status")) && vol.get("document") != null) {
+            throw new ApiException(409, "Документ уже отправлен на проверку");
+        }
         String filename = uploads.validateAndSave(file, kycUploadDir, true);
         String document = "/volunteer_kyc/" + filename;
         sensitiveFiles.deleteOnRollback(Storage.VOLUNTEER_KYC, document);
@@ -144,6 +147,11 @@ public class VolunteerController {
             kycCrypto.encryptFile(path.toString());
             replacement = repo.replaceVolunteerKycDocument(volunteerId, document, generation);
             if (replacement == null) {
+                // A competing upload can create the pending application after the check above.
+                // The repository predicate is the authoritative, atomic guard for that race.
+                if (repo.getVolunteerById(volunteerId) != null) {
+                    throw new ApiException(409, "Документ уже отправлен на проверку");
+                }
                 throw new ApiException(404, "Volunteer not found");
             }
         } catch (RuntimeException e) {
@@ -160,6 +168,7 @@ public class VolunteerController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("ok", true);
         out.put("status", "pending");
+        out.put("verification_status", "PENDING");
         return out;
     }
     @GetMapping("/volunteers/{volunteerId}/document")
@@ -616,11 +625,27 @@ public class VolunteerController {
         out.put("has_thermal_bag", v.get("has_thermal_bag") != null ? v.get("has_thermal_bag") : false);
         out.put("availability", v.get("availability"));
         out.put("status", v.get("status") != null ? v.get("status") : "approved");
+        out.put("verification_status", verificationStatus(v));
         out.put("kyc_score", v.get("kyc_score"));
         out.put("kyc_verdict", v.get("kyc_verdict"));
         out.put("kyc_notes", v.get("kyc_notes"));
         out.put("created_at", v.get("created_at"));
         return out;
+    }
+    /**
+     * KYC has always used the volunteer row rather than a separate application table.
+     * A pending row without a document is an unsubmitted profile; a pending row with a
+     * document is the active moderation application.  Do not expose the document itself.
+     */
+    private static String verificationStatus(Map<String, Object> volunteer) {
+        // Null is a legacy approved account: volunteerOut has always exposed it as approved.
+        if (volunteer.get("status") == null || "approved".equals(volunteer.get("status"))) {
+            return "VERIFIED";
+        }
+        if ("pending".equals(volunteer.get("status")) && volunteer.get("document") != null) {
+            return "PENDING";
+        }
+        return "NOT_SUBMITTED";
     }
     private static Map<String, Object> nullableTeam(Map<String, Object> team) {
         Map<String, Object> out = new LinkedHashMap<>();

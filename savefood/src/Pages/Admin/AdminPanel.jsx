@@ -248,7 +248,7 @@ const AdminPanel = () => {
                 </div>
                 <div className="photo-mod-actions">
                   <button className="btn-small btn-success" disabled={!!kycBusy[key] || !item.has_document}
-                    onClick={() => handleModerateKyc(item, 'approved')}>{t('admin.approve')}</button>
+                    onClick={() => handleModerateKyc(item, 'approved')}>{t('admin.confirm')}</button>
                   <button className="btn-small btn-danger" disabled={!!kycBusy[key]}
                     onClick={() => handleModerateKyc(item, 'rejected')}>{t('admin.reject')}</button>
                 </div>

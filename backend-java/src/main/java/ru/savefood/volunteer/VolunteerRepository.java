@@ -68,7 +68,8 @@ public class VolunteerRepository {
     public KycDocumentReplacement replaceVolunteerKycDocument(int volId, String document,
                                                                String generation) {
         List<KycDocumentReplacement> rows = jdbc.query(
-            "WITH previous AS (SELECT id, document FROM volunteers WHERE id = ? FOR UPDATE) "
+            "WITH previous AS (SELECT id, document FROM volunteers WHERE id = ? "
+            + "AND NOT (COALESCE(status, 'pending') = 'pending' AND document IS NOT NULL) FOR UPDATE) "
             + "UPDATE volunteers v SET document = ?, kyc_generation = ?, status = 'pending', "
             + "kyc_score = NULL, kyc_verdict = NULL, kyc_notes = NULL, kyc_checked_at = NULL "
             + "FROM previous p WHERE v.id = p.id "

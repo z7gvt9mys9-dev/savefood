@@ -53,21 +53,13 @@ class VolunteerKycModerationIT extends PostgresIT {
     }
 
     @Test
-    void replacementMakesAnOpenModerationDecisionStaleWithoutSideEffects() {
+    void activePendingApplicationCannotBeReplaced() {
         int volunteer = pendingVolunteer("generation-a", "/volunteer_kyc/a.jpg");
-        String reviewedGeneration = (String) admin.listVolunteers("pending", adminUser).get(0)
-            .get("kyc_generation");
-        volunteers.replaceVolunteerKycDocument(volunteer, "/volunteer_kyc/b.jpg", "generation-b");
-
-        assertThatThrownBy(() -> admin.moderateVolunteer(volunteer,
-            new ModerationDecision("approved", null, reviewedGeneration), adminUser))
-            .isInstanceOf(ApiException.class)
-            .extracting(e -> ((ApiException) e).getStatus())
-            .isEqualTo(409);
-
+        assertThat(volunteers.replaceVolunteerKycDocument(
+            volunteer, "/volunteer_kyc/b.jpg", "generation-b")).isNull();
         assertThat(volunteers.getVolunteerById(volunteer))
             .containsEntry("status", "pending")
-            .containsEntry("kyc_generation", "generation-b");
+            .containsEntry("kyc_generation", "generation-a");
         assertThat(sideEffectCount(volunteer)).isZero();
         verifyNoInteractions(telegram);
     }
@@ -93,8 +85,8 @@ class VolunteerKycModerationIT extends PostgresIT {
     }
 
     @Test
-    void committedReplacementWinsAgainstConcurrentStaleModeration() throws Exception {
-        int volunteer = pendingVolunteer("generation-a", "/volunteer_kyc/a.jpg");
+    void onlyOneOfTwoConcurrentFirstUploadsCanCreateThePendingApplication() throws Exception {
+        int volunteer = insertVolunteer("Applicant");
         CountDownLatch replacementWritten = new CountDownLatch(1);
         CountDownLatch allowCommit = new CountDownLatch(1);
         Future<?> replacement = executor.submit(() -> tx.executeWithoutResult(ignored -> {
@@ -103,16 +95,17 @@ class VolunteerKycModerationIT extends PostgresIT {
             await(allowCommit);
         }));
         assertThat(replacementWritten.await(5, TimeUnit.SECONDS)).isTrue();
-        Future<VolunteerRepository.KycModerationTransition> moderation = executor.submit(
-            () -> volunteers.moderateVolunteerKyc(volunteer, "approved", "generation-a"));
-        assertThatThrownBy(() -> moderation.get(500, TimeUnit.MILLISECONDS))
+        Future<VolunteerRepository.KycDocumentReplacement> secondUpload = executor.submit(
+            () -> volunteers.replaceVolunteerKycDocument(volunteer, "/volunteer_kyc/c.jpg", "generation-c"));
+        assertThatThrownBy(() -> secondUpload.get(500, TimeUnit.MILLISECONDS))
             .isInstanceOf(TimeoutException.class);
         allowCommit.countDown();
         replacement.get(5, TimeUnit.SECONDS);
-        assertThat(moderation.get(5, TimeUnit.SECONDS)).isNull();
+        assertThat(secondUpload.get(5, TimeUnit.SECONDS)).isNull();
         assertThat(volunteers.getVolunteerById(volunteer))
             .containsEntry("status", "pending")
-            .containsEntry("kyc_generation", "generation-b");
+            .containsEntry("kyc_generation", "generation-b")
+            .containsEntry("document", "/volunteer_kyc/b.jpg");
     }
 
     private int pendingVolunteer(String generation, String document) {

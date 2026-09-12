@@ -1,9 +1,11 @@
 package ru.savefood.volunteer;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.file.Path;
@@ -26,6 +28,7 @@ import ru.savefood.storage.SensitiveFileCleanup.Storage;
 import ru.savefood.telegram.TelegramService;
 import ru.savefood.upload.UploadService;
 import ru.savefood.web.RateLimiter;
+import ru.savefood.web.ApiException;
 import ru.savefood.webhook.WebhookService;
 class VolunteerKycGenerationTest {
     @TempDir
@@ -33,7 +36,7 @@ class VolunteerKycGenerationTest {
     @Test
     void uploadCreatesOneGenerationAndPassesItToAnalysis() {
         Fixture fixture = fixture();
-        when(fixture.repo.getVolunteerById(7)).thenReturn(volunteerRow("/volunteer_kyc/a.pdf", "generation-a"));
+        when(fixture.repo.getVolunteerById(7)).thenReturn(volunteerRow("/volunteer_kyc/a.pdf", "generation-a", "rejected"));
         when(fixture.uploads.validateAndSave(fixture.file, uploadDir.toString(), true)).thenReturn("b.pdf");
         when(fixture.repo.replaceVolunteerKycDocument(eq(7), eq("/volunteer_kyc/b.pdf"), anyString()))
             .thenReturn(new VolunteerRepository.KycDocumentReplacement("/volunteer_kyc/a.pdf"));
@@ -61,6 +64,34 @@ class VolunteerKycGenerationTest {
             7, uploadDir.resolve("a.pdf").toString(), "Volunteer", "generation-a");
         assertThat(response).containsEntry("kyc_verdict", "unchecked");
     }
+    @Test
+    void activePendingApplicationCannotReachTheFileUploadStep() {
+        Fixture fixture = fixture();
+        when(fixture.repo.getVolunteerById(7)).thenReturn(volunteerRow(
+            "/volunteer_kyc/a.pdf", "generation-a", "pending"));
+        assertThatThrownBy(() -> fixture.controller.uploadDocument(7, fixture.file,
+            new CurrentUser(1, "volunteer", "volunteer", 7), fixture.request))
+            .isInstanceOf(ApiException.class)
+            .extracting(e -> ((ApiException) e).getStatus())
+            .isEqualTo(409);
+        verifyNoInteractions(fixture.uploads, fixture.kyc);
+    }
+    @Test
+    void profileResponseProvidesTheDerivedVerificationStateWithoutExposingDocument() {
+        Fixture fixture = fixture();
+        when(fixture.repo.getVolunteerById(7)).thenReturn(volunteerRow(
+            "/volunteer_kyc/a.pdf", "generation-a", "pending"));
+        Map<String, Object> pending = fixture.controller.getVolunteer(7,
+            new CurrentUser(1, "volunteer", "volunteer", 7));
+        assertThat(pending).containsEntry("verification_status", "PENDING")
+            .doesNotContainKey("document");
+
+        when(fixture.repo.getVolunteerById(7)).thenReturn(volunteerRow(
+            "/volunteer_kyc/a.pdf", "generation-a", "approved"));
+        assertThat(fixture.controller.getVolunteer(7,
+            new CurrentUser(1, "volunteer", "volunteer", 7)))
+            .containsEntry("verification_status", "VERIFIED");
+    }
     private Fixture fixture() {
         VolunteerRepository repo = mock(VolunteerRepository.class);
         UploadService uploads = mock(UploadService.class);
@@ -77,10 +108,13 @@ class VolunteerKycGenerationTest {
         return new Fixture(controller, repo, uploads, kyc, sensitiveFiles, file, request);
     }
     private static Map<String, Object> volunteerRow(String document, String generation) {
+        return volunteerRow(document, generation, "pending");
+    }
+    private static Map<String, Object> volunteerRow(String document, String generation, String status) {
         Map<String, Object> row = new HashMap<>();
         row.put("id", 7);
         row.put("name", "Volunteer");
-        row.put("status", "pending");
+        row.put("status", status);
         row.put("document", document);
         row.put("kyc_generation", generation);
         return row;

@@ -30,22 +30,21 @@ class VolunteerKycGenerationIT extends PostgresIT {
         executor.shutdownNow();
     }
     @Test
-    void uploadBResetsAAndDiscardsItsDelayedAutomaticApprovalWithoutNotification() {
+    void activePendingDocumentCannotBeReplaced() {
         int volunteer = pendingVolunteer("/volunteer_kyc/a.enc", "generation-a");
-        jdbc.update("UPDATE volunteers SET kyc_score = 0.4, kyc_verdict = 'review', "
-            + "kyc_notes = 'A', kyc_checked_at = NOW() - INTERVAL '7 days' WHERE id = ?", volunteer);
         VolunteerRepository.KycDocumentReplacement replaced = volunteers.replaceVolunteerKycDocument(
             volunteer, "/volunteer_kyc/b.enc", "generation-b");
-        boolean staleApplied = kyc.applyVolunteerKycResult(
-            volunteer, "generation-a", 0.85, "likely_ok", "A approved");
-        assertThat(replaced.previousDocument()).isEqualTo("/volunteer_kyc/a.enc");
-        assertThat(staleApplied).isFalse();
-        assertCurrentDocumentIsReset(volunteer, "/volunteer_kyc/b.enc", "generation-b");
+        assertThat(replaced).isNull();
+        assertThat(volunteers.getVolunteerById(volunteer))
+            .containsEntry("status", "pending")
+            .containsEntry("document", "/volunteer_kyc/a.enc")
+            .containsEntry("kyc_generation", "generation-a");
         assertThat(notificationCount(volunteer, "moderation_approved")).isZero();
     }
     @Test
     void delayedFraudResultCannotRejectOrAnnotateDocumentB() {
         int volunteer = pendingVolunteer("/volunteer_kyc/a.enc", "generation-a");
+        jdbc.update("UPDATE volunteers SET status = 'rejected' WHERE id = ?", volunteer);
         volunteers.replaceVolunteerKycDocument(volunteer, "/volunteer_kyc/b.enc", "generation-b");
         boolean staleApplied = kyc.applyVolunteerKycResult(
             volunteer, "generation-a", 0.1, "likely_fraud", "A rejected");
