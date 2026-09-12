@@ -330,7 +330,8 @@ APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
 ```
 
 **Требования:** JDK 21, Android SDK 36 (`compileSdk`/`targetSdk` = 36, `minSdk` = 26).
-Без `YANDEX_MAPKIT_API_KEY` приложение собирается, но карты отключаются. Dev URL
+Без `YANDEX_MAPKIT_API_KEY` приложение собирается, но карты отключаются; для адресных подсказок
+используется системный геокодер Android. Dev URL
 `:8000` рассчитан на локальный Spring Boot; в Docker Compose наружу опубликован
 nginx на `127.0.0.1:${APP_PORT:-80}`.
 Для FCM положите `google-services.json` в `android-app/app/`; без файла сборка

@@ -17,6 +17,7 @@ import ru.savefood.kyc.KycService;
 import ru.savefood.volunteer.dto.ModerationUpdate;
 import ru.savefood.photo.PhotoModerationService;
 import ru.savefood.security.Auth;
+import ru.savefood.security.Admin;
 import ru.savefood.security.Authz;
 import ru.savefood.security.CurrentUser;
 import ru.savefood.storage.SensitiveFileCleanup;
@@ -174,6 +175,15 @@ public class VolunteerController {
     @GetMapping("/volunteers/{volunteerId}/document")
     public ResponseEntity<byte[]> getDocument(@PathVariable int volunteerId, @Auth CurrentUser user) {
         Authz.ensureOwner(user, "volunteer", volunteerId);
+        return documentResponse(volunteerId);
+    }
+    /** KYC documents are private, but a moderator needs the current document to decide it. */
+    @GetMapping("/admin/volunteers/{volunteerId}/document")
+    public ResponseEntity<byte[]> getDocumentForModeration(@PathVariable int volunteerId,
+                                                            @Admin CurrentUser user) {
+        return documentResponse(volunteerId);
+    }
+    private ResponseEntity<byte[]> documentResponse(int volunteerId) {
         Map<String, Object> vol = repo.getVolunteerById(volunteerId);
         String docUrl = vol == null ? null : (String) vol.get("document");
         if (docUrl == null || docUrl.isBlank()) {

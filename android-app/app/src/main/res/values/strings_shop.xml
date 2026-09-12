@@ -44,6 +44,14 @@
     <string name="shop_field_expiry">Срок годности</string>
     <string name="shop_field_comment">Комментарий</string>
     <string name="shop_field_requires_cold">Требует холода</string>
+    <string name="shop_category_choose">Выберите категорию</string>
+    <string name="shop_category_bakery">Выпечка</string>
+    <string name="shop_category_produce">Овощи и фрукты</string>
+    <string name="shop_category_prepared">Готовая еда</string>
+    <string name="shop_category_dairy">Молочные продукты</string>
+    <string name="shop_address_example">Например: ул. Абая, 10, Алматы</string>
+    <string name="shop_time_slot_example">Например: 18:00–21:00</string>
+    <string name="shop_time_slot_hint">Формат: ЧЧ:ММ–ЧЧ:ММ</string>
 
     <string name="shop_create_step_of">Шаг %1$d из %2$d</string>
     <string name="shop_create_photo">Фото</string>

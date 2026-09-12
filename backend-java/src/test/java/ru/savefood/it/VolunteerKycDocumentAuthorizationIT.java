@@ -90,6 +90,15 @@ class VolunteerKycDocumentAuthorizationIT extends PostgresIT {
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isForbidden());
     }
     @Test
+    void adminCanReadTheDocumentOnlyThroughTheModerationEndpoint() throws Exception {
+        String adminToken = tokenFor("kyc-moderator", "admin", null);
+        mvc.perform(get("/admin/volunteers/{id}/document", ownerId)
+                .header("Authorization", bearer(adminToken)))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(content().bytes("owner-document".getBytes(StandardCharsets.UTF_8)));
+    }
+    @Test
     void unauthenticatedRequestIsRejected() throws Exception {
         mvc.perform(get("/volunteers/{id}/document", ownerId))
             .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnauthorized());

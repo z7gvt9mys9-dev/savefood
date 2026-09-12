@@ -80,7 +80,7 @@ class KycServiceTest {
         verifyNoInteractions(jdbc, audit, telegram);
     }
     @Test
-    void currentGenerationCanCompleteNormalAutomaticApprovalOnce() {
+    void likelyOkResultRemainsPendingForManualModeration() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         VolunteerRepository volunteers = mock(VolunteerRepository.class);
         AuditService audit = mock(AuditService.class);
@@ -88,15 +88,12 @@ class KycServiceTest {
         when(volunteers.saveVolunteerKyc(
             17, "generation-a", 0.85, "likely_ok", "ok", "pending"))
             .thenReturn(true);
-        when(volunteers.autoApproveVolunteerKyc(17, "generation-a")).thenReturn(true);
         KycService service = service(jdbc, volunteers, audit, telegram);
         boolean applied = service.applyVolunteerKycResult(
             17, "generation-a", 0.85, "likely_ok", "ok");
         org.assertj.core.api.Assertions.assertThat(applied).isTrue();
-        verify(jdbc).update(contains("INSERT INTO notifications"),
-            eq(17), eq("moderation_approved"), contains("автоматической"),
-            org.mockito.ArgumentMatchers.any(java.time.OffsetDateTime.class));
-        verify(telegram).notifyVolunteer(eq(17), contains("подтверждён"));
+        verify(volunteers, never()).autoApproveVolunteerKyc(17, "generation-a");
+        verifyNoInteractions(jdbc, audit, telegram);
     }
     private KycService service(JdbcTemplate jdbc, VolunteerRepository volunteers,
                                AuditService audit, TelegramService telegram) {

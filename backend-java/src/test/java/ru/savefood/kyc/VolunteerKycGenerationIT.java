@@ -71,26 +71,22 @@ class VolunteerKycGenerationIT extends PostgresIT {
         approval.get();
         fraud.get();
         Map<String, Object> row = volunteers.getVolunteerById(volunteer);
-        if ("approved".equals(row.get("status"))) {
-            assertThat(row.get("kyc_verdict")).isEqualTo("likely_ok");
-            assertThat(notificationCount(volunteer, "moderation_approved")).isEqualTo(1);
-        } else {
-            assertThat(row).containsEntry("status", "pending").containsEntry("kyc_verdict", "likely_fraud");
-            assertThat(notificationCount(volunteer, "moderation_approved")).isZero();
-        }
+        assertThat(row).containsEntry("status", "pending");
+        assertThat(row.get("kyc_verdict")).isIn("likely_ok", "likely_fraud");
+        assertThat(notificationCount(volunteer, "moderation_approved")).isZero();
         assertThat(row.get("kyc_generation")).isEqualTo("generation-a");
     }
     @Test
-    void currentGenerationStillCompletesNormalAutomaticApproval() {
+    void likelyOkResultIsSavedButStillAwaitsManualApproval() {
         int volunteer = pendingVolunteer("/volunteer_kyc/a.enc", "generation-a");
         boolean applied = kyc.applyVolunteerKycResult(
             volunteer, "generation-a", 0.85, "likely_ok", "ok");
         assertThat(applied).isTrue();
         assertThat(volunteers.getVolunteerById(volunteer))
-            .containsEntry("status", "approved")
+            .containsEntry("status", "pending")
             .containsEntry("kyc_verdict", "likely_ok")
             .containsEntry("kyc_generation", "generation-a");
-        assertThat(notificationCount(volunteer, "moderation_approved")).isEqualTo(1);
+        assertThat(notificationCount(volunteer, "moderation_approved")).isZero();
     }
     @Test
     void deletingVolunteerDuringAnalysisMakesItsResultANoOp() {

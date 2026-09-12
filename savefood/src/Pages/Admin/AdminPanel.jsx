@@ -45,10 +45,48 @@ const ProtectedDeliveryPhoto = ({ path }) => {
     </a>
   );
 };
+/** KYC documents stay private: this component fetches the administrator-only blob. */
+const ProtectedKycDocument = ({ volunteerId }) => {
+  const { t } = useTranslation();
+  const [file, setFile] = useState(null);
+  useEffect(() => {
+    if (!volunteerId) return undefined;
+    let cancelled = false;
+    let objectUrl = null;
+    setFile(null);
+    authFetch(`${API_URL}/admin/volunteers/${volunteerId}/document`)
+      .then(res => {
+        if (!res.ok) throw new Error('document unavailable');
+        const contentType = res.headers.get('content-type') || '';
+        return res.blob().then(blob => ({ blob, contentType }));
+      })
+      .then(({ blob, contentType }) => {
+        objectUrl = URL.createObjectURL(blob);
+        if (cancelled) URL.revokeObjectURL(objectUrl);
+        else setFile({ objectUrl, contentType });
+      })
+      .catch(() => { if (!cancelled) setFile(null); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [volunteerId]);
+  if (!file) return <div className="photo-mod-img" aria-label="Document unavailable" />;
+  if (file.contentType.includes('pdf')) {
+    return <a className="btn-small" href={file.objectUrl} target="_blank" rel="noopener noreferrer">{t('admin.kyc_view_doc')}</a>;
+  }
+  return (
+    <a href={file.objectUrl} target="_blank" rel="noopener noreferrer">
+      <img src={file.objectUrl} alt="Volunteer verification document" className="photo-mod-img" />
+    </a>
+  );
+};
 const AdminPanel = () => {
   const { user } = useAuth();
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState('photos');
+  // Profile verification is the primary moderation queue. Opening the unrelated
+  // delivery-photo queue first made pending KYC applications look as if they vanished.
+  const [activeTab, setActiveTab] = useState('kyc');
   const [stats, setStats] = useState({});
   const [activeRoutes, setActiveRoutes] = useState([]);
   const [users, setUsers] = useState([]);
@@ -109,7 +147,6 @@ const AdminPanel = () => {
     if (activeTab === 'audit') fetchAuditLog();
     if (activeTab === 'plans') fetchShops();
     if (activeTab === 'photos') fetchDeliveryPhotos();
-    if (activeTab === 'kyc') fetchKycQueue();
     if (activeTab === 'analytics' && !esgGlobal) {
       authFetch(`${API_URL}/admin/esg?months=12`, { headers: authHeader })
         .then(r => r.ok ? r.json() : null)
@@ -122,6 +159,17 @@ const AdminPanel = () => {
         .then(data => data && setHeatmap(data))
         .catch(() => {});
     }
+  }, [activeTab]);
+  useEffect(() => {
+    if (activeTab !== 'kyc') return undefined;
+    fetchKycQueue();
+    const refresh = () => fetchKycQueue();
+    const intervalId = window.setInterval(refresh, 10000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refresh);
+    };
   }, [activeTab]);
   const handleSetPlan = async (shopId, planValue) => {
     try {
@@ -232,6 +280,7 @@ const AdminPanel = () => {
             const key = `volunteer:${item.id}`;
             return (
               <div key={key} className="photo-mod-card">
+                {item.has_document && <ProtectedKycDocument volunteerId={item.id} />}
                 <div className="photo-mod-meta">
                   <div><strong>{item.name || `#${item.id}`}</strong></div>
                   <div>{kycBadge(item)}</div>
@@ -562,7 +611,7 @@ const AdminPanel = () => {
       <aside className="sidebar">
         <h2>SaveFood Admin</h2>
         <nav>
-          <button className={activeTab === 'kyc' ? 'active' : ''} onClick={() => setActiveTab('kyc')}>{t('admin.moderation')}</button>
+          <button className={activeTab === 'kyc' ? 'active' : ''} onClick={() => setActiveTab('kyc')}>{t('admin.moderation_queue')}</button>
           <button className={activeTab === 'photos' ? 'active' : ''} onClick={() => setActiveTab('photos')}>{t('admin.photos')}</button>
           <button className={activeTab === 'dispatcher' ? 'active' : ''} onClick={() => setActiveTab('dispatcher')}>{t('admin.dispatch')}</button>
           <button className={activeTab === 'users' ? 'active' : ''} onClick={() => setActiveTab('users')}>{t('admin.users')}</button>

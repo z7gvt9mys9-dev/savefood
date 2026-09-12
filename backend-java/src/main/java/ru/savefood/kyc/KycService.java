@@ -142,9 +142,8 @@ public class KycService {
             log.info("[kyc] discarded stale result for volunteer " + volId);
             return false;
         }
-        if (VERDICT_OK.equals(verdict)) {
-            autoApproveVolunteer(volId, generation, score);
-        }
+        // AI is advisory only. Even a high-confidence result remains pending until an
+        // administrator reviews the document and explicitly confirms the profile.
         return true;
     }
     /** Deterministic scoring of the AI's structured answer for an identity doc. */

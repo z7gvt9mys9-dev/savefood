@@ -7,7 +7,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import ru.savefood.app.core.address.AddressSuggestionService
 import ru.savefood.app.core.common.ApiResult
 import ru.savefood.app.core.common.AppStrings
 import ru.savefood.app.R
@@ -33,23 +36,48 @@ data class CreateLotUiState(
     val submitting: Boolean = false,
     val error: String? = null,
     val createdId: Int? = null,
+    val addressSuggestions: List<String> = emptyList(),
 ) {
     /** True when the kg-unit weight rule is satisfied and the basics are present. */
     val canContinue: Boolean
         get() = form.description.isNotBlank() &&
             form.quantity.toIntOrNull()?.let { it >= 1 } == true &&
+            form.category.isNotBlank() &&
             (form.unit == "кг" || (form.unitWeightKg.toDoubleOrNull()?.let { it > 0 } == true))
 }
 @HiltViewModel
 class CreateLotViewModel @Inject constructor(
     private val repo: ShopRepository,
+    private val addressSuggestionService: AddressSuggestionService,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CreateLotUiState())
     val state: StateFlow<CreateLotUiState> = _state.asStateFlow()
+    private var addressSuggestionJob: Job? = null
     fun updateForm(transform: (CreateLotForm) -> CreateLotForm) =
         _state.update { it.copy(form = transform(it.form)) }
     fun setStep(step: Int) = _state.update { it.copy(step = step) }
     fun setPhoto(uri: Uri?) = _state.update { it.copy(photoUri = uri) }
+    fun updateAddress(address: String) {
+        _state.update { it.copy(form = it.form.copy(address = address), addressSuggestions = emptyList()) }
+        addressSuggestionJob?.cancel()
+        if (address.trim().length < 3) return
+        addressSuggestionJob = viewModelScope.launch {
+            delay(300)
+            val requestedAddress = address.trim()
+            val suggestions = addressSuggestionService.suggest(requestedAddress)
+            _state.update { current ->
+                if (current.form.address.trim() == requestedAddress) {
+                    current.copy(addressSuggestions = suggestions)
+                } else {
+                    current
+                }
+            }
+        }
+    }
+    fun selectAddress(address: String) {
+        addressSuggestionJob?.cancel()
+        _state.update { it.copy(form = it.form.copy(address = address), addressSuggestions = emptyList()) }
+    }
     fun reset() = _state.update { CreateLotUiState() }
     fun clearError() = _state.update { it.copy(error = null) }
     fun submit() {

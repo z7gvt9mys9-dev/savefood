@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -18,6 +19,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
@@ -85,6 +92,7 @@ fun CreateLotScreen(viewModel: CreateLotViewModel = hiltViewModel()) {
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DataStep(viewModel: CreateLotViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -121,20 +129,73 @@ private fun DataStep(viewModel: CreateLotViewModel) {
                 modifier = Modifier.fillMaxWidth(),
             )
         }
-        OutlinedTextField(
-            value = f.category, onValueChange = { v -> viewModel.updateForm { it.copy(category = v) } },
-            label = { Text(stringResource(R.string.shop_field_category)) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+        var categoryExpanded by remember { mutableStateOf(false) }
+        val categories = listOf(
+            "Выпечка" to stringResource(R.string.shop_category_bakery),
+            "Овощи/Фрукты" to stringResource(R.string.shop_category_produce),
+            "Готовая еда" to stringResource(R.string.shop_category_prepared),
+            "Молочные продукты" to stringResource(R.string.shop_category_dairy),
         )
-        OutlinedTextField(
-            value = f.address, onValueChange = { v -> viewModel.updateForm { it.copy(address = v) } },
-            label = { Text(stringResource(R.string.shop_field_address)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
+        ExposedDropdownMenuBox(
+            expanded = categoryExpanded,
+            onExpandedChange = { categoryExpanded = it },
+        ) {
+            OutlinedTextField(
+                value = categories.firstOrNull { it.first == f.category }?.second.orEmpty(),
+                onValueChange = {},
+                readOnly = true,
+                label = { Text(stringResource(R.string.shop_field_category)) },
+                placeholder = { Text(stringResource(R.string.shop_category_choose)) },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+                singleLine = true,
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            )
+            ExposedDropdownMenu(
+                expanded = categoryExpanded,
+                onDismissRequest = { categoryExpanded = false },
+            ) {
+                categories.forEach { (value, label) ->
+                    DropdownMenuItem(
+                        text = { Text(label) },
+                        onClick = {
+                            viewModel.updateForm { it.copy(category = value) }
+                            categoryExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+        Column {
+            OutlinedTextField(
+                value = f.address,
+                onValueChange = viewModel::updateAddress,
+                label = { Text(stringResource(R.string.shop_field_address)) },
+                placeholder = { Text(stringResource(R.string.shop_address_example)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (state.addressSuggestions.isNotEmpty()) {
+                SaveFoodCard(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                    Column {
+                        state.addressSuggestions.forEachIndexed { index, suggestion ->
+                            Text(
+                                text = suggestion,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable { viewModel.selectAddress(suggestion) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                            )
+                            if (index != state.addressSuggestions.lastIndex) HorizontalDivider()
+                        }
+                    }
+                }
+            }
+        }
         OutlinedTextField(
             value = f.timeSlot, onValueChange = { v -> viewModel.updateForm { it.copy(timeSlot = v) } },
             label = { Text(stringResource(R.string.shop_field_time_slot)) },
+            placeholder = { Text(stringResource(R.string.shop_time_slot_example)) },
+            supportingText = { Text(stringResource(R.string.shop_time_slot_hint)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
