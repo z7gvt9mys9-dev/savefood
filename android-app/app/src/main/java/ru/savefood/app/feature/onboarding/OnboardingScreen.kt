@@ -59,7 +59,7 @@ fun OnboardingScreen(role: UserRole, onFinish: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp),
+                .padding(horizontal = 16.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             AnimatedVisibility(visible = !onLast, enter = fadeIn(), exit = fadeOut()) {
@@ -104,7 +104,7 @@ private fun SlidePage(slide: OnbSlide) {
     ) {
         Surface(
             modifier = Modifier
-                .size(128.dp),
+                .size(96.dp),
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)),
@@ -114,7 +114,7 @@ private fun SlidePage(slide: OnbSlide) {
                 Icon(
                     imageVector = slide.icon,
                     contentDescription = null,
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier.size(44.dp),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
@@ -124,7 +124,7 @@ private fun SlidePage(slide: OnbSlide) {
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center,
-            modifier = Modifier.padding(top = 32.dp),
+            modifier = Modifier.padding(top = 22.dp),
         )
         Text(
             text = stringResource(slide.descRes),

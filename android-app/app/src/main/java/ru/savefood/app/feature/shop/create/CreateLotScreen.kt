@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -226,7 +227,7 @@ private fun CameraCaptureBlock(onCaptured: (android.net.Uri) -> Unit) {
     val imageCapture = rememberImageCapture()
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (granted) {
-            Box(modifier = Modifier.fillMaxWidth().height(320.dp)) {
+            Box(modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f).heightIn(max = 300.dp)) {
                 CameraPreview(imageCapture = imageCapture, modifier = Modifier.fillMaxSize())
             }
             SaveFoodButton(

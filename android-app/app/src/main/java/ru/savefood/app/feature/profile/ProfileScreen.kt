@@ -37,7 +37,7 @@ fun ProfileScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "Полный профиль появится в следующем шаге.",
+            text = stringResource(R.string.profile_placeholder),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 8.dp),

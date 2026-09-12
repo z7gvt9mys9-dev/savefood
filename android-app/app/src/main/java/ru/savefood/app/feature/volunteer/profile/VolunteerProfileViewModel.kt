@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.auth.data.AuthRepository
 import ru.savefood.app.feature.volunteer.data.NotificationDto
 import ru.savefood.app.feature.volunteer.data.RouteHistoryDto
@@ -39,7 +41,7 @@ class VolunteerProfileViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId() ?: run {
-                _state.update { it.copy(loading = false, error = "Нет сессии") }
+                _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(loading = true, error = null, partialError = false) }

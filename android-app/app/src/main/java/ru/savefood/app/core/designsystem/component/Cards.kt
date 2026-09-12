@@ -46,7 +46,7 @@ fun SaveFoodCard(
 }
 @Composable
 private fun CardBody(content: @Composable () -> Unit) {
-    Column(modifier = Modifier.padding(18.dp)) { content() }
+    Column(modifier = Modifier.padding(16.dp)) { content() }
 }
 /** Section title with optional trailing action label (e.g. "See all"). */
 @Composable

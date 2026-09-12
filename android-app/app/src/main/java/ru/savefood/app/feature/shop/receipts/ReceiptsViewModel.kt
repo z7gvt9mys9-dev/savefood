@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.shop.data.EsgReportDto
 import ru.savefood.app.feature.shop.data.ReceiptConfirmDto
 import ru.savefood.app.feature.shop.data.ReceiptDto
@@ -51,7 +53,7 @@ class ReceiptsViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: run {
-                _state.update { it.copy(loading = false, error = "Нет сессии") }
+                _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(loading = true, error = null, shopId = shopId, esg = EsgState.Loading) }

@@ -11,9 +11,45 @@
     <string name="common_error_generic">Что-то пошло не так</string>
     <string name="common_partial_load_error">Часть данных не загрузилась</string>
     <string name="common_logout">Выйти</string>
+    <string name="common_error_no_session">Сессия не найдена. Войдите снова.</string>
+
+    <string name="error_invalid_request">Проверьте введённые данные.</string>
+    <string name="error_session_expired">Сессия истекла. Войдите снова.</string>
+    <string name="error_forbidden">Доступ запрещён.</string>
+    <string name="error_not_found">Данные не найдены.</string>
+    <string name="error_conflict">Данные уже существуют или были изменены.</string>
+    <string name="error_invalid_fields">Проверьте заполнение полей.</string>
+    <string name="error_too_many_requests">Слишком много запросов. Попробуйте позже.</string>
+    <string name="error_server">Ошибка сервера. Попробуйте позже.</string>
+    <string name="error_request_code">Ошибка запроса (%1$d).</string>
+    <string name="error_no_connection">Нет соединения с сервером.</string>
+    <string name="error_unknown">Не удалось выполнить операцию.</string>
+    <string name="error_volunteer_city_required">Укажите город в профиле волонтёра.</string>
+    <string name="error_file_image_type">Поддерживаются только изображения JPG или PNG.</string>
+    <string name="error_file_document_type">Поддерживаются только файлы JPG, PNG или PDF.</string>
+    <string name="error_file_read">Не удалось прочитать файл.</string>
+    <string name="admin_web_only">Администрирование доступно только в веб-версии.</string>
+    <string name="profile_placeholder">Полный профиль появится в следующем шаге.</string>
 
     <string name="auth_title">Вход</string>
     <string name="auth_subtitle">Спасайте еду и помогайте людям вместе с нами</string>
+    <string name="auth_register_title">Создать аккаунт</string>
+    <string name="auth_register_subtitle">Выберите свою роль и заполните основные данные</string>
+    <string name="auth_tab_login">Вход</string>
+    <string name="auth_tab_register">Регистрация</string>
+    <string name="auth_choose_role">Кто вы?</string>
+    <string name="auth_name">Имя или название</string>
+    <string name="auth_contact">Контактное лицо или телефон</string>
+    <string name="auth_email">Электронная почта</string>
+    <string name="auth_phone">Номер телефона</string>
+    <string name="auth_city_optional">Город (необязательно)</string>
+    <string name="auth_confirm_password">Повторите пароль</string>
+    <string name="auth_password_min">Пароль должен содержать не менее 8 символов</string>
+    <string name="auth_password_mismatch">Пароли не совпадают</string>
+    <string name="auth_agree">Я принимаю условия использования и политику конфиденциальности</string>
+    <string name="auth_create_account">Создать аккаунт</string>
+    <string name="auth_donor_business">Организация</string>
+    <string name="auth_donor_private">Частное лицо</string>
     <string name="auth_username">Логин</string>
     <string name="auth_password">Пароль</string>
     <string name="auth_sign_in">Войти</string>
@@ -22,6 +58,7 @@
     <string name="role_shop">Магазин</string>
     <string name="role_volunteer">Волонтёр</string>
     <string name="role_needy">Нуждающийся</string>
+    <string name="role_needy_short">Получатель</string>
 
     <string name="nav_needy_tickets">Мои заявки</string>
     <string name="nav_needy_find">Найти еду</string>

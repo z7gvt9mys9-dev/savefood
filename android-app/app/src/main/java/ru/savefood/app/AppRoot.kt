@@ -66,7 +66,7 @@ private fun LoadingSplash() {
 private fun AdminNotSupported() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(
-            text = "Администрирование доступно только в веб-версии.",
+            text = androidx.compose.ui.res.stringResource(R.string.admin_web_only),
             style = MaterialTheme.typography.titleMedium,
         )
     }

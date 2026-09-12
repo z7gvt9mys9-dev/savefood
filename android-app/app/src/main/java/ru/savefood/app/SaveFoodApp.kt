@@ -3,10 +3,12 @@ import android.app.Application
 import android.util.Log
 import com.yandex.mapkit.MapKitFactory
 import dagger.hilt.android.HiltAndroidApp
+import ru.savefood.app.core.common.AppStrings
 @HiltAndroidApp
 class SaveFoodApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppStrings.initialize(this)
         initYandexMapKit()
     }
     private fun initYandexMapKit() {

@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -175,7 +177,7 @@ private fun TrackingCard(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp)
+                            .heightIn(min = 120.dp, max = 180.dp)
                             .clip(RoundedCornerShape(16.dp)),
                     ) {
                         val center = Point(volLat!!, volLon!!)
@@ -213,7 +215,10 @@ private fun TrackingCard(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    QrImage(content = qr, modifier = Modifier.size(160.dp))
+                    QrImage(
+                        content = qr,
+                        modifier = Modifier.fillMaxWidth(0.52f).aspectRatio(1f),
+                    )
                 }
             }
             if (ticket.status == "open" || ticket.status == "assigned") {

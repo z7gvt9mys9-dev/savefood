@@ -2,9 +2,11 @@ package ru.savefood.app.feature.volunteer.route
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -352,7 +354,7 @@ private fun DeliveryPhotoScreen(
         )
         if (granted) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(360.dp),
+                modifier = Modifier.fillMaxWidth().aspectRatio(4f / 3f).heightIn(max = 300.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 CameraPreview(imageCapture = imageCapture, modifier = Modifier.fillMaxSize())

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -99,8 +100,20 @@ fun LotsScreen(viewModel: LotsViewModel = hiltViewModel()) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
             SectionHeader(title = stringResource(R.string.shop_lots_title))
             PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.shop_lots_tab_active)) })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.shop_lots_tab_history)) })
+                Tab(
+                    selected = tab == 0,
+                    onClick = { tab = 0 },
+                    text = { Text(stringResource(R.string.shop_lots_tab_active)) },
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                )
+                Tab(
+                    selected = tab == 1,
+                    onClick = { tab = 1 },
+                    text = { Text(stringResource(R.string.shop_lots_tab_history)) },
+                    selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                )
             }
             if (tab == 0) {
                 ActiveLots(
@@ -385,7 +398,7 @@ private fun TransferQrDialog(
                 )
                 QrImage(
                     content = "SF-LOT-${lot.id}",
-                    modifier = Modifier.size(200.dp),
+                    modifier = Modifier.fillMaxWidth(0.58f).aspectRatio(1f),
                     contentDescription = stringResource(R.string.shop_lot_transfer_title),
                 )
             }

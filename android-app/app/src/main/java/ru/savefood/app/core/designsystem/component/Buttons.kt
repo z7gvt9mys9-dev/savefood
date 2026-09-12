@@ -27,7 +27,7 @@ fun SaveFoodButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled && !loading,
         shape = RoundedCornerShape(50),
         colors = ButtonDefaults.buttonColors(
@@ -68,7 +68,7 @@ fun SaveFoodOutlinedButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.heightIn(min = 52.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
         shape = RoundedCornerShape(50),
         colors = ButtonDefaults.outlinedButtonColors(

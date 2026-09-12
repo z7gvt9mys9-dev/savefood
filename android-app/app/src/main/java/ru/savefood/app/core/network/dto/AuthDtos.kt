@@ -27,3 +27,33 @@ data class MeResponse(
     val role: String? = null,
     @SerialName("related_id") val relatedId: Int? = null,
 )
+
+@Serializable
+data class RegistrationResponse(val id: Int)
+
+@Serializable
+data class ShopRegistrationRequest(
+    val name: String,
+    val contact: String,
+    val city: String? = null,
+    val username: String,
+    val password: String,
+    val kind: String = "business",
+)
+
+@Serializable
+data class VolunteerRegistrationRequest(
+    val name: String,
+    val contact: String,
+    val city: String? = null,
+    val username: String,
+    val password: String,
+)
+
+@Serializable
+data class NeedyRegistrationRequest(
+    val name: String,
+    val contact: String,
+    val username: String,
+    val password: String,
+)

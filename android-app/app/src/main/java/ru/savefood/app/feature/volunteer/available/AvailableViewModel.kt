@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.volunteer.data.LotDto
 import ru.savefood.app.feature.volunteer.data.MapTicketDto
 import ru.savefood.app.feature.volunteer.data.VolunteerMapDto
@@ -34,7 +36,7 @@ class AvailableViewModel @Inject constructor(
             _state.update { it.copy(loading = true, error = null) }
             val volunteerId = repo.currentVolunteerId()
             if (volunteerId == null) {
-                _state.update { it.copy(loading = false, error = "Нет сессии") }
+                _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             val city = when (val profile = repo.getVolunteer(volunteerId)) {
@@ -45,7 +47,7 @@ class AvailableViewModel @Inject constructor(
                 }
             }
             if (city.isEmpty()) {
-                _state.update { it.copy(loading = false, error = "Укажите город в профиле волонтёра") }
+                _state.update { it.copy(loading = false, error = AppStrings.get(R.string.error_volunteer_city_required)) }
                 return@launch
             }
             when (val mapRes = repo.getMap(city)) {
@@ -70,7 +72,7 @@ class AvailableViewModel @Inject constructor(
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId()
             if (volunteerId == null) {
-                _state.update { it.copy(startError = "Нет сессии") }
+                _state.update { it.copy(startError = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(startingLotId = lotId, startError = null) }

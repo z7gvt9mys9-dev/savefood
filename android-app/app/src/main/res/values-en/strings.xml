@@ -10,9 +10,45 @@
     <string name="common_error_generic">Something went wrong</string>
     <string name="common_partial_load_error">Some data failed to load</string>
     <string name="common_logout">Log out</string>
+    <string name="common_error_no_session">Session not found. Please sign in again.</string>
+
+    <string name="error_invalid_request">Check the entered information.</string>
+    <string name="error_session_expired">Your session has expired. Please sign in again.</string>
+    <string name="error_forbidden">Access denied.</string>
+    <string name="error_not_found">The requested data was not found.</string>
+    <string name="error_conflict">The data already exists or has been changed.</string>
+    <string name="error_invalid_fields">Check the fields and try again.</string>
+    <string name="error_too_many_requests">Too many requests. Please try again later.</string>
+    <string name="error_server">Server error. Please try again later.</string>
+    <string name="error_request_code">Request failed (%1$d).</string>
+    <string name="error_no_connection">Could not connect to the server.</string>
+    <string name="error_unknown">The operation could not be completed.</string>
+    <string name="error_volunteer_city_required">Set your city in the volunteer profile.</string>
+    <string name="error_file_image_type">Only JPG or PNG images are supported.</string>
+    <string name="error_file_document_type">Only JPG, PNG, or PDF files are supported.</string>
+    <string name="error_file_read">The selected file could not be read.</string>
+    <string name="admin_web_only">Administration is available only in the web version.</string>
+    <string name="profile_placeholder">The full profile will appear in the next step.</string>
 
     <string name="auth_title">Sign in</string>
     <string name="auth_subtitle">Save food and support people together with us</string>
+    <string name="auth_register_title">Create account</string>
+    <string name="auth_register_subtitle">Choose your role and enter your basic details</string>
+    <string name="auth_tab_login">Sign in</string>
+    <string name="auth_tab_register">Register</string>
+    <string name="auth_choose_role">Who are you?</string>
+    <string name="auth_name">Name or organisation</string>
+    <string name="auth_contact">Contact person or phone</string>
+    <string name="auth_email">Email address</string>
+    <string name="auth_phone">Phone number</string>
+    <string name="auth_city_optional">City (optional)</string>
+    <string name="auth_confirm_password">Confirm password</string>
+    <string name="auth_password_min">Password must be at least 8 characters</string>
+    <string name="auth_password_mismatch">Passwords do not match</string>
+    <string name="auth_agree">I accept the terms of use and privacy policy</string>
+    <string name="auth_create_account">Create account</string>
+    <string name="auth_donor_business">Organisation</string>
+    <string name="auth_donor_private">Individual</string>
     <string name="auth_username">Username</string>
     <string name="auth_password">Password</string>
     <string name="auth_sign_in">Sign in</string>
@@ -21,6 +57,7 @@
     <string name="role_shop">Shop</string>
     <string name="role_volunteer">Volunteer</string>
     <string name="role_needy">In need</string>
+    <string name="role_needy_short">Recipient</string>
 
     <string name="nav_needy_tickets">My requests</string>
     <string name="nav_needy_find">Find food</string>

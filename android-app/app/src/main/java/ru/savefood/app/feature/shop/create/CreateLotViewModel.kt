@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.shop.data.LotCreateDto
 import ru.savefood.app.feature.shop.data.ShopRepository
 import javax.inject.Inject
@@ -55,7 +57,7 @@ class CreateLotViewModel @Inject constructor(
         if (!s.canContinue || s.submitting) return
         viewModelScope.launch {
             val shopId = repo.currentShopId() ?: run {
-                _state.update { it.copy(error = "Нет сессии") }
+                _state.update { it.copy(error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(submitting = true, error = null) }

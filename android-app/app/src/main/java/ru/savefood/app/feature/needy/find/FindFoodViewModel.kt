@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.core.device.location.LocationProvider
 import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.NeedyRepository
@@ -49,7 +51,7 @@ class FindFoodViewModel @Inject constructor(
         viewModelScope.launch {
             val needyId = repo.currentNeedyId()
             if (needyId == null) {
-                _state.update { it.copy(submitError = "Нет сессии") }
+                _state.update { it.copy(submitError = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(submitting = true, submitError = null) }

@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.volunteer.data.StatsDto
 import ru.savefood.app.feature.volunteer.data.TeamDto
 import ru.savefood.app.feature.volunteer.data.ThanksDto
@@ -35,7 +37,7 @@ class RatingViewModel @Inject constructor(
         viewModelScope.launch {
             val volunteerId = repo.currentVolunteerId()
             if (volunteerId == null) {
-                _state.update { it.copy(loading = false, error = "Нет сессии") }
+                _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
             _state.update { it.copy(loading = true, error = null, partialError = false) }

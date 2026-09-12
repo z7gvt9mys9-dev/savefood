@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.R
 import ru.savefood.app.feature.needy.data.NeedyRepository
 import ru.savefood.app.feature.needy.data.TicketDto
 import ru.savefood.app.feature.needy.data.VolunteerLocationDto
@@ -54,7 +56,7 @@ class TrackingViewModel @Inject constructor(
     private suspend fun refreshOnce(showSpinner: Boolean) {
         val needyId = repo.currentNeedyId()
         if (needyId == null) {
-            _state.update { it.copy(loading = false, error = "Нет сессии") }
+            _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
             return
         }
         if (showSpinner) _state.update { it.copy(loading = true) }

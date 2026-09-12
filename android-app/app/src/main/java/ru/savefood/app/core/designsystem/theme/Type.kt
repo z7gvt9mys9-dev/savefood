@@ -9,22 +9,22 @@ val SaveFoodTypography = Typography(
     headlineLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.ExtraBold,
-        fontSize = 32.sp,
-        lineHeight = 37.sp,
+        fontSize = 28.sp,
+        lineHeight = 33.sp,
         letterSpacing = (-0.035).em,
     ),
     headlineMedium = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 24.sp,
-        lineHeight = 29.sp,
+        fontSize = 22.sp,
+        lineHeight = 27.sp,
         letterSpacing = (-0.025).em,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.SansSerif,
         fontWeight = FontWeight.Bold,
-        fontSize = 21.sp,
-        lineHeight = 27.sp,
+        fontSize = 19.sp,
+        lineHeight = 24.sp,
         letterSpacing = (-0.015).em,
     ),
     titleMedium = TextStyle(

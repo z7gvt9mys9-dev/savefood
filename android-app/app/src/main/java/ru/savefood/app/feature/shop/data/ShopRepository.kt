@@ -7,7 +7,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import ru.savefood.app.BuildConfig
 import ru.savefood.app.core.common.ApiResult
+import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.core.common.UserVisibleException
 import ru.savefood.app.core.common.safeApiCall
+import ru.savefood.app.R
 import ru.savefood.app.core.datastore.SessionStore
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -89,12 +92,12 @@ class ShopRepository @Inject constructor(
         val ext = when (mime) {
             "image/jpeg", "image/jpg" -> "jpg"
             "image/png" -> "png"
-            else -> error("Поддерживаются только изображения JPG или PNG")
+            else -> throw UserVisibleException(AppStrings.get(R.string.error_file_image_type))
         }
         val tmp = File.createTempFile("shop_upload_", ".$ext", context.cacheDir)
         resolver.openInputStream(this@toFilePart)?.use { input ->
             tmp.outputStream().use { input.copyTo(it) }
-        } ?: error("Не удалось прочитать файл")
+        } ?: throw UserVisibleException(AppStrings.get(R.string.error_file_read))
         val reqBody = tmp.asRequestBody(mime.toMediaTypeOrNull())
         MultipartBody.Part.createFormData(name, tmp.name, reqBody)
     }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Person
@@ -19,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
@@ -123,7 +123,11 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                SectionHeader(title = stringResource(R.string.needy_profile_title))
+                SectionHeader(
+                    title = stringResource(R.string.needy_profile_title),
+                    actionLabel = stringResource(R.string.common_logout),
+                    onAction = viewModel::logout,
+                )
             SaveFoodCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.needy_profile_section_personal), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -289,13 +293,14 @@ fun NeedyProfileScreen(viewModel: NeedyProfileViewModel = hiltViewModel()) {
                 }
             }
                 LanguageSelectorCard()
-                SaveFoodOutlinedButton(
-                    text = stringResource(R.string.common_logout),
-                    leadingIcon = Icons.AutoMirrored.Filled.Logout,
-                    onClick = viewModel::logout,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-                )
+                Box(modifier = Modifier.padding(bottom = 12.dp))
             }
+        }
+        if (p == null) {
+            TextButton(
+                onClick = viewModel::logout,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 8.dp),
+            ) { Text(stringResource(R.string.common_logout)) }
         }
         SnackbarHost(hostState = snackbar, modifier = Modifier.align(Alignment.BottomCenter))
     }
