@@ -1,6 +1,10 @@
 package ru.savefood.app
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -8,10 +12,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.savefood.app.core.datastore.UserRole
 import ru.savefood.app.core.designsystem.component.EmberBackground
+import ru.savefood.app.core.designsystem.component.SaveFoodOutlinedButton
 import ru.savefood.app.core.push.PushDeepLink
 import ru.savefood.app.core.push.RequestNotificationPermission
 import ru.savefood.app.feature.auth.LoginScreen
@@ -34,7 +42,7 @@ fun AppRoot(
             is SessionState.LoggedIn -> {
                 RequestNotificationPermission()
                 when (s.role) {
-                    UserRole.ADMIN, UserRole.UNKNOWN -> AdminNotSupported()
+                    UserRole.ADMIN, UserRole.UNKNOWN -> AdminNotSupported(onLogout = viewModel::logout)
                     else -> {
                         val onboardingVm: OnboardingViewModel = hiltViewModel()
                         val onboardingDone by onboardingVm.completed.collectAsStateWithLifecycle()
@@ -63,11 +71,25 @@ private fun LoadingSplash() {
     }
 }
 @Composable
-private fun AdminNotSupported() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun AdminNotSupported(onLogout: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
         Text(
-            text = androidx.compose.ui.res.stringResource(R.string.admin_web_only),
+            text = stringResource(R.string.admin_web_only),
             style = MaterialTheme.typography.titleMedium,
+            textAlign = TextAlign.Center,
+        )
+        SaveFoodOutlinedButton(
+            text = stringResource(R.string.common_logout),
+            onClick = onLogout,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 20.dp),
         )
     }
 }

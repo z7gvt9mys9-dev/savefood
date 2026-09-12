@@ -39,13 +39,23 @@ class AvailableViewModel @Inject constructor(
                 _state.update { it.copy(loading = false, error = AppStrings.get(R.string.common_error_no_session)) }
                 return@launch
             }
-            val city = when (val profile = repo.getVolunteer(volunteerId)) {
-                is ApiResult.Success -> profile.data.city?.trim().orEmpty()
+            val profile = when (val profileResult = repo.getVolunteer(volunteerId)) {
+                is ApiResult.Success -> profileResult.data
                 is ApiResult.Error -> {
-                    _state.update { it.copy(loading = false, error = profile.message) }
+                    _state.update { it.copy(loading = false, error = profileResult.message) }
                     return@launch
                 }
             }
+            if (profile.status != "approved") {
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        error = AppStrings.get(R.string.error_volunteer_verification_required),
+                    )
+                }
+                return@launch
+            }
+            val city = profile.city?.trim().orEmpty()
             if (city.isEmpty()) {
                 _state.update { it.copy(loading = false, error = AppStrings.get(R.string.error_volunteer_city_required)) }
                 return@launch

@@ -20,7 +20,7 @@ sealed interface SessionState {
 }
 @HiltViewModel
 class AppViewModel @Inject constructor(
-    authRepository: AuthRepository,
+    private val authRepository: AuthRepository,
     private val pushTokenManager: PushTokenManager,
 ) : ViewModel() {
     val sessionState: StateFlow<SessionState> = authRepository.sessionFlow
@@ -40,5 +40,9 @@ class AppViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { loggedIn -> if (loggedIn) pushTokenManager.registerCurrentToken() }
         }
+    }
+
+    fun logout() {
+        viewModelScope.launch { authRepository.logout() }
     }
 }

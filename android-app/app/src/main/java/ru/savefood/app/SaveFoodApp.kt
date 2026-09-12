@@ -4,6 +4,7 @@ import android.util.Log
 import com.yandex.mapkit.MapKitFactory
 import dagger.hilt.android.HiltAndroidApp
 import ru.savefood.app.core.common.AppStrings
+import ru.savefood.app.core.device.map.MapKitStatus
 @HiltAndroidApp
 class SaveFoodApp : Application() {
     override fun onCreate() {
@@ -24,7 +25,9 @@ class SaveFoodApp : Application() {
         runCatching {
             MapKitFactory.setApiKey(key)
             MapKitFactory.initialize(this)
+            MapKitStatus.isReady = true
         }.onFailure { e ->
+            MapKitStatus.isReady = false
             Log.w(TAG, "Yandex MapKit initialization failed", e)
         }
     }

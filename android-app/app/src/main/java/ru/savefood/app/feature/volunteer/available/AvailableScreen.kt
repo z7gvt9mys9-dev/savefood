@@ -37,6 +37,7 @@ import ru.savefood.app.core.designsystem.component.LotCard
 import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.ShimmerListItem
 import ru.savefood.app.core.device.map.MapMarker
+import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
 import ru.savefood.app.feature.volunteer.data.LotDto
 import ru.savefood.app.feature.volunteer.data.MapTicketDto
@@ -183,14 +184,22 @@ private fun LotMap(
         } else null
     }
     Box(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
-        YandexMap(
-            markers = lotMarkers + ticketMarkers,
-            modifier = Modifier.fillMaxSize(),
-            onMarkerClick = { id ->
-                id.removePrefix("lot:").toIntOrNull()
-                    ?.takeIf { id.startsWith("lot:") }
-                    ?.let { lotId -> lots.firstOrNull { it.id == lotId }?.let(onTake) }
-            },
-        )
+        if (!MapKitStatus.isReady) {
+            EmptyState(
+                icon = Icons.Filled.LocalShipping,
+                title = stringResource(R.string.map_unavailable_title),
+                description = stringResource(R.string.map_unavailable_desc),
+            )
+        } else {
+            YandexMap(
+                markers = lotMarkers + ticketMarkers,
+                modifier = Modifier.fillMaxSize(),
+                onMarkerClick = { id ->
+                    id.removePrefix("lot:").toIntOrNull()
+                        ?.takeIf { id.startsWith("lot:") }
+                        ?.let { lotId -> lots.firstOrNull { it.id == lotId }?.let(onTake) }
+                },
+            )
+        }
     }
 }

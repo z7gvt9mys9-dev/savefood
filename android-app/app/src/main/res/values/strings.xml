@@ -25,9 +25,12 @@
     <string name="error_no_connection">Нет соединения с сервером.</string>
     <string name="error_unknown">Не удалось выполнить операцию.</string>
     <string name="error_volunteer_city_required">Укажите город в профиле волонтёра.</string>
+    <string name="error_volunteer_verification_required">Доступные заявки появятся после проверки профиля волонтёра. Загрузите документ во вкладке «Профиль» и дождитесь подтверждения.</string>
     <string name="error_file_image_type">Поддерживаются только изображения JPG или PNG.</string>
     <string name="error_file_document_type">Поддерживаются только файлы JPG, PNG или PDF.</string>
     <string name="error_file_read">Не удалось прочитать файл.</string>
+    <string name="map_unavailable_title">Карта недоступна</string>
+    <string name="map_unavailable_desc">Для карт добавьте ключ Yandex MapKit и переустановите приложение.</string>
     <string name="admin_web_only">Администрирование доступно только в веб-версии.</string>
     <string name="profile_placeholder">Полный профиль появится в следующем шаге.</string>
 

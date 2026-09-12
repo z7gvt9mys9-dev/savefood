@@ -24,9 +24,12 @@
     <string name="error_no_connection">Could not connect to the server.</string>
     <string name="error_unknown">The operation could not be completed.</string>
     <string name="error_volunteer_city_required">Set your city in the volunteer profile.</string>
+    <string name="error_volunteer_verification_required">Available requests will appear after your volunteer profile is verified. Upload a document on the Profile tab and wait for approval.</string>
     <string name="error_file_image_type">Only JPG or PNG images are supported.</string>
     <string name="error_file_document_type">Only JPG, PNG, or PDF files are supported.</string>
     <string name="error_file_read">The selected file could not be read.</string>
+    <string name="map_unavailable_title">Map is unavailable</string>
+    <string name="map_unavailable_desc">Add a Yandex MapKit key and reinstall the app to use maps.</string>
     <string name="admin_web_only">Administration is available only in the web version.</string>
     <string name="profile_placeholder">The full profile will appear in the next step.</string>
 

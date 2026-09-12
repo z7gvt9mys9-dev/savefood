@@ -320,7 +320,7 @@ APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
 
 | Флейвор | API по умолчанию | Переопределение |
 |---|---|---|
-| `dev` | `http://10.0.2.2:8000` (хост из эмулятора) | `-PdevApiBaseUrl=https://…` |
+| `dev` | `http://10.0.2.2` (nginx на хосте из эмулятора) | `-PdevApiBaseUrl=https://…` |
 | `prod` | `https://api.savefood.kz` | `-PprodApiBaseUrl=https://…` |
 
 Например, для сборки на физическое устройство через туннель:

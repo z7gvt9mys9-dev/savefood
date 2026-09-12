@@ -34,7 +34,9 @@ android {
             dimension = "env"
             applicationIdSuffix = ".dev"
             val devUrl = (project.findProperty("devApiBaseUrl") as String?)
-                ?: "http://10.0.2.2:8000"
+                // Docker Compose publishes nginx on the host's port 80; the
+                // Spring Boot port 8000 is only reachable within Docker.
+                ?: "http://10.0.2.2"
             buildConfigField("String", "API_BASE_URL", "\"$devUrl\"")
         }
         create("prod") {

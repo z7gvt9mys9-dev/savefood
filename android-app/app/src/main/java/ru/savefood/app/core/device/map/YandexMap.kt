@@ -34,6 +34,11 @@ fun YandexMap(
     onMarkerClick: (String) -> Unit = {},
     onMapClick: (Point) -> Unit = {},
 ) {
+    // MapView cannot safely be created until MapKit has an API key and has
+    // completed initialization. This keeps map tabs responsive in builds where
+    // the optional key was intentionally omitted.
+    if (!MapKitStatus.isReady) return
+
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentMarkerClick = rememberUpdatedState(onMarkerClick)
@@ -52,21 +57,32 @@ fun YandexMap(
         }
     }
     DisposableEffect(lifecycleOwner) {
+        var started = false
+        fun start() {
+            if (started) return
+            MapKitFactory.getInstance().onStart()
+            mapView.onStart()
+            started = true
+        }
+        fun stop() {
+            if (!started) return
+            mapView.onStop()
+            MapKitFactory.getInstance().onStop()
+            started = false
+        }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> {
-                    MapKitFactory.getInstance().onStart()
-                    mapView.onStart()
-                }
-                Lifecycle.Event.ON_STOP -> {
-                    mapView.onStop()
-                    MapKitFactory.getInstance().onStop()
-                }
+                Lifecycle.Event.ON_START -> start()
+                Lifecycle.Event.ON_STOP -> stop()
                 else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) start()
+        onDispose {
+            stop()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
     AndroidView(
         factory = {
