@@ -48,6 +48,7 @@ import ru.savefood.app.core.designsystem.component.ShimmerListItem
 import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.core.designsystem.component.BadgeTone
 import ru.savefood.app.core.device.map.MapMarker
+import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
 import ru.savefood.app.core.device.qr.QrImage
 import ru.savefood.app.feature.needy.data.TicketDto
@@ -149,6 +150,7 @@ private fun TrackingCard(
     onCancel: () -> Unit,
 ) {
     val hasLiveLoc = volLat != null && volLon != null
+    var mapUnavailable by remember(ticket.id) { mutableStateOf(false) }
     val stage = TrackStage.from(ticket.status, hasLiveLoc)
     SaveFoodCard {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -180,18 +182,28 @@ private fun TrackingCard(
                             .heightIn(min = 120.dp, max = 180.dp)
                             .clip(RoundedCornerShape(16.dp)),
                     ) {
-                        val center = Point(volLat!!, volLon!!)
-                        YandexMap(
-                            markers = listOf(
-                                MapMarker("courier", volLat, volLon, stringResource(R.string.needy_track_courier)),
-                            ) + buildList {
-                                if (ticket.lat != null && ticket.lon != null) {
-                                    add(MapMarker("home", ticket.lat, ticket.lon))
-                                }
-                            },
-                            center = center,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        if (mapUnavailable || !MapKitStatus.isReady) {
+                            Text(
+                                text = stringResource(R.string.map_unavailable_desc),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.align(Alignment.Center),
+                            )
+                        } else {
+                            val center = Point(volLat!!, volLon!!)
+                            YandexMap(
+                                markers = listOf(
+                                    MapMarker("courier", volLat, volLon, stringResource(R.string.needy_track_courier)),
+                                ) + buildList {
+                                    if (ticket.lat != null && ticket.lon != null) {
+                                        add(MapMarker("home", ticket.lat, ticket.lon))
+                                    }
+                                },
+                                center = center,
+                                modifier = Modifier.fillMaxSize(),
+                                onMapError = { mapUnavailable = true },
+                            )
+                        }
                     }
                     Text(
                         text = stringResource(R.string.needy_track_eta),

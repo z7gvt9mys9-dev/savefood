@@ -10,6 +10,7 @@ export const buildKycDecisionPayload = (item, status) => ({
   status,
   generation: item.kyc_generation,
 });
+export const deliveryPhotoLocationLabel = (item) => item.city || '—';
 /** An admin image endpoint requires Bearer auth, which a plain <img> cannot send. */
 const ProtectedDeliveryPhoto = ({ path }) => {
   const [objectUrl, setObjectUrl] = useState(null);
@@ -291,7 +292,7 @@ const AdminPanel = () => {
                 <div style={{ fontSize: '0.78rem', opacity: 0.75 }}>{p.delivery_photo_ai_notes}</div>
               )}
               <div style={{ fontSize: '0.78rem', opacity: 0.6 }}>
-                {[p.category, p.city].filter(Boolean).join(' · ') || '—'}
+                {deliveryPhotoLocationLabel(p)}
               </div>
             </div>
             <div className="photo-mod-actions">

@@ -1,6 +1,7 @@
 package ru.savefood.app.core.device.map
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -33,6 +34,7 @@ fun YandexMap(
     initialZoom: Float = DEFAULT_ZOOM,
     onMarkerClick: (String) -> Unit = {},
     onMapClick: (Point) -> Unit = {},
+    onMapError: () -> Unit = {},
 ) {
     // MapView cannot safely be created until MapKit has an API key and has
     // completed initialization. This keeps map tabs responsive in builds where
@@ -43,7 +45,15 @@ fun YandexMap(
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentMarkerClick = rememberUpdatedState(onMarkerClick)
     val currentMapClick = rememberUpdatedState(onMapClick)
-    val mapView = remember { MapView(context) }
+    val currentMapError = rememberUpdatedState(onMapError)
+    val mapViewResult = remember(context) { runCatching { MapView(context) } }
+    val mapView = mapViewResult.getOrNull()
+    if (mapView == null) {
+        LaunchedEffect(mapViewResult.exceptionOrNull()) {
+            currentMapError.value()
+        }
+        return
+    }
     val tapListener = remember {
         MapObjectTapListener { mapObject, _ ->
             (mapObject.userData as? String)?.let { currentMarkerClick.value(it) }
@@ -60,14 +70,18 @@ fun YandexMap(
         var started = false
         fun start() {
             if (started) return
-            MapKitFactory.getInstance().onStart()
-            mapView.onStart()
-            started = true
+            runCatching {
+                MapKitFactory.getInstance().onStart()
+                mapView.onStart()
+                started = true
+            }.onFailure { currentMapError.value() }
         }
         fun stop() {
             if (!started) return
-            mapView.onStop()
-            MapKitFactory.getInstance().onStop()
+            runCatching {
+                mapView.onStop()
+                MapKitFactory.getInstance().onStop()
+            }.onFailure { currentMapError.value() }
             started = false
         }
         val observer = LifecycleEventObserver { _, event ->
@@ -86,27 +100,31 @@ fun YandexMap(
     }
     AndroidView(
         factory = {
-            mapView.mapWindow.map.addInputListener(inputListener)
+            runCatching {
+                mapView.mapWindow.map.addInputListener(inputListener)
+            }.onFailure { currentMapError.value() }
             mapView
         },
         modifier = modifier,
         update = { view ->
-            val map = view.mapWindow.map
-            map.isNightModeEnabled = true
-            val focus = center
-                ?: markers.firstOrNull()?.let { Point(it.latitude, it.longitude) }
-                ?: MOSCOW
-            map.move(CameraPosition(focus, initialZoom, 0f, 0f))
-            val collection = map.mapObjects
-            collection.clear()
-            markers.forEach { marker ->
-                @Suppress("DEPRECATION")
-                val placemark: PlacemarkMapObject = collection.addPlacemark(
-                    Point(marker.latitude, marker.longitude),
-                )
-                placemark.userData = marker.id
-                placemark.addTapListener(tapListener)
-            }
+            runCatching {
+                val map = view.mapWindow.map
+                map.isNightModeEnabled = true
+                val focus = center
+                    ?: markers.firstOrNull()?.let { Point(it.latitude, it.longitude) }
+                    ?: MOSCOW
+                map.move(CameraPosition(focus, initialZoom, 0f, 0f))
+                val collection = map.mapObjects
+                collection.clear()
+                markers.forEach { marker ->
+                    @Suppress("DEPRECATION")
+                    val placemark: PlacemarkMapObject = collection.addPlacemark(
+                        Point(marker.latitude, marker.longitude),
+                    )
+                    placemark.userData = marker.id
+                    placemark.addTapListener(tapListener)
+                }
+            }.onFailure { currentMapError.value() }
         },
     )
 }

@@ -29,8 +29,8 @@
     <string name="error_file_image_type">Поддерживаются только изображения JPG или PNG.</string>
     <string name="error_file_document_type">Поддерживаются только файлы JPG, PNG или PDF.</string>
     <string name="error_file_read">Не удалось прочитать файл.</string>
-    <string name="map_unavailable_title">Карта недоступна</string>
-    <string name="map_unavailable_desc">Для карт добавьте ключ Yandex MapKit и переустановите приложение.</string>
+    <string name="map_unavailable_title">Не удалось загрузить карту</string>
+    <string name="map_unavailable_desc">Попробуйте позже.</string>
     <string name="admin_web_only">Администрирование доступно только в веб-версии.</string>
     <string name="profile_placeholder">Полный профиль появится в следующем шаге.</string>
 

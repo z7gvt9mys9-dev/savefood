@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import ru.savefood.app.core.designsystem.component.LotCard
 import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.ShimmerListItem
 import ru.savefood.app.core.device.map.MapMarker
+import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
 import ru.savefood.app.feature.needy.data.LotDto
 import ru.savefood.app.feature.needy.data.NeedyRepository
@@ -177,6 +179,7 @@ private fun LotList(
 }
 @Composable
 private fun LotMap(lots: List<LotDto>, onRequest: (Int?) -> Unit) {
+    var mapUnavailable by remember { mutableStateOf(false) }
     val markers = lots.mapNotNull { lot ->
         val lat = lot.shopLat
         val lon = lot.shopLon
@@ -185,10 +188,19 @@ private fun LotMap(lots: List<LotDto>, onRequest: (Int?) -> Unit) {
         } else null
     }
     Box(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
-        YandexMap(
-            markers = markers,
-            modifier = Modifier.fillMaxSize(),
-            onMarkerClick = { id -> onRequest(id.toIntOrNull()) },
-        )
+        if (mapUnavailable || !MapKitStatus.isReady) {
+            EmptyState(
+                icon = Icons.Filled.Restaurant,
+                title = stringResource(R.string.map_unavailable_title),
+                description = stringResource(R.string.map_unavailable_desc),
+            )
+        } else {
+            YandexMap(
+                markers = markers,
+                modifier = Modifier.fillMaxSize(),
+                onMarkerClick = { id -> onRequest(id.toIntOrNull()) },
+                onMapError = { mapUnavailable = true },
+            )
+        }
     }
 }

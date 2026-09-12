@@ -169,6 +169,7 @@ private fun LotMap(
     tickets: List<MapTicketDto>,
     onTake: (LotDto) -> Unit,
 ) {
+    var mapUnavailable by remember { mutableStateOf(false) }
     val lotMarkers = lots.mapNotNull { lot ->
         val lat = lot.shopLat
         val lon = lot.shopLon
@@ -184,7 +185,7 @@ private fun LotMap(
         } else null
     }
     Box(modifier = Modifier.fillMaxSize().padding(top = 12.dp)) {
-        if (!MapKitStatus.isReady) {
+        if (mapUnavailable || !MapKitStatus.isReady) {
             EmptyState(
                 icon = Icons.Filled.LocalShipping,
                 title = stringResource(R.string.map_unavailable_title),
@@ -199,6 +200,7 @@ private fun LotMap(
                         ?.takeIf { id.startsWith("lot:") }
                         ?.let { lotId -> lots.firstOrNull { it.id == lotId }?.let(onTake) }
                 },
+                onMapError = { mapUnavailable = true },
             )
         }
     }

@@ -28,8 +28,8 @@
     <string name="error_file_image_type">Only JPG or PNG images are supported.</string>
     <string name="error_file_document_type">Only JPG, PNG, or PDF files are supported.</string>
     <string name="error_file_read">The selected file could not be read.</string>
-    <string name="map_unavailable_title">Map is unavailable</string>
-    <string name="map_unavailable_desc">Add a Yandex MapKit key and reinstall the app to use maps.</string>
+    <string name="map_unavailable_title">Couldn\'t load the map</string>
+    <string name="map_unavailable_desc">Please try again later.</string>
     <string name="admin_web_only">Administration is available only in the web version.</string>
     <string name="profile_placeholder">The full profile will appear in the next step.</string>
 
