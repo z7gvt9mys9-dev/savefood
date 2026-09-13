@@ -211,68 +211,21 @@ const EN_ATTRIBUTES = {
   'Участники сообщества': 'Community members',
   'Закрыть': 'Close',
 };
-const ATTRIBUTES_TO_TRANSLATE = ['aria-label', 'placeholder', 'data-demo-action'];
 export const normalizeLandingLanguage = (language) => (
   String(language || 'ru').toLowerCase().startsWith('en') ? 'en' : 'ru'
 );
-export function localizeLandingMarkup(markup, language) {
-  if (normalizeLandingLanguage(language) !== 'en' || typeof document === 'undefined') return markup;
-  const template = document.createElement('template');
-  template.innerHTML = markup;
-  template.content.querySelectorAll('*').forEach((element) => {
-    Array.from(element.childNodes).forEach((node) => {
-      if (node.nodeType !== 3) return;
-      const source = node.nodeValue || '';
-      const key = source.replace(/\s+/g, ' ').trim();
-      const translation = EN_TEXT[key];
-      if (!translation) return;
-      const leading = source.match(/^\s*/)?.[0] || '';
-      const trailing = source.match(/\s*$/)?.[0] || '';
-      node.nodeValue = `${leading}${translation}${trailing}`;
-    });
-    ATTRIBUTES_TO_TRANSLATE.forEach((attribute) => {
-      const source = element.getAttribute(attribute);
-      if (source && EN_ATTRIBUTES[source]) element.setAttribute(attribute, EN_ATTRIBUTES[source]);
-    });
-  });
-  return template.innerHTML;
+export function translateLandingText(value, language) {
+  if (normalizeLandingLanguage(language) !== 'en' || typeof value !== 'string') return value;
+  const key = value.replace(/\s+/g, ' ').trim();
+  const translation = EN_TEXT[key];
+  if (!translation) return value;
+  const leading = value.match(/^\s*/)?.[0] || '';
+  const trailing = value.match(/\s*$/)?.[0] || '';
+  return `${leading}${translation}${trailing}`;
 }
-export function personalizeLandingMarkup(markup, user, copy) {
-  if (!user?.role || typeof document === 'undefined') return markup;
-  const template = document.createElement('template');
-  template.innerHTML = markup;
-  const header = template.content.querySelector('.header-actions');
-  const loginButton = header?.querySelector('[data-auth-mode="login"]');
-  const registerButton = header?.querySelector('[data-auth-mode="register"]');
-  if (loginButton) {
-    loginButton.removeAttribute('data-auth-mode');
-    loginButton.setAttribute('data-account-action', 'dashboard');
-    loginButton.className = 'landing-account-avatar';
-    loginButton.setAttribute('aria-label', copy.profileLabel);
-    loginButton.setAttribute('title', copy.profileLabel);
-    loginButton.textContent = '';
-    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    icon.setAttribute('viewBox', '0 0 24 24');
-    icon.setAttribute('aria-hidden', 'true');
-    icon.setAttribute('focusable', 'false');
-    const head = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    head.setAttribute('cx', '12');
-    head.setAttribute('cy', '8');
-    head.setAttribute('r', '3.25');
-    const shoulders = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    shoulders.setAttribute('d', 'M5.25 19c.6-3.6 3.05-5.4 6.75-5.4s6.15 1.8 6.75 5.4');
-    icon.append(head, shoulders);
-    loginButton.append(icon);
-    header.append(loginButton);
-    header.classList.add('header-actions--authenticated');
-    header.closest('.header-inner')?.classList.add('header-inner--authenticated');
-  }
-  if (registerButton) {
-    registerButton.removeAttribute('data-auth-mode');
-    registerButton.setAttribute('data-account-action', 'logout');
-    registerButton.textContent = copy.logout;
-  }
-  return template.innerHTML;
+export function translateLandingAttribute(value, language) {
+  if (normalizeLandingLanguage(language) !== 'en' || typeof value !== 'string') return value;
+  return EN_ATTRIBUTES[value] || value;
 }
 export const LANDING_COPY = {
   ru: {
@@ -283,9 +236,9 @@ export const LANDING_COPY = {
     dialogLoginLead: 'Войдите, чтобы продолжить работу с SaveFood.',
     dialogJoinLead: 'Роль определяет набор инструментов в личном кабинете.',
     demoSuffix: 'Продолжите в личном кабинете.',
-    impactLoading: '<strong>Impact</strong> · обновление…',
-    impactReady: '<strong>Impact</strong> · данные платформы',
-    impactUnavailable: '<strong>Impact</strong> · данные временно недоступны',
+    impactLoading: 'обновление…',
+    impactReady: 'данные платформы',
+    impactUnavailable: 'данные временно недоступны',
     rescuedFood: 'Спасено еды',
     kg: 'кг',
     tons: 'т',
@@ -303,9 +256,9 @@ export const LANDING_COPY = {
     dialogLoginLead: 'Sign in to continue using SaveFood.',
     dialogJoinLead: 'Your role determines the tools in your dashboard.',
     demoSuffix: 'Continue in your dashboard.',
-    impactLoading: '<strong>Impact</strong> · updating…',
-    impactReady: '<strong>Impact</strong> · platform data',
-    impactUnavailable: '<strong>Impact</strong> · data temporarily unavailable',
+    impactLoading: 'updating…',
+    impactReady: 'platform data',
+    impactUnavailable: 'data temporarily unavailable',
     rescuedFood: 'Food rescued',
     kg: 'kg',
     tons: 't',

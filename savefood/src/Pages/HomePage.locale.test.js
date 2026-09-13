@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import HomePageContent from './HomePageContent';
 import {
   LANDING_COPY,
   LANDING_LOTS,
-  localizeLandingMarkup,
-  personalizeLandingMarkup,
 } from './HomePage.locale';
-const landingDocument = readFileSync(resolve(process.cwd(), 'src/Pages/HomePage.markup.html'), 'utf8');
-const bodyMatch = landingDocument.match(/<body>([\s\S]*)<\/body>/i);
-const markup = bodyMatch ? bodyMatch[1] : landingDocument;
+const renderLanding = ({ isAuthenticated = false, language = 'ru' } = {}) => (
+  renderToStaticMarkup(createElement(HomePageContent, {
+    copy: LANDING_COPY[language],
+    isAuthenticated,
+    language,
+  }))
+);
 const collectCyrillic = (html) => {
   const template = document.createElement('template');
   template.innerHTML = html;
@@ -28,10 +31,12 @@ const collectCyrillic = (html) => {
 };
 describe('production landing localization', () => {
   it('keeps the source markup for Russian', () => {
-    expect(localizeLandingMarkup(markup, 'ru')).toBe(markup);
+    const markup = renderLanding();
+    expect(markup).toContain('Спасаем еду.');
+    expect(markup).toContain('Доставляем заботу.');
   });
   it('translates all visible copy and accessible labels into English', () => {
-    const english = localizeLandingMarkup(markup, 'en');
+    const english = renderLanding({ language: 'en' });
     expect(english).toContain('Saving food.');
     expect(english).toContain('delivery confirmed');
     expect(collectCyrillic(english)).toEqual([]);
@@ -44,13 +49,13 @@ describe('production landing localization', () => {
   });
   it('keeps delivery statuses inside the selected-lot bar', () => {
     const template = document.createElement('template');
-    template.innerHTML = markup;
+    template.innerHTML = renderLanding();
     expect(template.content.querySelector('.selection-bar .selection-statuses')).not.toBeNull();
     expect(template.content.querySelector('.product-preview > .preview-signals')).toBeNull();
   });
   it('routes every landing CTA to a real product action', () => {
     const template = document.createElement('template');
-    template.innerHTML = markup;
+    template.innerHTML = renderLanding();
     expect(template.content.querySelector('.skip-link')).toBeNull();
     expect(template.content.querySelector('[data-open-dialog]')).toBeNull();
     expect(template.content.querySelector('[data-auth-mode="login"]')).not.toBeNull();
@@ -60,9 +65,8 @@ describe('production landing localization', () => {
     expect(template.content.querySelector('a[href="/impact"]')).not.toBeNull();
   });
   it('replaces public header actions for an authenticated volunteer', () => {
-    const personalized = personalizeLandingMarkup(markup, { role: 'volunteer' }, LANDING_COPY.ru);
     const template = document.createElement('template');
-    template.innerHTML = personalized;
+    template.innerHTML = renderLanding({ isAuthenticated: true });
     const header = template.content.querySelector('.header-actions');
     const avatar = header.querySelector('[data-account-action="dashboard"]');
     expect(header.querySelector('[data-auth-mode]')).toBeNull();
