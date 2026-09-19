@@ -52,6 +52,7 @@ import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
 import ru.savefood.app.core.device.qr.QrImage
 import ru.savefood.app.feature.needy.data.TicketDto
+import ru.savefood.app.feature.needy.data.DeliveryAvailabilityDto
 import ru.savefood.app.feature.needy.ui.ConfirmDialog
 import ru.savefood.app.feature.needy.ui.RatingDialog
 import ru.savefood.app.feature.needy.ui.TrackStage
@@ -108,6 +109,7 @@ fun TrackingScreen(
                             ticket = ticket,
                             volLat = state.volunteerLocation?.lat,
                             volLon = state.volunteerLocation?.lon,
+                            deliveryAvailability = state.deliveryAvailability,
                             cancelling = state.cancellingTicketId == ticket.id,
                             onCancel = { cancelDialogTicket = ticket.id },
                         )
@@ -146,10 +148,12 @@ private fun TrackingCard(
     ticket: TicketDto,
     volLat: Double?,
     volLon: Double?,
+    deliveryAvailability: DeliveryAvailabilityDto?,
     cancelling: Boolean,
     onCancel: () -> Unit,
 ) {
     val hasLiveLoc = volLat != null && volLon != null
+    val capacity = deliveryAvailability
     var mapUnavailable by remember(ticket.id) { mutableStateOf(false) }
     val stage = TrackStage.from(ticket.status, hasLiveLoc)
     SaveFoodCard {
@@ -213,6 +217,40 @@ private fun TrackingCard(
                 } else {
                     Text(
                         text = stringResource(R.string.needy_track_no_location),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (ticket.status == "open" && ticket.assignedVolunteerId == null
+                && ticket.selfPickup != true
+                && capacity != null && capacity.status in setOf("no_online", "busy")) {
+                val wait = if (capacity.estimatedWaitMinutes < 60) {
+                    stringResource(
+                        R.string.needy_track_wait_minutes,
+                        capacity.estimatedWaitMinutes,
+                    )
+                } else {
+                    stringResource(
+                        R.string.needy_track_wait_hours,
+                        (capacity.estimatedWaitMinutes + 59) / 60,
+                    )
+                }
+                SaveFoodCard {
+                    Text(
+                        text = stringResource(
+                            if (capacity.status == "no_online") {
+                                R.string.needy_track_no_volunteers_online
+                            } else {
+                                R.string.needy_track_no_free_volunteers
+                            },
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = stringResource(R.string.needy_track_wait_or_pickup, wait),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

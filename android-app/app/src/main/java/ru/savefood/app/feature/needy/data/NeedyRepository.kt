@@ -50,6 +50,8 @@ class NeedyRepository @Inject constructor(
     ): ApiResult<List<LotDto>> = safeApiCall { api.getLots(limit, offset, category, search) }
     suspend fun getVolunteerLocation(volunteerId: Int): ApiResult<VolunteerLocationDto> =
         safeApiCall { api.getVolunteerLocation(volunteerId) }
+    suspend fun getDeliveryAvailability(needyId: Int, ticketId: Int): ApiResult<DeliveryAvailabilityDto> =
+        safeApiCall { api.getDeliveryAvailability(needyId, ticketId) }
     suspend fun getProfile(needyId: Int): ApiResult<NeedyProfileDto> =
         safeApiCall { api.getProfile(needyId) }
     suspend fun saveProfile(needyId: Int, body: NeedyProfileUpdateDto, exists: Boolean): ApiResult<NeedyProfileDto> =

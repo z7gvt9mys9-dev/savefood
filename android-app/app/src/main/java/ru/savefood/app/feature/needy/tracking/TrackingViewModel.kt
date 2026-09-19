@@ -16,6 +16,7 @@ import ru.savefood.app.R
 import ru.savefood.app.feature.needy.data.NeedyRepository
 import ru.savefood.app.feature.needy.data.TicketDto
 import ru.savefood.app.feature.needy.data.VolunteerLocationDto
+import ru.savefood.app.feature.needy.data.DeliveryAvailabilityDto
 import javax.inject.Inject
 data class TrackingUiState(
     val loading: Boolean = true,
@@ -23,6 +24,7 @@ data class TrackingUiState(
     val stale: Boolean = false,
     val tickets: List<TicketDto> = emptyList(),
     val volunteerLocation: VolunteerLocationDto? = null,
+    val deliveryAvailability: DeliveryAvailabilityDto? = null,
     val cancellingTicketId: Int? = null,
 )
 @HiltViewModel
@@ -67,12 +69,30 @@ class TrackingViewModel @Inject constructor(
                 val assigned = active.firstOrNull { it.assignedVolunteerId != null }
                 val volId = assigned?.assignedVolunteerId
                 if (volId != null) {
+                    _state.update { it.copy(deliveryAvailability = null) }
                     when (val loc = repo.getVolunteerLocation(volId)) {
-                        is ApiResult.Success -> _state.update { it.copy(volunteerLocation = loc.data, stale = false) }
+                        is ApiResult.Success -> _state.update {
+                            it.copy(volunteerLocation = loc.data, deliveryAvailability = null, stale = false)
+                        }
                         is ApiResult.Error -> _state.update { it.copy(stale = true) }
                     }
                 } else {
-                    _state.update { it.copy(volunteerLocation = null, stale = false) }
+                    _state.update {
+                        it.copy(volunteerLocation = null, deliveryAvailability = null, stale = false)
+                    }
+                    val waiting = active.firstOrNull {
+                        it.status == "open" && it.selfPickup != true && it.assignedVolunteerId == null
+                    }
+                    if (waiting != null) {
+                        when (val capacity = repo.getDeliveryAvailability(needyId, waiting.id)) {
+                            is ApiResult.Success -> _state.update {
+                                it.copy(deliveryAvailability = capacity.data)
+                            }
+                            is ApiResult.Error -> Unit
+                        }
+                    } else {
+                        _state.update { it.copy(deliveryAvailability = null) }
+                    }
                 }
             }
             is ApiResult.Error -> _state.update {

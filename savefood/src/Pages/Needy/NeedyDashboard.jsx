@@ -26,6 +26,11 @@ const CAT_KEYS = {
   'Молочные продукты': 'dairy',
 };
 const CATEGORIES = ['Выпечка', 'Овощи/Фрукты', 'Готовая еда', 'Молочные продукты'];
+export const formatWaitEstimate = (minutes, t) => {
+  const safeMinutes = Math.max(5, Number(minutes) || 60);
+  if (safeMinutes < 60) return t('needy.wait_minutes', { count: safeMinutes });
+  return t('needy.wait_hours', { count: Math.ceil(safeMinutes / 60) });
+};
 const NeedyDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -49,8 +54,10 @@ const NeedyDashboard = () => {
   const [thankNotes, setThankNotes] = useState({});
   const [sentNotes, setSentNotes] = useState({});
   const [volunteerLocation, setVolunteerLocation] = useState(null);
+  const [deliveryAvailability, setDeliveryAvailability] = useState(null);
   const locationPollRef = useRef(null);
   const ticketPollRef = useRef(null);
+  const availabilityPollRef = useRef(null);
   const loadLots = useCallback(async (offset = 0, append = false, category = filterCategory, search = filterSearch) => {
     try {
       const params = new URLSearchParams({ limit: PAGE, offset });
@@ -223,6 +230,31 @@ const NeedyDashboard = () => {
     ticketPollRef.current = setInterval(poll, 15000);
     return () => clearInterval(ticketPollRef.current);
   }, [activeOrder?.ticketId, needyId]);
+  useEffect(() => {
+    if (availabilityPollRef.current) clearInterval(availabilityPollRef.current);
+    const ticketId = activeOrder?.ticketId;
+    const shouldCheck = ticketId && needyId && !activeOrder?.selfPickup
+      && activeOrder?.ticketStatus === 'open' && !activeOrder?.assigned_volunteer_id;
+    if (!shouldCheck) {
+      setDeliveryAvailability(null);
+      return;
+    }
+    let disposed = false;
+    const poll = () => {
+      authFetch(`${API_URL}/needy/${needyId}/ticket/${ticketId}/delivery-availability`, { headers: {} })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (!disposed && data) setDeliveryAvailability(data); })
+        .catch(() => {});
+    };
+    setDeliveryAvailability(null);
+    poll();
+    availabilityPollRef.current = setInterval(poll, 30000);
+    return () => {
+      disposed = true;
+      clearInterval(availabilityPollRef.current);
+    };
+  }, [activeOrder?.ticketId, activeOrder?.selfPickup, activeOrder?.ticketStatus,
+    activeOrder?.assigned_volunteer_id, needyId]);
   const handleBook = async (lot, selfPickup = false) => {
     if (!needyId) { alert(t('common.auth_required')); return; }
     if (!selfPickup && !hasDeliveryLocation(profile)) {
@@ -684,6 +716,21 @@ const NeedyDashboard = () => {
                 <p><strong>{t('needy.items_label')}</strong> {activeOrder.description}</p>
                 <p><strong>{t('common.status')}:</strong> {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
               </div>
+              {!activeOrder.assigned_volunteer_id
+                && (deliveryAvailability?.status === 'no_online' || deliveryAvailability?.status === 'busy') && (
+                <div className="volunteer-wait-notice" role="status">
+                  <strong>
+                    {deliveryAvailability.status === 'no_online'
+                      ? t('needy.no_volunteers_online')
+                      : t('needy.no_free_volunteers')}
+                  </strong>
+                  <p>
+                    {t('needy.wait_or_self_pickup', {
+                      time: formatWaitEstimate(deliveryAvailability.estimated_wait_minutes, t),
+                    })}
+                  </p>
+                </div>
+              )}
               <div className="qr-section">
                 <p>{t('needy.show_qr_volunteer')}</p>
                 {renderTicketQr()}

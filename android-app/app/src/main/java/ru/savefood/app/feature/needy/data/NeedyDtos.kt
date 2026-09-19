@@ -105,3 +105,11 @@ data class VolunteerLocationDto(
     val lon: Double? = null,
     @SerialName("updated_at") val updatedAt: String? = null,
 )
+
+@Serializable
+data class DeliveryAvailabilityDto(
+    val status: String,
+    @SerialName("online_volunteers") val onlineVolunteers: Int = 0,
+    @SerialName("free_volunteers") val freeVolunteers: Int = 0,
+    @SerialName("estimated_wait_minutes") val estimatedWaitMinutes: Int = 60,
+)

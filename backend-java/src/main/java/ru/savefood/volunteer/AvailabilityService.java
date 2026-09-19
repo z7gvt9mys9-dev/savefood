@@ -21,19 +21,42 @@ public class AvailabilityService {
     public boolean isAvailableNow(String availabilityJson) {
         return isAvailableNow(availabilityJson, LocalDateTime.now(zone));
     }
+    /** Approximate delay until the next configured availability window (at most one week). */
+    public int minutesUntilAvailable(String availabilityJson) {
+        return minutesUntilAvailable(availabilityJson, LocalDateTime.now(zone));
+    }
+    int minutesUntilAvailable(String availabilityJson, LocalDateTime now) {
+        JsonNode windows = parseWindows(availabilityJson);
+        if (windows == null || windows.isEmpty() || isAvailableNow(windows, now)) {
+            return 0;
+        }
+        // Minute resolution is intentional: the UI rounds the result to a friendly 5-minute ETA.
+        for (int minutes = 1; minutes <= 7 * 24 * 60; minutes++) {
+            if (isAvailableNow(windows, now.plusMinutes(minutes))) {
+                return minutes;
+            }
+        }
+        return -1;
+    }
     boolean isAvailableNow(String availabilityJson, LocalDateTime now) {
-        JsonNode windows;
-        if (availabilityJson == null || availabilityJson.isBlank()) {
+        JsonNode windows = parseWindows(availabilityJson);
+        if (windows == null || windows.isEmpty()) {
             return true;
+        }
+        return isAvailableNow(windows, now);
+    }
+    private JsonNode parseWindows(String availabilityJson) {
+        if (availabilityJson == null || availabilityJson.isBlank()) {
+            return null;
         }
         try {
-            windows = mapper.readTree(availabilityJson);
+            JsonNode windows = mapper.readTree(availabilityJson);
+            return windows != null && windows.isArray() ? windows : null;
         } catch (Exception e) {
-            return true;
+            return null;
         }
-        if (windows == null || !windows.isArray() || windows.isEmpty()) {
-            return true;
-        }
+    }
+    private boolean isAvailableNow(JsonNode windows, LocalDateTime now) {
         int weekday = now.getDayOfWeek().getValue() - 1;
         int minutes = now.getHour() * 60 + now.getMinute();
         for (JsonNode w : windows) {

@@ -42,4 +42,9 @@ class AvailabilityServiceTest {
     void unparsableJsonMeansAlwaysAvailable() {
         assertThat(service.isAvailableNow("{not json}", WED_1930)).isTrue();
     }
+    @Test
+    void reportsMinutesUntilNextWindow() {
+        String avail = "[{\"day\":2,\"start\":\"20:00\",\"end\":\"21:00\"}]";
+        assertThat(service.minutesUntilAvailable(avail, WED_1930)).isEqualTo(30);
+    }
 }

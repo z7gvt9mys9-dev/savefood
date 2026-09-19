@@ -14,6 +14,11 @@
     <string name="needy_track_eta">В пути к вам</string>
     <string name="needy_track_map_loading">Определяем позицию курьера…</string>
     <string name="needy_track_no_location">Позиция курьера пока недоступна</string>
+    <string name="needy_track_no_volunteers_online">Сейчас волонтёров онлайн нет</string>
+    <string name="needy_track_no_free_volunteers">Все волонтёры сейчас заняты</string>
+    <string name="needy_track_wait_or_pickup">Подождите примерно %1$s или отмените заявку и заберите заказ самостоятельно.</string>
+    <string name="needy_track_wait_minutes">%1$d мин</string>
+    <string name="needy_track_wait_hours">около %1$d ч</string>
     <string name="needy_track_stale">Не удалось обновить — показаны последние данные</string>
     <string name="needy_track_your_qr">Ваш QR для получения</string>
     <string name="needy_track_cancel">Отменить заявку</string>

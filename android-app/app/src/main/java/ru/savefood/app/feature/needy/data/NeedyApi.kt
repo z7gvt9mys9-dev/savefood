@@ -54,6 +54,11 @@ interface NeedyApi {
     suspend fun getVolunteerLocation(
         @Path("volunteerId") volunteerId: Int,
     ): VolunteerLocationDto
+    @GET("needy/{id}/ticket/{ticketId}/delivery-availability")
+    suspend fun getDeliveryAvailability(
+        @Path("id") needyId: Int,
+        @Path("ticketId") ticketId: Int,
+    ): DeliveryAvailabilityDto
     @GET("needy/{id}/profile")
     suspend fun getProfile(@Path("id") needyId: Int): NeedyProfileDto
     @POST("needy/{id}/profile")
