@@ -22,6 +22,9 @@ data class FindFoodUiState(
     val search: String = "",
     val submitting: Boolean = false,
     val submitError: String? = null,
+    val hasActiveTicket: Boolean = false,
+    val checkingActiveTicket: Boolean = false,
+    val activeTicketWarningVisible: Boolean = false,
 )
 @HiltViewModel
 class FindFoodViewModel @Inject constructor(
@@ -34,11 +37,26 @@ class FindFoodViewModel @Inject constructor(
     fun load() {
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
+            val needyId = repo.currentNeedyId()
+            val hasActiveTicket = if (needyId != null) {
+                when (val tickets = repo.getTickets(needyId)) {
+                    is ApiResult.Success -> tickets.data.any { it.status == "open" || it.status == "assigned" }
+                    is ApiResult.Error -> _state.value.hasActiveTicket
+                }
+            } else {
+                false
+            }
             when (val res = repo.getLots(search = _state.value.search.takeIf { it.isNotBlank() })) {
                 is ApiResult.Success -> _state.update {
-                    it.copy(loading = false, lots = res.data.filter { l -> l.status == "active" })
+                    it.copy(
+                        loading = false,
+                        lots = res.data.filter { l -> l.status == "active" },
+                        hasActiveTicket = hasActiveTicket,
+                    )
                 }
-                is ApiResult.Error -> _state.update { it.copy(loading = false, error = res.message) }
+                is ApiResult.Error -> _state.update {
+                    it.copy(loading = false, error = res.message, hasActiveTicket = hasActiveTicket)
+                }
             }
         }
     }
@@ -46,6 +64,30 @@ class FindFoodViewModel @Inject constructor(
         _state.update { it.copy(search = value) }
     }
     fun lotById(id: Int?): LotDto? = _state.value.lots.firstOrNull { it.id == id }
+    fun requestLot(lotId: Int?, onAllowed: (Int?) -> Unit) {
+        if (_state.value.checkingActiveTicket) return
+        viewModelScope.launch {
+            _state.update { it.copy(checkingActiveTicket = true, activeTicketWarningVisible = false) }
+            val needyId = repo.currentNeedyId()
+            val active = if (needyId != null) {
+                when (val tickets = repo.getTickets(needyId)) {
+                    is ApiResult.Success -> tickets.data.any { it.status == "open" || it.status == "assigned" }
+                    is ApiResult.Error -> _state.value.hasActiveTicket
+                }
+            } else {
+                false
+            }
+            _state.update {
+                it.copy(
+                    checkingActiveTicket = false,
+                    hasActiveTicket = active,
+                    activeTicketWarningVisible = active,
+                )
+            }
+            if (!active) onAllowed(lotId)
+        }
+    }
+    fun dismissActiveTicketWarning() = _state.update { it.copy(activeTicketWarningVisible = false) }
     /** Submits a ticket; invokes [onSuccess] on the created ticket id. */
     fun submitTicket(body: TicketCreateDto, onSuccess: () -> Unit) {
         viewModelScope.launch {

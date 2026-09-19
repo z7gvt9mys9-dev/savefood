@@ -5,6 +5,8 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.hilt.navigation.compose.hiltViewModel
 import ru.savefood.app.R
 import ru.savefood.app.core.ui.RoleShell
 import ru.savefood.app.core.ui.TabItem
@@ -14,7 +16,15 @@ import ru.savefood.app.feature.volunteer.rating.RatingScreen
 import ru.savefood.app.feature.volunteer.route.RouteScreen
 /** Volunteer role — the initiator: picks up open requests and runs the route. */
 @Composable
-fun VolunteerShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {
+fun VolunteerShell(
+    initialRoute: String? = null,
+    onInitialRouteHandled: () -> Unit = {},
+    presence: VolunteerPresenceViewModel = hiltViewModel(),
+) {
+    DisposableEffect(Unit) {
+        presence.start()
+        onDispose { presence.stop() }
+    }
     RoleShell(
         initialRoute = initialRoute,
         onInitialRouteHandled = onInitialRouteHandled,

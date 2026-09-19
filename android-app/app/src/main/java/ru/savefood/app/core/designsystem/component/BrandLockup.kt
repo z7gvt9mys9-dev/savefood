@@ -34,7 +34,7 @@ fun BrandLockup(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_launcher_foreground),
+            painter = painterResource(R.drawable.savefood_logo),
             contentDescription = null,
             modifier = Modifier.size(markSize),
         )

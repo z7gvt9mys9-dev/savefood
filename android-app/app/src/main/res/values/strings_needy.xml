@@ -16,9 +16,10 @@
     <string name="needy_track_no_location">Позиция курьера пока недоступна</string>
     <string name="needy_track_no_volunteers_online">Сейчас волонтёров онлайн нет</string>
     <string name="needy_track_no_free_volunteers">Все волонтёры сейчас заняты</string>
-    <string name="needy_track_wait_or_pickup">Подождите примерно %1$s или отмените заявку и заберите заказ самостоятельно.</string>
+    <string name="needy_track_wait_or_pickup">Ориентировочное ожидание — %1$s. Подождите или отмените заявку и заберите заказ самостоятельно.</string>
     <string name="needy_track_wait_minutes">%1$d мин</string>
-    <string name="needy_track_wait_hours">около %1$d ч</string>
+    <string name="needy_track_wait_hours">%1$d ч</string>
+    <string name="needy_track_notice_dismiss">Понятно</string>
     <string name="needy_track_stale">Не удалось обновить — показаны последние данные</string>
     <string name="needy_track_your_qr">Ваш QR для получения</string>
     <string name="needy_track_cancel">Отменить заявку</string>
@@ -33,6 +34,8 @@
     <string name="needy_find_empty_title">Лотов пока нет</string>
     <string name="needy_find_empty_desc">Загляните позже — магазины публикуют еду в течение дня.</string>
     <string name="needy_find_request_cta">Оформить заявку</string>
+    <string name="needy_active_ticket_notice_title">Нельзя оформить новую заявку</string>
+    <string name="needy_active_ticket_notice_message">Сначала дождитесь завершения текущей заявки или отмените её в разделе «Мои заявки».</string>
 
     <string name="needy_wizard_title">Оформление заявки</string>
     <string name="needy_wizard_step_method">Способ получения</string>

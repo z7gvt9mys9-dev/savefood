@@ -124,8 +124,13 @@ public class VolunteerRepository {
             volId, document, generation) == 1;
     }
     public void updateVolunteerLocation(int volId, double lat, double lon) {
-        jdbc.update("UPDATE volunteers SET lat = ?, lon = ?, updated_at = ? WHERE id = ?",
-            lat, lon, OffsetDateTime.now(), volId);
+        OffsetDateTime now = OffsetDateTime.now();
+        jdbc.update("UPDATE volunteers SET lat = ?, lon = ?, updated_at = ?, last_seen_at = ? WHERE id = ?",
+            lat, lon, now, now, volId);
+    }
+    public boolean heartbeat(int volId) {
+        return jdbc.update("UPDATE volunteers SET last_seen_at = ? WHERE id = ?",
+            OffsetDateTime.now(), volId) == 1;
     }
     public Map<String, Object> getVolunteerLocation(int volId) {
         List<Map<String, Object>> rows = jdbc.queryForList(

@@ -80,6 +80,8 @@ class VolunteerRepository @Inject constructor(
         safeApiCall { api.finishRoute(routeId, FinishRouteRequestDto(volunteerId)); Unit }
     suspend fun updateLocation(volunteerId: Int, lat: Double, lon: Double): ApiResult<Unit> =
         safeApiCall { api.updateLocation(volunteerId, LocationUpdateDto(lat, lon)); Unit }
+    suspend fun heartbeat(volunteerId: Int): ApiResult<Unit> =
+        safeApiCall { api.heartbeat(volunteerId); Unit }
     suspend fun getRating(volunteerId: Int): ApiResult<RatingDto> =
         safeApiCall { api.getRating(volunteerId) }
     suspend fun getStats(volunteerId: Int): ApiResult<StatsDto> =

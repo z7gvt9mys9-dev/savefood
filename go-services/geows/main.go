@@ -149,7 +149,7 @@ func writeLocationAndRouteActivity(ctx context.Context, store locationRouteStore
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	if _, err = tx.Exec(ctx,
-		"UPDATE volunteers SET lat = $1, lon = $2, updated_at = NOW() WHERE id = $3",
+		"UPDATE volunteers SET lat = $1, lon = $2, updated_at = NOW(), last_seen_at = NOW() WHERE id = $3",
 		lat, lon, volunteerID); err != nil {
 		return err
 	}

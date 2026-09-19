@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ru.savefood.app.R
@@ -56,7 +58,7 @@ fun TicketWizardScreen(
     var apartment by remember { mutableStateOf("") }
     var floor by remember { mutableStateOf("") }
     var entrance by remember { mutableStateOf("") }
-    var availableTime by remember { mutableStateOf("") }
+    var availableTimeDigits by remember { mutableStateOf("") }
     var items by remember { mutableStateOf("") }
     var lat by remember { mutableStateOf<Double?>(null) }
     var lon by remember { mutableStateOf<Double?>(null) }
@@ -139,7 +141,8 @@ fun TicketWizardScreen(
                 apartment = apartment, onApartment = { apartment = it },
                 floor = floor, onFloor = { floor = it },
                 entrance = entrance, onEntrance = { entrance = it },
-                availableTime = availableTime, onAvailableTime = { availableTime = it },
+                availableTime = availableTimeDigits,
+                onAvailableTime = { availableTimeDigits = sanitizeTimeDigits(it) },
                 items = items, onItems = { items = it },
                 addressError = addressError,
                 locationError = locationError,
@@ -160,7 +163,7 @@ fun TicketWizardScreen(
             else -> ConfirmStep(
                 selfPickup = selfPickup,
                 address = address,
-                availableTime = availableTime,
+                availableTime = formatTimeDigits(availableTimeDigits),
                 items = items,
             )
         }
@@ -194,7 +197,7 @@ fun TicketWizardScreen(
                                 address = address.takeIf { it.isNotBlank() },
                                 lat = lat,
                                 lon = lon,
-                                availableTime = availableTime.takeIf { it.isNotBlank() },
+                                availableTime = formatTimeDigits(availableTimeDigits).takeIf { it.isNotBlank() },
                                 lotId = lot?.id,
                                 apartment = apartment.takeIf { it.isNotBlank() },
                                 floorNum = floor.takeIf { it.isNotBlank() },
@@ -314,6 +317,9 @@ private fun DetailsStep(
     OutlinedTextField(
         value = availableTime, onValueChange = onAvailableTime,
         label = { Text(stringResource(R.string.needy_wizard_available_time)) },
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        visualTransformation = TimeVisualTransformation,
+        singleLine = true,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(

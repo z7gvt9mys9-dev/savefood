@@ -335,6 +335,64 @@ describe('AuthPage registration', () => {
     expect(fetchMock.mock.calls.some(([url]) => /profile\/upload|kyc|moderation|\/document/.test(String(url)))).toBe(false);
     expect(screen.queryByLabelText('auth.document_status')).toBeNull();
   });
+  it('resumes a recipient account when registration succeeded but the response was retried', async () => {
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
+      if (path.endsWith('/needy/register')) {
+        return Promise.resolve(jsonResponse({ detail: 'Username already taken' }, false, 409));
+      }
+      if (path.endsWith('/auth/login')) {
+        return Promise.resolve(jsonResponse({
+          access_token: 'needy-token',
+          refresh_token: 'needy-refresh',
+          role: 'needy',
+          related_id: 42,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage('?mode=register&role=needy');
+    fillNeedyStep1();
+    fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
+    await waitFor(() => expect(screen.getByText('auth.needy_step2_title')).toBeTruthy());
+    expect(alertMock).not.toHaveBeenCalled();
+    expect(loginMock).toHaveBeenCalledWith('needy-token', 'needy-refresh', 'needy', 42);
+    expect(window.localStorage.getItem('savefood_needy_registration_id')).toBe('42');
+  });
+  it('continues an interrupted recipient registration after a page reload', async () => {
+    let loginAttempts = 0;
+    fetchMock.mockImplementation((url) => {
+      const path = String(url);
+      if (path.endsWith('/auth/oauth/providers')) return Promise.resolve(jsonResponse({}, false));
+      if (path.endsWith('/needy/register')) return Promise.resolve(jsonResponse({ id: 42 }));
+      if (path.endsWith('/auth/login')) {
+        loginAttempts += 1;
+        if (loginAttempts === 1) return Promise.resolve(jsonResponse({}, false, 503));
+        return Promise.resolve(jsonResponse({
+          access_token: 'needy-token',
+          refresh_token: 'needy-refresh',
+          role: 'needy',
+          related_id: 42,
+        }));
+      }
+      return Promise.resolve(jsonResponse({}, false));
+    });
+    renderPage('?mode=register&role=needy');
+    fillNeedyStep1();
+    fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
+    await waitFor(() => expect(alertMock).toHaveBeenCalledWith('auth.login_after_register_error'));
+    expect(window.localStorage.getItem('savefood_needy_registration_id')).toBe('42');
+
+    cleanup();
+    renderPage('?mode=register&role=needy');
+    fillNeedyStep1();
+    fireEvent.click(screen.getByRole('button', { name: 'auth.next' }));
+    await waitFor(() => expect(screen.getByText('auth.needy_step2_title')).toBeTruthy());
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/needy/register'))).toHaveLength(1);
+    expect(loginAttempts).toBe(2);
+  });
   it('opens the recipient profile immediately and saves it without checking KYC status', async () => {
     fetchMock.mockImplementation((url) => {
       const path = String(url);

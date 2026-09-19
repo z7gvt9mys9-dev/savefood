@@ -594,6 +594,7 @@ const ShopDashboard = () => {
           label={t('shop.address_label')}
           value={newLot.address || shopInfo.address}
           onChange={(addr) => setNewLot({...newLot, address: addr.address})}
+          showUnitFields={false}
         />
         <div className="form-group">
           <label>{t('shop.photos')}{shopInfo.kind === 'private' && ' *'}</label>
@@ -824,6 +825,7 @@ const ShopDashboard = () => {
                 label={t('shop.address_label')}
                 value={receiptCommon.address}
                 onChange={(addr) => setReceiptCommon({ ...receiptCommon, address: addr.address })}
+                showUnitFields={false}
               />
               <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
                 <button type="submit" className="btn btn-primary" disabled={receiptBusy || receiptDrafts.length === 0}>

@@ -55,6 +55,8 @@ interface VolunteerApi {
         @Path("id") volunteerId: Int,
         @Body body: LocationUpdateDto,
     ): OkDto
+    @POST("volunteers/{id}/heartbeat")
+    suspend fun heartbeat(@Path("id") volunteerId: Int): OkDto
     @GET("volunteers/{id}/rating")
     suspend fun getRating(@Path("id") volunteerId: Int): RatingDto
     @GET("volunteers/{id}/stats")

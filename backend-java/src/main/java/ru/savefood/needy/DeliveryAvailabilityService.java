@@ -48,7 +48,9 @@ public class DeliveryAvailabilityService {
 
         String eligible = kycRequired ? " AND v.status = 'approved'" : "";
         List<Map<String, Object>> volunteers = jdbc.queryForList(
-            "SELECT v.id, v.availability, EXISTS (SELECT 1 FROM volunteer_routes vr "
+            "SELECT v.id, v.availability, "
+                + "(v.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '2 minutes') AS connected, "
+                + "EXISTS (SELECT 1 FROM volunteer_routes vr "
                 + "WHERE vr.volunteer_id = v.id AND vr.status = 'in_progress') AS busy, "
                 + "(SELECT EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - vr.started_at)) / 60.0 "
                 + "FROM volunteer_routes vr WHERE vr.volunteer_id = v.id "
@@ -71,7 +73,8 @@ public class DeliveryAvailabilityService {
         for (Map<String, Object> volunteer : volunteers) {
             Object raw = volunteer.get("availability");
             String calendar = raw == null ? null : raw.toString();
-            if (availability.isAvailableNow(calendar)) {
+            boolean connected = Boolean.TRUE.equals(volunteer.get("connected"));
+            if (connected && availability.isAvailableNow(calendar)) {
                 online++;
                 if (!Boolean.TRUE.equals(volunteer.get("busy"))) {
                     free++;
@@ -81,7 +84,7 @@ public class DeliveryAvailabilityService {
                     earliestBusyWait = Math.min(earliestBusyWait,
                         Math.max(5, averageRouteMinutes - elapsed));
                 }
-            } else {
+            } else if (connected) {
                 int next = availability.minutesUntilAvailable(calendar);
                 if (next >= 0) {
                     nextOnlineMinutes = Math.min(nextOnlineMinutes, next);

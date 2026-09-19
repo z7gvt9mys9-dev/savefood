@@ -25,7 +25,8 @@ class DeliveryAvailabilityServiceTest {
     @Test
     void allOnlineVolunteersBusyUsesAverageRouteEstimate() {
         assertThat(service.summarize(List.of(
-            Map.of("availability", "[]", "busy", true, "active_minutes", 12)), 37))
+            Map.of("availability", "[]", "connected", true, "busy", true,
+                "active_minutes", 12)), 37))
             .containsEntry("status", "busy")
             .containsEntry("online_volunteers", 1)
             .containsEntry("free_volunteers", 0)
@@ -35,9 +36,18 @@ class DeliveryAvailabilityServiceTest {
     @Test
     void freeVolunteerNeedsNoWarningOrWait() {
         assertThat(service.summarize(List.of(
-            Map.of("availability", "[]", "busy", false)), 45))
+            Map.of("availability", "[]", "connected", true, "busy", false)), 45))
             .containsEntry("status", "available")
             .containsEntry("free_volunteers", 1)
             .containsEntry("estimated_wait_minutes", 0);
+    }
+
+    @Test
+    void scheduledButDisconnectedVolunteerIsNotOnline() {
+        assertThat(service.summarize(List.of(
+            Map.of("availability", "[]", "connected", false, "busy", false)), 45))
+            .containsEntry("status", "no_online")
+            .containsEntry("online_volunteers", 0)
+            .containsEntry("free_volunteers", 0);
     }
 }

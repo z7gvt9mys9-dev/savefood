@@ -5,6 +5,10 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import ru.savefood.app.R
 import ru.savefood.app.core.ui.RoleShell
 import ru.savefood.app.core.ui.TabItem
@@ -15,15 +19,22 @@ import ru.savefood.app.feature.needy.tracking.TrackingScreen
 /** Needy role — focused on tracking an order a courier already picked up. */
 @Composable
 fun NeedyShell(initialRoute: String? = null, onInitialRouteHandled: () -> Unit = {}) {
+    var ticketCreatedRoute by remember { mutableStateOf<String?>(null) }
     RoleShell(
-        initialRoute = initialRoute,
-        onInitialRouteHandled = onInitialRouteHandled,
+        initialRoute = ticketCreatedRoute ?: initialRoute,
+        onInitialRouteHandled = {
+            if (ticketCreatedRoute != null) {
+                ticketCreatedRoute = null
+            } else {
+                onInitialRouteHandled()
+            }
+        },
         tabs = listOf(
             TabItem("needy/tickets", R.string.nav_needy_tickets, Icons.Filled.LocalShipping) {
                 TrackingScreen(onGoFindFood = {})
             },
             TabItem("needy/find", R.string.nav_needy_find, Icons.Filled.Restaurant) {
-                FindFoodScreen()
+                FindFoodScreen(onTicketCreated = { ticketCreatedRoute = "needy/tickets" })
             },
             TabItem("needy/history", R.string.nav_history, Icons.Filled.History) {
                 HistoryScreen()

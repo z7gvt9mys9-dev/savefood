@@ -78,7 +78,7 @@ class TrackingViewModel @Inject constructor(
                     }
                 } else {
                     _state.update {
-                        it.copy(volunteerLocation = null, deliveryAvailability = null, stale = false)
+                        it.copy(volunteerLocation = null, stale = false)
                     }
                     val waiting = active.firstOrNull {
                         it.status == "open" && it.selfPickup != true && it.assignedVolunteerId == null

@@ -1,4 +1,11 @@
 package ru.savefood.app.feature.needy.tracking
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +30,7 @@ import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -30,12 +38,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.yandex.mapkit.geometry.Point
@@ -47,6 +57,7 @@ import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.ShimmerListItem
 import ru.savefood.app.core.designsystem.component.StatusBadge
 import ru.savefood.app.core.designsystem.component.BadgeTone
+import ru.savefood.app.core.designsystem.component.TopNoticeBanner
 import ru.savefood.app.core.device.map.MapMarker
 import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
@@ -68,54 +79,86 @@ fun TrackingScreen(
     }
     var cancelDialogTicket by remember { mutableStateOf<Int?>(null) }
     var rateDialogTicket by remember { mutableStateOf<TicketDto?>(null) }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        SectionHeader(title = stringResource(R.string.needy_tickets_title))
-        when {
-            state.loading && state.tickets.isEmpty() -> {
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    repeat(2) { ShimmerListItem() }
+    val waitingTicket = state.tickets.firstOrNull {
+        it.status == "open" && it.assignedVolunteerId == null && it.selfPickup != true
+    }
+    val waitNotice = state.deliveryAvailability?.takeIf {
+        waitingTicket != null && it.status in setOf("no_online", "busy")
+    }
+    val waitNoticeKey = waitNotice?.let { "top-orange:${waitingTicket?.id}:${it.status}" }
+    var dismissedWaitNoticeKey by rememberSaveable { mutableStateOf<String?>(null) }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+            SectionHeader(title = stringResource(R.string.needy_tickets_title))
+            when {
+                state.loading && state.tickets.isEmpty() -> {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        repeat(2) { ShimmerListItem() }
+                    }
+                }
+                state.error != null && state.tickets.isEmpty() -> {
+                    EmptyState(
+                        icon = Icons.Filled.LocalShipping,
+                        title = stringResource(R.string.common_error_generic),
+                        description = state.error,
+                        actionLabel = stringResource(R.string.needy_retry),
+                        onAction = viewModel::retry,
+                    )
+                }
+                state.tickets.isEmpty() -> {
+                    EmptyState(
+                        icon = Icons.Filled.LocalShipping,
+                        title = stringResource(R.string.needy_tickets_empty_title),
+                        description = stringResource(R.string.needy_tickets_empty_desc),
+                    )
+                }
+                else -> {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        if (state.stale) {
+                            Text(
+                                text = stringResource(R.string.needy_track_stale),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        state.tickets.forEach { ticket ->
+                            TrackingCard(
+                                ticket = ticket,
+                                volLat = state.volunteerLocation?.lat,
+                                volLon = state.volunteerLocation?.lon,
+                                deliveryAvailability = state.deliveryAvailability,
+                                cancelling = state.cancellingTicketId == ticket.id,
+                                onCancel = { cancelDialogTicket = ticket.id },
+                            )
+                        }
+                        Spacer(Modifier.height(16.dp))
+                    }
                 }
             }
-            state.error != null && state.tickets.isEmpty() -> {
-                EmptyState(
-                    icon = Icons.Filled.LocalShipping,
-                    title = stringResource(R.string.common_error_generic),
-                    description = state.error,
-                    actionLabel = stringResource(R.string.needy_retry),
-                    onAction = viewModel::retry,
+        }
+        AnimatedVisibility(
+            visible = waitNotice != null && waitNoticeKey != dismissedWaitNoticeKey,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .zIndex(1f),
+            enter = slideInVertically(
+                animationSpec = tween(durationMillis = 180),
+                initialOffsetY = { -it },
+            ) + fadeIn(animationSpec = tween(durationMillis = 120)),
+            exit = slideOutVertically(
+                animationSpec = tween(durationMillis = 120),
+                targetOffsetY = { -it },
+            ) + fadeOut(animationSpec = tween(durationMillis = 90)),
+        ) {
+            waitNotice?.let { availability ->
+                VolunteerWaitNotice(
+                    availability = availability,
+                    onDismiss = { dismissedWaitNoticeKey = waitNoticeKey },
                 )
-            }
-            state.tickets.isEmpty() -> {
-                EmptyState(
-                    icon = Icons.Filled.LocalShipping,
-                    title = stringResource(R.string.needy_tickets_empty_title),
-                    description = stringResource(R.string.needy_tickets_empty_desc),
-                )
-            }
-            else -> {
-                Column(
-                    modifier = Modifier.verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    if (state.stale) {
-                        Text(
-                            text = stringResource(R.string.needy_track_stale),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    state.tickets.forEach { ticket ->
-                        TrackingCard(
-                            ticket = ticket,
-                            volLat = state.volunteerLocation?.lat,
-                            volLon = state.volunteerLocation?.lon,
-                            deliveryAvailability = state.deliveryAvailability,
-                            cancelling = state.cancellingTicketId == ticket.id,
-                            onCancel = { cancelDialogTicket = ticket.id },
-                        )
-                    }
-                    Spacer(Modifier.height(16.dp))
-                }
             }
         }
     }
@@ -143,6 +186,40 @@ fun TrackingScreen(
         )
     }
 }
+
+@Composable
+private fun VolunteerWaitNotice(
+    availability: DeliveryAvailabilityDto,
+    onDismiss: () -> Unit,
+) {
+    val wait = if (availability.estimatedWaitMinutes < 60) {
+        stringResource(
+            R.string.needy_track_wait_minutes,
+            availability.estimatedWaitMinutes,
+        )
+    } else {
+        stringResource(
+            R.string.needy_track_wait_hours,
+            (availability.estimatedWaitMinutes + 59) / 60,
+        )
+    }
+    val title = stringResource(
+        if (availability.status == "no_online") {
+            R.string.needy_track_no_volunteers_online
+        } else {
+            R.string.needy_track_no_free_volunteers
+        },
+    )
+    val message = stringResource(R.string.needy_track_wait_or_pickup, wait)
+    val dismissLabel = stringResource(R.string.needy_track_notice_dismiss)
+    TopNoticeBanner(
+        title = title,
+        message = message,
+        dismissLabel = dismissLabel,
+        onDismiss = onDismiss,
+    )
+}
+
 @Composable
 private fun TrackingCard(
     ticket: TicketDto,
@@ -236,24 +313,38 @@ private fun TrackingCard(
                         (capacity.estimatedWaitMinutes + 59) / 60,
                     )
                 }
-                SaveFoodCard {
-                    Text(
-                        text = stringResource(
-                            if (capacity.status == "no_online") {
-                                R.string.needy_track_no_volunteers_online
-                            } else {
-                                R.string.needy_track_no_free_volunteers
-                            },
-                        ),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.tertiary,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = stringResource(R.string.needy_track_wait_or_pickup, wait),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                if (capacity.status == "no_online") {
+                                    R.string.needy_track_no_volunteers_online
+                                } else {
+                                    R.string.needy_track_no_free_volunteers
+                                },
+                            ),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(R.string.needy_track_wait_or_pickup, wait),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             ticket.qrCode?.takeIf { it.isNotBlank() }?.let { qr ->

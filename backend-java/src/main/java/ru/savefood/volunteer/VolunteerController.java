@@ -571,6 +571,14 @@ public class VolunteerController {
         repo.updateVolunteerLocation(volunteerId, payload.lat(), payload.lon());
         return Map.of("ok", true);
     }
+    @PostMapping("/volunteers/{volunteerId}/heartbeat")
+    public Map<String, Object> heartbeat(@PathVariable int volunteerId, @Auth CurrentUser user) {
+        Authz.ensureOwnerOrAdmin(user, "volunteer", volunteerId);
+        if (!repo.heartbeat(volunteerId)) {
+            throw new ApiException(404, "Volunteer not found");
+        }
+        return Map.of("ok", true);
+    }
     @GetMapping("/volunteers/{volunteerId}/location")
     public Map<String, Object> getLocation(@PathVariable int volunteerId, @Auth CurrentUser user) {
         boolean allowed = user.isAdmin()

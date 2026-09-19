@@ -251,6 +251,22 @@ const VolunteerDashboard = () => {
     }
   }, [volunteerId]);
   useEffect(() => {
+    if (!volunteerId) return;
+    const heartbeat = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      authFetch(`${API_URL}/volunteers/${volunteerId}/heartbeat`, {
+        method: 'POST', headers: authHeader,
+      }).catch(() => {});
+    };
+    heartbeat();
+    const interval = setInterval(heartbeat, 30000);
+    document.addEventListener('visibilitychange', heartbeat);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', heartbeat);
+    };
+  }, [volunteerId]);
+  useEffect(() => {
     const city = volunteerInfo?.city?.trim();
     if (city) fetchMapData(city);
     else setMapData({ shops: [], tickets: [] });

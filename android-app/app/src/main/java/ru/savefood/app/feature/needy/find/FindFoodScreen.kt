@@ -1,4 +1,5 @@
 package ru.savefood.app.feature.needy.find
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
@@ -6,6 +7,8 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +34,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.zIndex
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
@@ -43,6 +48,7 @@ import ru.savefood.app.core.designsystem.component.EmptyState
 import ru.savefood.app.core.designsystem.component.LotCard
 import ru.savefood.app.core.designsystem.component.SectionHeader
 import ru.savefood.app.core.designsystem.component.ShimmerListItem
+import ru.savefood.app.core.designsystem.component.TopNoticeBanner
 import ru.savefood.app.core.device.map.MapMarker
 import ru.savefood.app.core.device.map.MapKitStatus
 import ru.savefood.app.core.device.map.YandexMap
@@ -52,37 +58,72 @@ private const val ROUTE_LIST = "find/list"
 private const val ROUTE_WIZARD = "find/wizard"
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun FindFoodScreen(viewModel: FindFoodViewModel = hiltViewModel()) {
+fun FindFoodScreen(
+    onTicketCreated: () -> Unit = {},
+    viewModel: FindFoodViewModel = hiltViewModel(),
+) {
     val nav = rememberNavController()
-    SharedTransitionLayout {
-        NavHost(
-            navController = nav,
-            startDestination = ROUTE_LIST,
-            enterTransition = { fadeIn(tween(220)) },
-            exitTransition = { fadeOut(tween(180)) },
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    Box(modifier = Modifier.fillMaxSize()) {
+        SharedTransitionLayout {
+            NavHost(
+                navController = nav,
+                startDestination = ROUTE_LIST,
+                enterTransition = { fadeIn(tween(220)) },
+                exitTransition = { fadeOut(tween(180)) },
+            ) {
+                composable(ROUTE_LIST) {
+                    LotsScreen(
+                        viewModel = viewModel,
+                        onRequest = { lotId ->
+                            viewModel.requestLot(lotId) { allowedLotId ->
+                                nav.navigate("$ROUTE_WIZARD?lotId=$allowedLotId")
+                            }
+                        },
+                        sharedScope = this@SharedTransitionLayout,
+                        animatedScope = this@composable,
+                    )
+                }
+                composable(
+                    route = "$ROUTE_WIZARD?lotId={lotId}",
+                    arguments = listOf(navArgument("lotId") { type = NavType.IntType; defaultValue = -1 }),
+                ) { entry ->
+                    val lotId = entry.arguments?.getInt("lotId")?.takeIf { it >= 0 }
+                    TicketWizardScreen(
+                        lot = viewModel.lotById(lotId),
+                        viewModel = viewModel,
+                        onDone = {
+                            nav.popBackStack()
+                            onTicketCreated()
+                        },
+                        onCancel = { nav.popBackStack() },
+                        sharedScope = this@SharedTransitionLayout,
+                        animatedScope = this@composable,
+                    )
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = state.activeTicketWarningVisible,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .zIndex(1f),
+            enter = slideInVertically(
+                animationSpec = tween(durationMillis = 180),
+                initialOffsetY = { -it },
+            ) + fadeIn(animationSpec = tween(durationMillis = 120)),
+            exit = slideOutVertically(
+                animationSpec = tween(durationMillis = 120),
+                targetOffsetY = { -it },
+            ) + fadeOut(animationSpec = tween(durationMillis = 90)),
         ) {
-            composable(ROUTE_LIST) {
-                LotsScreen(
-                    viewModel = viewModel,
-                    onRequest = { lotId -> nav.navigate("$ROUTE_WIZARD?lotId=$lotId") },
-                    sharedScope = this@SharedTransitionLayout,
-                    animatedScope = this@composable,
-                )
-            }
-            composable(
-                route = "$ROUTE_WIZARD?lotId={lotId}",
-                arguments = listOf(navArgument("lotId") { type = NavType.IntType; defaultValue = -1 }),
-            ) { entry ->
-                val lotId = entry.arguments?.getInt("lotId")?.takeIf { it >= 0 }
-                TicketWizardScreen(
-                    lot = viewModel.lotById(lotId),
-                    viewModel = viewModel,
-                    onDone = { nav.popBackStack() },
-                    onCancel = { nav.popBackStack() },
-                    sharedScope = this@SharedTransitionLayout,
-                    animatedScope = this@composable,
-                )
-            }
+            TopNoticeBanner(
+                title = stringResource(R.string.needy_active_ticket_notice_title),
+                message = stringResource(R.string.needy_active_ticket_notice_message),
+                dismissLabel = stringResource(R.string.needy_track_notice_dismiss),
+                onDismiss = viewModel::dismissActiveTicketWarning,
+            )
         }
     }
 }

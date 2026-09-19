@@ -79,6 +79,7 @@ const AuthPage = () => {
   const [providers, setProviders] = useState(null);
   const [tgLogin, setTgLogin] = useState(null);
   const [tgStarting, setTgStarting] = useState(false);
+  const needySubmittingRef = useRef(false);
   const tgPollRef = useRef(null);
   const tgActiveTokenRef = useRef(null);
   const tgStartingRef = useRef(false);
@@ -326,10 +327,16 @@ const AuthPage = () => {
     return true;
   };
   const submitNeedyStep1 = async () => {
-    if (needySubmitting || !validateNeedyStep1()) return;
+    if (needySubmittingRef.current || !validateNeedyStep1()) return;
+    needySubmittingRef.current = true;
     setNeedySubmitting(true);
     try {
       let needyId = regNeedyId;
+      let registrationConflict = false;
+      if (!needyId) {
+        const savedId = Number(window.localStorage.getItem(NEEDY_REGISTRATION_KEY));
+        if (Number.isInteger(savedId) && savedId > 0) needyId = savedId;
+      }
       if (!needyId) {
         const registerRes = await fetch(`${API_URL}/needy/register`, {
           method: 'POST',
@@ -343,12 +350,17 @@ const AuthPage = () => {
         });
         if (!registerRes.ok) {
           const err = await registerRes.json().catch(() => null);
-          throw new Error(err?.detail || t('auth.register_error'));
+          if (registerRes.status !== 409) {
+            throw new Error(err?.detail || t('auth.register_error'));
+          }
+          registrationConflict = true;
+        } else {
+          const registered = await registerRes.json();
+          needyId = registered.id;
+          if (!needyId) throw new Error(t('auth.register_error'));
+          setRegNeedyId(needyId);
+          window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
         }
-        const registered = await registerRes.json();
-        needyId = registered.id;
-        if (!needyId) throw new Error(t('auth.register_error'));
-        setRegNeedyId(needyId);
       }
       if (!regAuthenticated) {
         const fd = new FormData();
@@ -356,27 +368,40 @@ const AuthPage = () => {
         fd.append('password', formData.password);
         appendLoginRole(fd, 'needy');
         const loginRes = await fetch(`${API_URL}/auth/login`, { method: 'POST', body: fd });
-        if (!loginRes.ok) throw new Error(t('auth.login_after_register_error'));
+        if (!loginRes.ok) {
+          throw new Error(registrationConflict
+            ? t('auth.username_taken')
+            : t('auth.login_after_register_error'));
+        }
         const loginData = await loginRes.json();
-        if (!loginData.access_token || !loginData.refresh_token) {
+        const relatedId = Number(loginData.related_id ?? needyId);
+        if (!loginData.access_token || !loginData.refresh_token
+            || loginData.role !== 'needy' || !Number.isInteger(relatedId) || relatedId <= 0) {
           throw new Error(t('auth.login_after_register_error'));
         }
-        const sessionRole = loginData.role || 'needy';
-        const relatedId = loginData.related_id ?? needyId;
+        if (needyId && relatedId !== Number(needyId)) {
+          window.localStorage.removeItem(NEEDY_REGISTRATION_KEY);
+          setRegNeedyId(null);
+          throw new Error(t('auth.registration_session_error'));
+        }
+        needyId = relatedId;
+        setRegNeedyId(needyId);
         setRegAuthenticated(true);
-        setRegSession({ role: sessionRole, relatedId });
-        login(loginData.access_token, loginData.refresh_token, sessionRole, relatedId);
+        setRegSession({ role: 'needy', relatedId });
+        login(loginData.access_token, loginData.refresh_token, 'needy', relatedId);
       }
       window.localStorage.setItem(NEEDY_REGISTRATION_KEY, String(needyId));
       setStep(2);
     } catch (err) {
       showRequestError(err, 'auth.register_error');
     } finally {
+      needySubmittingRef.current = false;
       setNeedySubmitting(false);
     }
   };
   const submitNeedyProfile = async (e) => {
     e.preventDefault();
+    if (needySubmittingRef.current) return;
     if (!regNeedyId || !regAuthenticated) {
       alert(t('auth.registration_session_error'));
       return;
@@ -385,6 +410,7 @@ const AuthPage = () => {
       alert(t('auth.delivery_location_required'));
       return;
     }
+    needySubmittingRef.current = true;
     setNeedySubmitting(true);
     try {
       const res = await authFetch(`${API_URL}/needy/${regNeedyId}/profile`, {
@@ -412,6 +438,7 @@ const AuthPage = () => {
     } catch (err) {
       showRequestError(err, 'auth.profile_save_error');
     } finally {
+      needySubmittingRef.current = false;
       setNeedySubmitting(false);
     }
   };

@@ -55,6 +55,7 @@ const NeedyDashboard = () => {
   const [sentNotes, setSentNotes] = useState({});
   const [volunteerLocation, setVolunteerLocation] = useState(null);
   const [deliveryAvailability, setDeliveryAvailability] = useState(null);
+  const [dismissedWaitNoticeKey, setDismissedWaitNoticeKey] = useState(null);
   const locationPollRef = useRef(null);
   const ticketPollRef = useRef(null);
   const availabilityPollRef = useRef(null);
@@ -654,8 +655,11 @@ const NeedyDashboard = () => {
       </div>
     </>
   );
+  const waitNoticeKey = activeOrder?.ticketId && deliveryAvailability?.status
+    ? `${activeOrder.ticketId}:${deliveryAvailability.status}`
+    : null;
   const renderOrder = () => (
-    <div className="tab-content">
+    <div className="tab-content order-tab-content">
       {activeOrder ? (
         <div className="order-status-card">
           <h2>{t('needy.order')}</h2>
@@ -717,18 +721,31 @@ const NeedyDashboard = () => {
                 <p><strong>{t('common.status')}:</strong> {hasValidCoordinates(volunteerLocation?.lat, volunteerLocation?.lon) ? t('needy.volunteer_location') : t('needy.searching_volunteer')}</p>
               </div>
               {!activeOrder.assigned_volunteer_id
+                && waitNoticeKey !== dismissedWaitNoticeKey
                 && (deliveryAvailability?.status === 'no_online' || deliveryAvailability?.status === 'busy') && (
-                <div className="volunteer-wait-notice" role="status">
-                  <strong>
-                    {deliveryAvailability.status === 'no_online'
-                      ? t('needy.no_volunteers_online')
-                      : t('needy.no_free_volunteers')}
-                  </strong>
-                  <p>
-                    {t('needy.wait_or_self_pickup', {
-                      time: formatWaitEstimate(deliveryAvailability.estimated_wait_minutes, t),
-                    })}
-                  </p>
+                <div className="volunteer-wait-notice" role="alert" aria-live="assertive">
+                  <MonoIcon name="warning" />
+                  <div className="volunteer-wait-notice__content">
+                    <strong>
+                      {deliveryAvailability.status === 'no_online'
+                        ? t('needy.no_volunteers_online')
+                        : t('needy.no_free_volunteers')}
+                    </strong>
+                    <p>
+                      {t('needy.wait_or_self_pickup', {
+                        time: formatWaitEstimate(deliveryAvailability.estimated_wait_minutes, t),
+                      })}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="volunteer-wait-notice__close"
+                    aria-label={t('common.close')}
+                    title={t('common.close')}
+                    onClick={() => setDismissedWaitNoticeKey(waitNoticeKey)}
+                  >
+                    ×
+                  </button>
                 </div>
               )}
               <div className="qr-section">

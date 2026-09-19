@@ -16,9 +16,10 @@
     <string name="needy_track_no_location">Courier location not available yet</string>
     <string name="needy_track_no_volunteers_online">No volunteers are online right now</string>
     <string name="needy_track_no_free_volunteers">All volunteers are busy right now</string>
-    <string name="needy_track_wait_or_pickup">Please wait approximately %1$s, or cancel the request and collect the order yourself.</string>
+    <string name="needy_track_wait_or_pickup">Estimated wait: %1$s. Please wait, or cancel the request and collect the order yourself.</string>
     <string name="needy_track_wait_minutes">%1$d min</string>
-    <string name="needy_track_wait_hours">about %1$d hr</string>
+    <string name="needy_track_wait_hours">%1$d hr</string>
+    <string name="needy_track_notice_dismiss">Got it</string>
     <string name="needy_track_stale">Couldn\'t refresh — showing last known data</string>
     <string name="needy_track_your_qr">Your pickup QR</string>
     <string name="needy_track_cancel">Cancel request</string>
@@ -33,6 +34,8 @@
     <string name="needy_find_empty_title">No lots yet</string>
     <string name="needy_find_empty_desc">Check back later — shops publish food throughout the day.</string>
     <string name="needy_find_request_cta">Create request</string>
+    <string name="needy_active_ticket_notice_title">You can’t create another request</string>
+    <string name="needy_active_ticket_notice_message">Wait for the current request to finish or cancel it in My requests first.</string>
 
     <string name="needy_wizard_title">New request</string>
     <string name="needy_wizard_step_method">Method</string>
