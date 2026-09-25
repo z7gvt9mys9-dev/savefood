@@ -164,7 +164,7 @@ class NeedyDeletionConcurrencyIT extends PostgresIT {
         assertThat(erased.await(5, TimeUnit.SECONDS)).isTrue();
         Future<Map<String, Object>> mutation = executor.submit(() -> tx.execute(ignored ->
             service.createOrUpdateProfile(needyId, "New private address", 4, "private prefs",
-                "urgent", "evening", "9", "4", "1", "Almaty", 43.25, 76.91, false)));
+                "urgent", "evening", "9", "4", "1", "Moscow", 43.25, 76.91, false)));
         assertBlocked(mutation);
         allowDeleteCommit.countDown();
         deletion.get(5, TimeUnit.SECONDS);
@@ -178,7 +178,7 @@ class NeedyDeletionConcurrencyIT extends PostgresIT {
         int needyId = insertNeedy("Recipient");
         Map<String, Object> profile = tx.execute(ignored -> service.createOrUpdateProfile(
             needyId, "Active address", 3, null, null, null, "5", null, null,
-            "Almaty", 43.25, 76.91, false));
+            "Moscow", 43.25, 76.91, false));
         int ticketId = tx.execute(ignored -> service.createTicket(needyId, "bread", "Active address",
             43.25, 76.91, null, lotId, "5", null, null, false));
         assertThat(profile).containsEntry("address", "Active address");

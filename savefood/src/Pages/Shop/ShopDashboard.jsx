@@ -260,7 +260,8 @@ const ShopDashboard = () => {
     }
   };
   const widgetUrl = `${API_URL}/impact/widget/${shopId}.svg`;
-  const embedCode = `<a href="https://savefood.kz" target="_blank" rel="noopener">\n  <img src="${widgetUrl}" alt="SaveFood impact" width="320" height="120" />\n</a>`;
+  const siteUrl = (import.meta.env.VITE_SITE_URL || window.location.origin).replace(/\/+$/, '');
+  const embedCode = `<a href="${siteUrl}" target="_blank" rel="noopener">\n  <img src="${widgetUrl}" alt="SaveFood impact" width="320" height="120" />\n</a>`;
   const copyEmbed = () => {
     try {
       navigator.clipboard.writeText(embedCode);

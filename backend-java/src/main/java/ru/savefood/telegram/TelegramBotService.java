@@ -294,10 +294,12 @@ public class TelegramBotService {
         return rows.isEmpty() ? null : rows.get(0);
     }
     private String greeting() {
-        String site = siteUrl.isBlank() ? "https://savefood.kz" : siteUrl;
+        String connectInstructions = siteUrl.isBlank()
+            ? "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram».\n\n"
+            : "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
+                + siteUrl + "\n\n";
         return "Это бот платформы <b>SaveFood</b> — спасаем еду от списания и передаём тем, кому она нужна.\n\n"
-            + "Чтобы получать сюда уведомления, откройте профиль на сайте и нажмите «Подключить Telegram»:\n"
-            + site + "\n\n" + helpText();
+            + connectInstructions + helpText();
     }
     private String completionUrl(String completionToken) {
         return siteUrl.isBlank() ? null : siteUrl + "/auth#telegram_completion=" + completionToken;

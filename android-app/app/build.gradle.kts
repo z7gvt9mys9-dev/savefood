@@ -12,6 +12,7 @@ if (hasGoogleServices) {
 }
 fun secret(name: String): String =
     (project.findProperty(name) as String?) ?: ""
+val prodApiBaseUrl = providers.gradleProperty("prodApiBaseUrl").orNull ?: ""
 android {
     namespace = "ru.savefood.app"
     compileSdk = 36
@@ -41,9 +42,7 @@ android {
         }
         create("prod") {
             dimension = "env"
-            val prodUrl = (project.findProperty("prodApiBaseUrl") as String?)
-                ?: "https://api.savefood.kz"
-            buildConfigField("String", "API_BASE_URL", "\"$prodUrl\"")
+            buildConfigField("String", "API_BASE_URL", "\"$prodApiBaseUrl\"")
         }
     }
     buildTypes {
@@ -73,6 +72,17 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+tasks.configureEach {
+    if (name.contains("prod", ignoreCase = true)) {
+        inputs.property("prodApiBaseUrl", prodApiBaseUrl)
+        doFirst {
+            check(inputs.properties["prodApiBaseUrl"].toString().isNotBlank()) {
+                "prodApiBaseUrl is required for production builds. " +
+                    "Pass -PprodApiBaseUrl=https://your-production-api"
+            }
         }
     }
 }

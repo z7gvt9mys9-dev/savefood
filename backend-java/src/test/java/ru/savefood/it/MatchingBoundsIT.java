@@ -36,23 +36,23 @@ class MatchingBoundsIT extends PostgresIT {
     void thousandsOfRowsStillReturnOnlyBoundedCityCandidatesAndNearestVolunteers() {
         jdbc.update("INSERT INTO needy(name, status, created_at) SELECT 'n' || i, 'active', NOW() FROM generate_series(1, 9000) i");
         jdbc.update("INSERT INTO needy_profile(needy_id, city, preferences) SELECT id, "
-            + "CASE WHEN id <= 3000 THEN 'other' ELSE 'Алматы' END, "
+            + "CASE WHEN id <= 3000 THEN 'other' ELSE 'Москва' END, "
             + "CASE WHEN id BETWEEN 3001 AND 6000 THEN 'яблоки' ELSE 'хлеб' END FROM needy");
         jdbc.update("INSERT INTO volunteers(name, city, availability, lat, lon, created_at) "
-            + "SELECT 'v' || i, CASE WHEN i <= 3000 THEN 'other' ELSE 'Алматы' END, "
+            + "SELECT 'v' || i, CASE WHEN i <= 3000 THEN 'other' ELSE 'Москва' END, "
             + "CASE WHEN i BETWEEN 3001 AND 6000 THEN '[]' ELSE '[{}]' END, "
             + "43 + (9000-i)*0.001, 76, NOW() FROM generate_series(1,9000) i");
         var limits = new MatchingWorkProperties();
         limits.setRecipientCandidates(17);
         limits.setVolunteerCandidates(13);
         var repository = new MatchingCandidateRepository(jdbc, limits);
-        var recipients = repository.recipients("Алматы", "Выпечка");
+        var recipients = repository.recipients("Москва", "Выпечка");
         assertThat(recipients).hasSize(17);
         assertThat(recipients.getFirst().get("needy_id")).isEqualTo(6001);
-        var volunteers = repository.volunteers("Алматы", 43.0, 76.0);
+        var volunteers = repository.volunteers("Москва", 43.0, 76.0);
         assertThat(volunteers).hasSize(13);
         assertThat(volunteers.getFirst().get("id")).isEqualTo(9000);
-        assertThat(repository.volunteers("Алматы", null, null)).hasSize(13);
+        assertThat(repository.volunteers("Москва", null, null)).hasSize(13);
         assertThat(repository.recipients(null, "Выпечка")).isEmpty();
         assertThat(repository.volunteers("missing", 43.0, 76.0)).isEmpty();
     }
@@ -60,12 +60,12 @@ class MatchingBoundsIT extends PostgresIT {
     void normalMatchingBoundsNotificationsAndPreservesAvailabilityAndRestrictions() throws Exception {
         int shopId = insertShop("Shop", 43, 76);
         int lotId = insertLot(shopId, 1, "Выпечка");
-        jdbc.update("UPDATE lots SET city = 'Алматы' WHERE id = ?", lotId);
+        jdbc.update("UPDATE lots SET city = 'Москва' WHERE id = ?", lotId);
         jdbc.update("INSERT INTO needy(name, status, created_at) SELECT 'n' || i, 'active', NOW() FROM generate_series(1, 100) i");
-        jdbc.update("INSERT INTO needy_profile(needy_id, city, preferences) SELECT id, 'Алматы', "
+        jdbc.update("INSERT INTO needy_profile(needy_id, city, preferences) SELECT id, 'Москва', "
             + "CASE WHEN id = 1 THEN 'без хлеба' ELSE 'хлеб' END FROM needy");
         jdbc.update("INSERT INTO volunteers(name, city, availability, lat, lon, created_at) "
-            + "SELECT 'v' || i, 'Алматы', CASE WHEN i = 1 THEN 'unavailable' ELSE 'available' END, "
+            + "SELECT 'v' || i, 'Москва', CASE WHEN i = 1 THEN 'unavailable' ELSE 'available' END, "
             + "43, 76, NOW() FROM generate_series(1,100) i");
         var limits = new MatchingWorkProperties();
         limits.setRecipientsNotified(3);

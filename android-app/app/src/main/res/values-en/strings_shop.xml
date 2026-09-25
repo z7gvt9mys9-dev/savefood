@@ -49,7 +49,7 @@
     <string name="shop_category_produce">Fruit and vegetables</string>
     <string name="shop_category_prepared">Prepared food</string>
     <string name="shop_category_dairy">Dairy products</string>
-    <string name="shop_address_example">For example: 10 Abay Street, Almaty</string>
+    <string name="shop_address_example">For example: 10 Tverskaya Street, Moscow</string>
     <string name="shop_time_slot_example">For example: 18:00–21:00</string>
     <string name="shop_time_slot_hint">Format: HH:MM–HH:MM</string>
 

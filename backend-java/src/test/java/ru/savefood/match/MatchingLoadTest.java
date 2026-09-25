@@ -50,8 +50,8 @@ class MatchingLoadTest {
         CountDownLatch sending = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         when(jdbc.queryForList(anyString(), anyInt())).thenReturn(List.of(Map.of(
-            "category", "Выпечка", "city", "Алматы", "shop_name", "Shop", "description", "Bread")));
-        when(candidates.recipients("Алматы", "Выпечка")).thenReturn(List.of(
+            "category", "Выпечка", "city", "Москва", "shop_name", "Shop", "description", "Bread")));
+        when(candidates.recipients("Москва", "Выпечка")).thenReturn(List.of(
             Map.of("needy_id", 1, "preferences", "хлеб", "geo_push_enabled", true),
             Map.of("needy_id", 2, "preferences", "без хлеба", "geo_push_enabled", true),
             Map.of("needy_id", 3, "preferences", "хлеб", "geo_push_enabled", false)));

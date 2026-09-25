@@ -79,7 +79,7 @@ class VolunteerRoutingTest {
             ZoneId.of("Europe/Moscow"));
         VolunteerService service = new VolunteerService(jdbc, null, null, null, null, null, clock);
 
-        service.mapPoints("Алматы", 100);
+        service.mapPoints("Москва", 100);
 
         assertThat(jdbc.businessDates).containsExactly(
             LocalDate.of(2026, 1, 3), LocalDate.of(2026, 1, 3));

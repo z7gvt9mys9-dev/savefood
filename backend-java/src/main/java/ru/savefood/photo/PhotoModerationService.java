@@ -30,7 +30,7 @@ public class PhotoModerationService {
     private static final Map<String, String> MIME_BY_EXT = Map.of(
         ".jpg", "image/jpeg", ".jpeg", "image/jpeg", ".png", "image/png", ".webp", "image/webp");
     private static final String SYSTEM_PROMPT = """
-        Ты — модератор публичной витрины платформы SaveFood (Казахстан).
+        Ты — модератор публичной витрины платформы SaveFood (Россия).
         Получатель помощи загрузил фото полученных им продуктов — это фото попадёт в
         ПУБЛИЧНУЮ ленту, которую смотрят СМИ и городские администрации.
         Твоя задача — решить, можно ли это фото публиковать. На фото должна быть еда

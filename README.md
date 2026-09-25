@@ -109,6 +109,7 @@ SECRET_KEY=random-string-64-chars        # openssl rand -base64 64 | tr -d '\n'
 KYC_ENCRYPTION_KEY=...                   # openssl rand -base64 32 | tr '+/' '-_' | tr -d '\n'
 
 # Frontend (Vite, передаются при сборке)
+VITE_SITE_URL=https://yourdomain.com
 VITE_YANDEX_MAPS_API_KEY=your-yandex-maps-key
 VITE_YANDEX_SUGGEST_API_KEY=your-geosuggest-key
 
@@ -237,7 +238,7 @@ npm run dev        # Vite dev-сервер на http://localhost:3000
 
 Нужен Node.js `^20.19` или `>=22.12` (требование Vite 8).
 
-В dev-режиме Vite проксирует все API-пути на `http://127.0.0.1:8000` (настраивается через `VITE_API_URL` в `savefood/.env`; пустое значение = относительные пути через прокси).
+В dev-режиме Vite проксирует все API-пути на `http://127.0.0.1:8000` (настраивается через `VITE_API_URL` в `savefood/.env`; пустое значение = относительные пути через прокси). Для публичного URL сайта используйте `VITE_SITE_URL`; если он не задан, embed-код использует текущий origin страницы.
 
 ### Go-микросервис (geows)
 
@@ -321,12 +322,18 @@ APK: `android-app/app/build/outputs/apk/dev/debug/app-dev-debug.apk`
 | Флейвор | API по умолчанию | Переопределение |
 |---|---|---|
 | `dev` | `http://10.0.2.2` (nginx на хосте из эмулятора) | `-PdevApiBaseUrl=https://…` |
-| `prod` | `https://api.savefood.kz` | `-PprodApiBaseUrl=https://…` |
+| `prod` | не задан; параметр обязателен | `-PprodApiBaseUrl=https://…` |
 
 Например, для сборки на физическое устройство через туннель:
 
 ```bash
 ./gradlew :app:assembleDevDebug -PdevApiBaseUrl=https://your-tunnel.trycloudflare.com
+```
+
+Для production-сборки обязательно укажите URL API; production URL в коде не хардкодится:
+
+```bash
+./gradlew :app:assembleProdRelease -PprodApiBaseUrl=https://your-production-api
 ```
 
 **Требования:** JDK 21, Android SDK 36 (`compileSdk`/`targetSdk` = 36, `minSdk` = 26).

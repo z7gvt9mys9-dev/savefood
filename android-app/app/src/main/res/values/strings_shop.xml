@@ -49,7 +49,7 @@
     <string name="shop_category_produce">Овощи и фрукты</string>
     <string name="shop_category_prepared">Готовая еда</string>
     <string name="shop_category_dairy">Молочные продукты</string>
-    <string name="shop_address_example">Например: ул. Абая, 10, Алматы</string>
+    <string name="shop_address_example">Например: ул. Тверская, 10, Москва</string>
     <string name="shop_time_slot_example">Например: 18:00–21:00</string>
     <string name="shop_time_slot_hint">Формат: ЧЧ:ММ–ЧЧ:ММ</string>
 

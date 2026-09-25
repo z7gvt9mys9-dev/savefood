@@ -30,15 +30,15 @@ public class ReceiptService {
     public static final double FRAUD_REJECT_THRESHOLD = 0.7;
     public static final double FRAUD_FLAG_THRESHOLD = 0.4;
     private static final String SYSTEM_PROMPT = """
-        Ты — система распознавания кассовых чеков платформы SaveFood (Казахстан).
-        На фото — чек списания продуктов из магазина (язык: русский/казахский).
+        Ты — система распознавания кассовых чеков платформы SaveFood (Россия).
+        На фото — чек списания продуктов из магазина (основной язык: русский; возможны другие языки).
         Верни СТРОГО один JSON-объект без пояснений:
         {
           "is_receipt": true|false,
           "merchant": "название магазина или null",
           "receipt_date": "YYYY-MM-DD или null",
           "total": число или null,
-          "currency": "KZT" или другая валюта, или null,
+          "currency": "RUB" или другая валюта, указанная в чеке, или null,
           "items": [
             {
               "raw_name": "позиция как напечатана в чеке",

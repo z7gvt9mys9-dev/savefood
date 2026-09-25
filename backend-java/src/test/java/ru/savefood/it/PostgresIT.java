@@ -60,7 +60,7 @@ public abstract class PostgresIT {
     protected int insertShop(String name, double lat, double lon) {
         return jdbc.queryForObject(
             "INSERT INTO shops (name, lat, lon, city, created_at) "
-            + "VALUES (?, ?, ?, 'Алматы', NOW()) RETURNING id",
+            + "VALUES (?, ?, ?, 'Москва', NOW()) RETURNING id",
             Integer.class, name, lat, lon);
     }
     protected int insertLot(int shopId, double quantity, String category) {

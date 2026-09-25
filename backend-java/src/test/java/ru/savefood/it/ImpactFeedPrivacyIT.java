@@ -19,23 +19,23 @@ class ImpactFeedPrivacyIT extends PostgresIT {
     void unauthenticatedApprovedPhotoFeedNeverSerializesRecipientFreeText() throws Exception {
         int shopId = insertShop("Shop", 43.238, 76.889);
         int lotId = insertLot(shopId, 2.0, "Выпечка");
-        jdbc.update("UPDATE lots SET city = ? WHERE id = ?", "Алматы", lotId);
+        jdbc.update("UPDATE lots SET city = ? WHERE id = ?", "Москва", lotId);
         int needyId = insertNeedy("Мария Иванова");
         int ticketId = insertFulfilledPhotoTicket(needyId, lotId,
-            "Позвоните +7 701 123-45-67. Мария Иванова живёт по адресу: "
-                + "ул. Абая, дом 42, кв. 7. Нужна еда из-за диагноза.",
+            "Позвоните +7 999 123-45-67. Мария Иванова живёт по адресу: "
+                + "ул. Тверская, дом 42, кв. 7. Нужна еда из-за диагноза.",
             "/delivery_photos/approved.jpg", "approved");
         List<Map<String, Object>> feed = impact.feed(20);
         assertThat(feed).singleElement().satisfies(post -> {
             assertThat(post).containsOnlyKeys("photo", "date", "category", "city");
             assertThat(post).containsEntry("photo", "/impact/delivery_photos/" + ticketId + "/image")
                 .containsEntry("category", "Выпечка")
-                .containsEntry("city", "Алматы");
+                .containsEntry("city", "Москва");
             assertThat(post.get("date")).isNotNull();
         });
         String publicJson = mapper.writeValueAsString(feed);
         assertThat(publicJson)
-            .doesNotContain("+7 701 123-45-67", "Мария Иванова", "ул. Абая", "дом 42", "диагноза");
+            .doesNotContain("+7 999 123-45-67", "Мария Иванова", "ул. Тверская", "дом 42", "диагноза");
     }
     @Test
     void onlyApprovedPhotoAppearsAndItsControlledMetadataIsPreserved() {

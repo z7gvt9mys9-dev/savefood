@@ -26,32 +26,32 @@ class VolunteerMapScopeIT extends PostgresIT {
     }
     @Test
     void mapContainsOnlyTheRequestedCityAndKeepsDeliveryAvailabilityCounts() {
-        int almatyLot = deliveryLot("Алматы", "Алматы магазин");
-        int remoteLot = deliveryLot("Астана", "Астана магазин");
-        createDeliveryTicket(almatyLot, "первая заявка");
-        createDeliveryTicket(almatyLot, "вторая заявка");
+        int moscowLot = deliveryLot("Москва", "Москва магазин");
+        int remoteLot = deliveryLot("Санкт-Петербург", "Санкт-Петербург магазин");
+        createDeliveryTicket(moscowLot, "первая заявка");
+        createDeliveryTicket(moscowLot, "вторая заявка");
         createDeliveryTicket(remoteLot, "чужая заявка");
-        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
-        assertThat(lots(map)).extracting(lot -> lot.get("lot_id")).containsExactly(almatyLot);
+        Map<String, Object> map = volunteerService.mapPoints("Москва", 100);
+        assertThat(lots(map)).extracting(lot -> lot.get("lot_id")).containsExactly(moscowLot);
         assertThat(lots(map).get(0).get("open_delivery_tickets")).isEqualTo(2);
-        assertThat(tickets(map)).extracting(ticket -> ticket.get("lot_id")).containsOnly(almatyLot);
+        assertThat(tickets(map)).extracting(ticket -> ticket.get("lot_id")).containsOnly(moscowLot);
         assertThat(tickets(map)).hasSize(2);
     }
     @Test
     void mapCapsEachResponseCollectionAndIgnoresThousandsOfUnrelatedRowsWithTwoQueries() {
         for (int i = 0; i < 4; i++) {
-            int lot = deliveryLot("Алматы", "Локальный магазин " + i);
+            int lot = deliveryLot("Москва", "Локальный магазин " + i);
             createDeliveryTicket(lot, "локальная заявка " + i);
         }
         CountingJdbcTemplate countingJdbc = new CountingJdbcTemplate(dataSource);
         VolunteerService countedService = mapService(countingJdbc);
-        Map<String, Object> before = countedService.mapPoints("Алматы", 2);
+        Map<String, Object> before = countedService.mapPoints("Москва", 2);
         assertThat(lots(before)).hasSize(2);
         assertThat(tickets(before)).hasSize(2);
         assertThat(countingJdbc.queryForListCalls).isEqualTo(2);
         insertThousandsOfRemoteTickets();
         countingJdbc.queryForListCalls = 0;
-        Map<String, Object> after = countedService.mapPoints("Алматы", 2);
+        Map<String, Object> after = countedService.mapPoints("Москва", 2);
         assertThat(lots(after)).hasSize(2);
         assertThat(tickets(after)).hasSize(2);
         assertThat(countingJdbc.queryForListCalls).isEqualTo(2);
@@ -68,8 +68,8 @@ class VolunteerMapScopeIT extends PostgresIT {
         Clock clock = Clock.fixed(Instant.parse("2026-01-02T21:30:00Z"),
             ZoneId.of("Europe/Moscow"));
         VolunteerService service = mapService(jdbc, clock);
-        int cutoffLot = deliveryLot("Алматы", "Cutoff shop");
-        int validLot = deliveryLot("Алматы", "Valid shop");
+        int cutoffLot = deliveryLot("Москва", "Cutoff shop");
+        int validLot = deliveryLot("Москва", "Valid shop");
         jdbc.update("UPDATE lots SET expiry_date = ? WHERE id = ?", LocalDate.of(2026, 1, 4), cutoffLot);
         jdbc.update("UPDATE lots SET expiry_date = ? WHERE id = ?", LocalDate.of(2026, 1, 5), validLot);
         createMapTicket(cutoffLot, "cutoff");
@@ -77,11 +77,11 @@ class VolunteerMapScopeIT extends PostgresIT {
 
         List<Object> utcLots = tx.execute(status -> {
             jdbc.execute("SET LOCAL TIME ZONE 'UTC'");
-            return lots(service.mapPoints("Алматы", 100)).stream().map(lot -> lot.get("lot_id")).toList();
+            return lots(service.mapPoints("Москва", 100)).stream().map(lot -> lot.get("lot_id")).toList();
         });
         List<Object> aucklandLots = tx.execute(status -> {
             jdbc.execute("SET LOCAL TIME ZONE 'Pacific/Auckland'");
-            return lots(service.mapPoints("Алматы", 100)).stream().map(lot -> lot.get("lot_id")).toList();
+            return lots(service.mapPoints("Москва", 100)).stream().map(lot -> lot.get("lot_id")).toList();
         });
 
         assertThat(utcLots).containsExactly(validLot);
@@ -113,7 +113,7 @@ class VolunteerMapScopeIT extends PostgresIT {
             needy, items, lotId);
     }
     private void insertThousandsOfRemoteTickets() {
-        int remoteLot = deliveryLot("Астана", "Удалённый магазин");
+        int remoteLot = deliveryLot("Санкт-Петербург", "Удалённый магазин");
         jdbc.update("INSERT INTO needy (name, status, created_at) "
             + "SELECT 'remote-map-' || g, 'active', NOW() FROM generate_series(1, 1000) g");
         jdbc.update("INSERT INTO tickets (needy_id, items, address, lat, lon, lot_id, quantity, status, created_at, self_pickup) "

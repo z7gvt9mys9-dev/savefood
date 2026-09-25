@@ -87,7 +87,7 @@ class RouteRecipientPrivacyIT extends PostgresIT {
         assertThat(failedPoint).containsEntry("done", true).containsEntry("cancelled", true)
             .containsEntry("attempt_count", 3);
         assertTerminalPointRedacted(failedPoint);
-        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
+        Map<String, Object> map = volunteerService.mapPoints("Москва", 100);
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> unavailable = (List<Map<String, Object>>) map.get("tickets");
         assertThat(unavailable).extracting(point -> point.get("ticket_id")).doesNotContain(failed.ticketId());

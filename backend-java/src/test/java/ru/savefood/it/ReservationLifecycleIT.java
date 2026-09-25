@@ -48,7 +48,7 @@ class ReservationLifecycleIT extends PostgresIT {
         int needy = insertNeedy("Получатель");
         needyService.createTicket(needy, "овощи", "адрес", 43.24, 76.90, null, requestedLot,
             null, null, null, false);
-        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
+        Map<String, Object> map = volunteerService.mapPoints("Москва", 100);
         List<Map<String, Object>> shops = (List<Map<String, Object>>) map.get("shops");
         List<Map<String, Object>> lots = (List<Map<String, Object>>) shops.get(0).get("lots");
         assertThat(lots).extracting(lot -> lot.get("lot_id"))
@@ -229,7 +229,7 @@ class ReservationLifecycleIT extends PostgresIT {
             .containsEntry("status", "open")
             .containsEntry("assigned_volunteer", null)
             .containsEntry("assigned_volunteer_id", null);
-        Map<String, Object> map = volunteerService.mapPoints("Алматы", 100);
+        Map<String, Object> map = volunteerService.mapPoints("Москва", 100);
         List<Map<String, Object>> shops = (List<Map<String, Object>>) map.get("shops");
         List<Map<String, Object>> lots = (List<Map<String, Object>>) shops.get(0).get("lots");
         assertThat(lots).extracting(row -> row.get("lot_id")).contains(lot);

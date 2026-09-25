@@ -14,10 +14,10 @@ describe('haversineMeters', () => {
     const b = haversineMeters(43.3, 76.9, 43.2, 76.8);
     expect(a).toBeCloseTo(b, 6);
   });
-  it('matches a known long distance (Almaty → Astana ≈ 970 km)', () => {
-    const km = haversineMeters(43.238, 76.889, 51.169, 71.449) / 1000;
-    expect(km).toBeGreaterThan(950);
-    expect(km).toBeLessThan(990);
+  it('matches a known long distance (Moscow → Saint Petersburg ≈ 635 km)', () => {
+    const km = haversineMeters(55.7558, 37.6173, 59.9343, 30.3351) / 1000;
+    expect(km).toBeGreaterThan(620);
+    expect(km).toBeLessThan(650);
   });
 });
 describe('buildNavigatorUrls', () => {
